@@ -5,38 +5,30 @@ A lightweight, self-hosted multi-agent orchestration platform. A central router 
 ## Architecture
 
 ```
-                         Telegram / Discord
-                               |
-                        channel_inbound
-                               |
-  web_admin ──┐          ┌─────┴─────┐
-              |          |           |
-  mcp_server ─┤   ┌──── router ────┐|
-  (bridge)    |   |  (ACL + files) ||
-              |   |                ||
-              └───┤   ┌────────────┘|
-                  |   |             |
-           core_personal_agent      |
-           (orchestrator)           |
-                  |                 |
-    ┌─────┬──────┼──────┬─────┐    |
-    |     |      |      |     |    |
- llm   memory  web   coding  kb   |
- agent  agent  agent  agent  agent |
-    |                              |
-    |     reminder_agent ──────────┘
-    |     cron_agent ──────────────┘
-    |          (notify -> core -> channel)
-    |
- md_converter
- mcp_agent (outbound MCP tools)
+  Telegram / Discord           Web Admin           Claude Desktop, Cursor, ...
+         |                         |                          |
+   channel_inbound                 |                     mcp_server
+         \                         |                (Router-as-MCP Bridge)
+          \                        |                        /
+       ┌───────────────────────────────────────────────────────┐
+       │                            Router                     │
+       │              task routing · ACL · proxy files         │
+       └──┬───────────┬──────────────┬─────────────────────┬───┘
+          │           │              │                     │
+   core_personal  ┌───┴───┐  ┌───────┴────────┐  ┌─────────┴────────┐
+      _agent      │ infra │  │      tool      │  │    usertool      │
+  (Orchestrator,  ├───────┤  ├────────────────┤  ├──────────────────┤
+      Session     │  llm  │  │  md_converter  │  │   memory_agent   │
+    Management)   │ agent │  │    web_agent   │  │   coding_agent   │
+                  └───────┘  │    mcp_agent   │  │     kb_agent     │
+                             │ (External MCP  │  │  reminder_agent  │
+                             │ Server Bridge) │  │    cron_agent    │
+                             └────────────────┘  └──────────────────┘
 ```
 
-**Router** — Central ESB-style message broker. Manages task lifecycle (create, route, complete, timeout), proxy file storage, agent registration via invitation tokens, and group-based ACL.
+All communication flows through the **router**, which acts as an ESB-style message broker. It manages task lifecycle (create, route, complete, timeout), proxy file storage, agent registration via invitation tokens, and group-based ACL.
 
-**Embedded agents** — Loaded in-process by the router. Zero-latency ASGI transport.
-
-**External agents** — Separate processes communicating over HTTP. Can run on different hosts or in containers.
+**Embedded agents** run in-process with the router via zero-latency ASGI transport. **External agents** are separate processes communicating over HTTP — they can run on different hosts or in containers.
 
 ## Agents
 
