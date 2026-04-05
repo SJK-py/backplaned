@@ -1,0 +1,13 @@
+{
+  "LLM_AGENT_ID": "Agent ID of the LLM inference agent (default: llm_agent)",
+  "LLM_MODEL_ID": "Model config key for LLM calls (blank = llm_agent default)",
+  "SEARCH_PROVIDER": "Web search backend: searxng | duckduckgo | brave",
+  "SEARXNG_BASE_URL": "Base URL for self-hosted SearXNG instance (e.g. http://localhost:8080)",
+  "BRAVE_API_KEY": "API key for Brave Search (required if provider is brave)",
+  "SEARCH_MAX_RESULTS": "Default number of search results to return (1-15)",
+  "FETCH_MAX_CHARS": "Maximum characters to extract from a fetched webpage",
+  "FETCH_TIMEOUT": "Timeout in seconds for a single web fetch",
+  "AGENT_TIMEOUT": "Overall timeout in seconds for the full agent loop",
+  "MAX_ITERATIONS": "Maximum LLM loop iterations for research (default: 10)",
+  "MAX_TOOL_CALLS": "Maximum total tool calls across all iterations (default: 15)"
+}

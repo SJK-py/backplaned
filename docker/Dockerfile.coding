@@ -1,0 +1,31 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# System deps for code execution sandbox
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency manifest and install
+COPY pyproject.toml .
+RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
+
+# Copy coding agent source + shared helper
+COPY helper.py ./
+COPY agents_external/coding_agent/ ./
+
+# Create data directories
+RUN mkdir -p data/workspaces data/logs
+
+# Non-root user for security
+RUN useradd -m -s /bin/bash agent
+RUN chown -R agent:agent /app
+USER agent
+
+EXPOSE 8100
+
+CMD [".venv/bin/python3", "agent.py"]

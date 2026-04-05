@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+<title>Channel Agent Admin</title>
+<style>
+  :root{--bg:#0f1117;--surface:#1a1f2e;--surface2:#22263a;--border:#2d3748;--accent:#63b3ed;--accent-dim:#2b6cb0;--text:#e2e8f0;--text-dim:#718096;--text-muted:#a0aec0;--green:#68d391;--green-bg:#1c4532;--red:#fc8181;--red-bg:#3d0f0f;--yellow:#f6e05e;--yellow-bg:#3d3a0f;--blue-bg:#1a365d}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* Login */
+  #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2rem; width: 320px; }
+  .login-card h1 { font-size: 1.3rem; margin-bottom: 1.5rem; color: var(--accent); text-align: center; }
+  .login-card input { width: 100%; padding: .6rem .8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: .95rem; margin-bottom: 1rem; }
+  .login-card input:focus { outline: 2px solid var(--accent); }
+
+  /* Main */
+  #main-screen { display: none; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: .75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+  .topbar h1 { font-size: 1rem; color: var(--accent); font-weight: 600; }
+  .tabs { display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 1.5rem; overflow-x: auto; }
+  .tab { padding: .65rem 1.1rem; cursor: pointer; font-size: .87rem; color: var(--text-dim); border-bottom: 2px solid transparent; white-space: nowrap; transition: color .15s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; padding: 1.5rem; }
+  .panel.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem; margin-bottom: 1rem; }
+  .card h2 { font-size: .95rem; color: var(--accent); margin-bottom: .8rem; }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: .2rem .55rem; border-radius: 99px; font-size: .75rem; font-weight: 600; }
+  .badge-green { background: var(--green-bg); color: var(--green); }
+  .badge-red { background: var(--red-bg); color: var(--red); }
+  .badge-gray { background: var(--border); color: var(--text-muted); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; overflow-x: auto; display: block; }
+  th { text-align: left; padding: .5rem .7rem; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); }
+  td { padding: .5rem .7rem; border-bottom: 1px solid var(--surface2); word-break: break-all; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Forms */
+  .form-row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: .8rem; }
+  .form-group { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 140px; }
+  .form-group label { font-size: .78rem; color: var(--text-dim); }
+  input[type=text], input[type=password], select, textarea {
+    padding: .5rem .7rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-size: .875rem; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  textarea { font-family: monospace; resize: vertical; min-height: 160px; }
+
+  /* Buttons */
+  .btn { padding: .45rem .9rem; border: none; border-radius: 4px; cursor: pointer; font-size: .85rem; font-weight: 500; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent-dim); color: #fff; }
+  .btn-danger { background: var(--red-bg); color: var(--red); }
+  .btn-sm { padding: .3rem .6rem; font-size: .78rem; }
+
+  /* Log */
+  .log-box { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .8rem; font-family: monospace; font-size: .78rem; color: var(--text-muted); max-height: 480px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+
+  /* Chat */
+  .chat-box { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .8rem; min-height: 120px; font-size: .875rem; white-space: pre-wrap; word-break: break-word; margin-bottom: .8rem; }
+  .chat-result { color: var(--green); }
+  .chat-error { color: var(--red); }
+
+  /* Inline grid */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .7rem; }
+  .stat-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .7rem; }
+  .stat-item .label { font-size: .72rem; color: var(--text-dim); margin-bottom: .25rem; }
+  .stat-item .value { font-size: .9rem; font-weight: 600; }
+
+  .msg { padding: .45rem .7rem; border-radius: 4px; font-size: .83rem; margin-top: .5rem; }
+  .msg-ok { background: var(--green-bg); color: var(--green); }
+  .msg-err { background: var(--red-bg); color: var(--red); }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Channel Agent</h1>
+    <input type="password" id="pw" placeholder="Admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+    <div id="login-err" style="color:var(--red);font-size:.82rem;margin-top:.6rem;text-align:center"></div>
+  </div>
+</div>
+
+<!-- Main UI -->
+<div id="main-screen">
+  <div class="topbar">
+    <h1>Channel Agent Admin</h1>
+    <button class="btn btn-sm" onclick="doLogout()" style="background:var(--border);color:var(--text-muted)">Sign out</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('status')">Status</div>
+    <div class="tab" onclick="showTab('users')">Users</div>
+    <div class="tab" onclick="showTab('sessions')">Sessions</div>
+    <div class="tab" onclick="showTab('chat')">Direct Chat</div>
+    <div class="tab" onclick="showTab('config')">User Config</div>
+    <div class="tab" onclick="showTab('logs')">Logs</div>
+    <div class="tab" onclick="showTab('setup')">Setup</div>
+  </div>
+
+  <!-- Status -->
+  <div class="panel active" id="tab-status">
+    <div class="card">
+      <h2>Bot Status</h2>
+      <div class="stat-grid" id="status-grid">Loading…</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="loadStatus()">Refresh</button>
+  </div>
+
+  <!-- Users -->
+  <div class="panel" id="tab-users">
+    <div class="card">
+      <h2>Add User Mapping</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Platform</label>
+          <select id="u-platform"><option value="telegram">telegram</option><option value="discord">discord</option></select>
+        </div>
+        <div class="form-group">
+          <label>Platform User ID</label>
+          <input type="text" id="u-puid" placeholder="e.g. 123456789">
+        </div>
+        <div class="form-group">
+          <label>User ID (app)</label>
+          <input type="text" id="u-uid" placeholder="e.g. john">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="addUser()">Add</button>
+        </div>
+      </div>
+      <div id="user-msg"></div>
+    </div>
+    <div class="card">
+      <h2>Registered Users</h2>
+      <table id="users-table">
+        <thead><tr><th>Key</th><th>User ID</th><th></th></tr></thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Core Agent Assignment</h2>
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+        Override which core agent handles a user's messages.
+        Users without an override use the default: <code id="default-core-agent" style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">…</code>
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>User ID</label>
+          <input type="text" id="ca-uid" placeholder="e.g. john">
+        </div>
+        <div class="form-group">
+          <label>Core Agent ID</label>
+          <input type="text" id="ca-agent" placeholder="e.g. core_personal_agent">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="setCoreAgent()">Set</button>
+        </div>
+      </div>
+      <div id="ca-msg"></div>
+      <table style="margin-top:.8rem">
+        <thead><tr><th>User ID</th><th>Core Agent</th><th></th></tr></thead>
+        <tbody id="ca-tbody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>Verbose Mode</h2>
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+        When enabled, users receive real-time status updates during agent processing
+        (thinking summaries, tool calls, results).
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>User ID</label>
+          <input type="text" id="verbose-uid" placeholder="e.g. john">
+        </div>
+        <div style="align-self:flex-end;display:flex;gap:.4rem">
+          <button class="btn btn-primary" onclick="setVerbose()">Enable</button>
+          <button class="btn btn-danger" onclick="unsetVerbose()">Disable</button>
+        </div>
+      </div>
+      <div id="verbose-msg"></div>
+      <table style="margin-top:.8rem">
+        <thead><tr><th>Verbose Users</th></tr></thead>
+        <tbody id="verbose-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Sessions -->
+  <div class="panel" id="tab-sessions">
+    <div class="card">
+      <h2>Active Sessions</h2>
+      <table>
+        <thead><tr><th>Session ID</th><th>User</th><th>Platform</th><th>Chat ID</th><th>Created</th><th></th></tr></thead>
+        <tbody id="sessions-tbody"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="loadSessions()">Refresh</button>
+  </div>
+
+  <!-- Direct Chat -->
+  <div class="panel" id="tab-chat">
+    <div class="card">
+      <h2>Direct Chat (Admin → Core Agent)</h2>
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+        Sends a message to the core agent on behalf of the selected user.
+        Uses an isolated admin session (history maintained, not routed to platform chat).
+      </p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>User ID</label>
+          <input type="text" id="dc-uid" placeholder="e.g. john">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Message</label>
+          <input type="text" id="dc-msg" placeholder="Type a message…" onkeydown="if(event.key==='Enter')sendDirectChat()">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="sendDirectChat()">Send</button>
+        </div>
+      </div>
+      <div id="dc-spinner" style="display:none;font-size:.82rem;color:var(--text-dim);margin:.5rem 0">Waiting for response…</div>
+      <div class="chat-box" id="dc-result" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- User Config -->
+  <div class="panel" id="tab-config">
+    <div class="card">
+      <h2>User Configuration</h2>
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+        Manage per-user config for the core personal agent. Fetches and saves JSON config via
+        <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">&lt;fetch_user_config&gt;</code> /
+        <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">&lt;update_user_config&gt;</code> message tokens.
+      </p>
+      <div class="form-row" style="margin-bottom:.8rem">
+        <div class="form-group">
+          <label>User ID</label>
+          <input type="text" id="cfg-uid" placeholder="e.g. john">
+        </div>
+        <div style="align-self:flex-end;display:flex;gap:.4rem">
+          <button class="btn btn-primary btn-sm" onclick="loadUserJsonConfig()">Load Config</button>
+          <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="loadTemplate()">Load MD Template</button>
+        </div>
+      </div>
+      <div id="cfg-fields" style="display:none">
+        <div class="form-row">
+          <div class="form-group"><label>Model ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-model-id" placeholder="default"></div>
+          <div class="form-group"><label>History Token Limit <span style="color:var(--text-dim)">(blank = global default)</span></label><input type="text" id="cfg-history-limit" placeholder="8000"></div>
+          <div class="form-group"><label>Memory Agent ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-memory-agent" placeholder="memory_agent"></div>
+          <div class="form-group"><label>Timezone <span style="color:var(--text-dim)">(e.g. America/Los_Angeles, Asia/Seoul)</span></label><input type="text" id="cfg-timezone" placeholder="UTC"></div>
+        </div>
+        <div class="form-group" style="margin-bottom:.6rem"><label>System Prompt <span style="color:var(--text-dim)">(blank = default)</span></label><textarea id="cfg-system-prompt" rows="3" placeholder="Custom system prompt for this user…"></textarea></div>
+        <div class="form-group" style="margin-bottom:.6rem"><label>User Config (Markdown)</label><textarea id="cfg-content" rows="6" placeholder="User personality/preference notes…"></textarea></div>
+        <button class="btn btn-primary" onclick="saveUserJsonConfig()">Save Config</button>
+        <div id="cfg-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="panel" id="tab-logs">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.7rem">
+      <span style="font-size:.87rem;color:var(--text-dim)">Last <select id="log-n" onchange="loadLogs()" style="width:auto;padding:.2rem .4rem;background:var(--surface);border:1px solid #4a5568;color:var(--text);border-radius:3px"><option value="50">50</option><option value="100" selected>100</option><option value="200">200</option><option value="500">500</option></select> entries</span>
+      <button class="btn btn-primary btn-sm" onclick="loadLogs()">Refresh</button>
+    </div>
+    <div class="log-box" id="log-box">Loading…</div>
+  </div>
+
+  <!-- Setup -->
+  <div class="panel" id="tab-setup">
+    <div class="card" id="onboard-card">
+      <h2>Router Connection</h2>
+      <div id="onboard-info" style="font-size:.87rem;color:var(--text-dim);margin-bottom:.8rem">Loading…</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Invitation Token (to re-register)</label>
+          <input type="text" id="inv-token" placeholder="Paste invitation token from router admin">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="doRegister()">Register</button>
+        </div>
+      </div>
+      <div id="register-msg"></div>
+    </div>
+    <div class="card">
+      <h2>Bot Tokens (edit .env to change)</h2>
+      <p style="font-size:.82rem;color:var(--text-dim)">
+        Telegram and Discord tokens are configured in <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">channel_agent/.env</code>.
+        Restart the server to apply changes.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Change Admin Password</h2>
+      <div class="form-row">
+        <div class="form-group"><label>Current Password</label><input type="password" id="chpw-current" placeholder="Current password"></div>
+        <div class="form-group"><label>New Password</label><input type="password" id="chpw-new" placeholder="New password"></div>
+        <div style="align-self:flex-end"><button class="btn btn-primary" onclick="changePassword()">Change</button></div>
+      </div>
+      <div id="chpw-msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+async function apiFetch(path, opts = {}) {
+  const r = await fetch(API + path, { credentials: 'same-origin', ...opts });
+  if (r.status === 401) { showLogin(); return null; }
+  return r;
+}
+
+// --- Auth ---
+async function doLogin() {
+  const pw = document.getElementById('pw').value;
+  const r = await fetch('/ui/login', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (r.ok) {
+    showMain();
+  } else {
+    document.getElementById('login-err').textContent = 'Invalid password';
+  }
+}
+
+async function doLogout() {
+  await fetch('/ui/logout', { method: 'POST', credentials: 'same-origin' });
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('main-screen').style.display = 'none';
+}
+
+function showMain() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  loadStatus();
+}
+
+// --- Tabs ---
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick="showTab('${name}')"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'status') loadStatus();
+  if (name === 'users') { loadUsers(); loadCoreAgentMap(); loadVerboseUsers(); }
+  if (name === 'sessions') loadSessions();
+  if (name === 'logs') loadLogs();
+  if (name === 'setup') loadOnboarding();
+}
+
+// --- Status ---
+async function loadStatus() {
+  const r = await apiFetch('/ui/status');
+  if (!r) return;
+  const d = await r.json();
+  const g = document.getElementById('status-grid');
+  const b = (v, yes, no) => `<span class="badge ${v ? 'badge-green' : 'badge-red'}">${v ? yes : no}</span>`;
+  g.innerHTML = `
+    <div class="stat-item"><div class="label">Router</div><div class="value">${b(d.router_connected,'Connected','Disconnected')}</div></div>
+    <div class="stat-item"><div class="label">Agent ID</div><div class="value" style="font-size:.78rem">${esc(d.agent_id) || '—'}</div></div>
+    <div class="stat-item"><div class="label">Telegram</div><div class="value">${b(d.telegram_running,'Running','Stopped')}</div></div>
+    <div class="stat-item"><div class="label">Discord</div><div class="value">${b(d.discord_running,'Running','Stopped')}</div></div>
+    <div class="stat-item"><div class="label">Router URL</div><div class="value" style="font-size:.75rem">${esc(d.router_url)}</div></div>
+    <div class="stat-item"><div class="label">Receive URL</div><div class="value" style="font-size:.75rem">${esc(d.receive_url)}</div></div>
+  `;
+}
+
+// --- Users ---
+async function loadUsers() {
+  const r = await apiFetch('/ui/users');
+  if (!r) return;
+  const d = await r.json();
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '';
+  for (const [key, uid] of Object.entries(d.user_mappings)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(key)}</td><td>${esc(uid)}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${esc(key)}')">Remove</button></td>`;
+    tbody.appendChild(tr);
+  }
+  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">No users configured</td></tr>';
+}
+
+async function addUser() {
+  const platform = document.getElementById('u-platform').value;
+  const puid = document.getElementById('u-puid').value.trim();
+  const uid = document.getElementById('u-uid').value.trim();
+  if (!puid || !uid) { showMsg('user-msg', 'All fields required', false); return; }
+  const r = await apiFetch('/ui/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, platform_user_id: puid, user_id: uid }),
+  });
+  if (!r) return;
+  if (r.ok) { showMsg('user-msg', 'User added', true); loadUsers(); }
+  else showMsg('user-msg', 'Error: ' + (await r.text()), false);
+}
+
+async function deleteUser(key) {
+  if (!confirm('Remove mapping for ' + key + '?')) return;
+  const r = await apiFetch('/ui/users/' + encodeURIComponent(key), { method: 'DELETE' });
+  if (r && r.ok) loadUsers();
+}
+
+// --- Core Agent Map ---
+async function loadCoreAgentMap() {
+  const r = await apiFetch('/ui/core-agent-map');
+  if (!r) return;
+  const d = await r.json();
+  document.getElementById('default-core-agent').textContent = d.default || '(not set)';
+  const tbody = document.getElementById('ca-tbody');
+  const entries = Object.entries(d.core_agent_map || {});
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">All users use the default agent</td></tr>';
+    return;
+  }
+  tbody.innerHTML = entries.map(([uid, aid]) =>
+    `<tr><td>${esc(uid)}</td><td style="font-family:monospace">${esc(aid)}</td>
+     <td><button class="btn btn-danger btn-sm" onclick="removeCoreAgent('${esc(uid)}')">Reset</button></td></tr>`
+  ).join('');
+}
+
+async function setCoreAgent() {
+  const uid = document.getElementById('ca-uid').value.trim();
+  const agent = document.getElementById('ca-agent').value.trim();
+  if (!uid || !agent) { showMsg('ca-msg', 'Both fields required', false); return; }
+  const r = await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: agent }),
+  });
+  if (!r) return;
+  if (r.ok) { showMsg('ca-msg', 'Core agent set for ' + uid, true); loadCoreAgentMap(); }
+  else showMsg('ca-msg', 'Error: ' + (await r.text()), false);
+}
+
+async function removeCoreAgent(uid) {
+  if (!confirm('Reset ' + uid + ' to default core agent?')) return;
+  const r = await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), { method: 'DELETE' });
+  if (r && r.ok) loadCoreAgentMap();
+}
+
+// --- Verbose Mode ---
+async function loadVerboseUsers() {
+  const r = await apiFetch('/ui/verbose-users');
+  if (!r) return;
+  const d = await r.json();
+  const tbody = document.getElementById('verbose-tbody');
+  const users = d.verbose_users || [];
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td style="color:var(--text-dim)">No users in verbose mode</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u =>
+    `<tr><td>${esc(u)} <button class="btn btn-danger btn-sm" style="margin-left:.5rem" onclick="unsetVerboseUser('${esc(u)}')">Disable</button></td></tr>`
+  ).join('');
+}
+
+async function setVerbose() {
+  const uid = document.getElementById('verbose-uid').value.trim();
+  if (!uid) { showMsg('verbose-msg', 'Enter a user ID', false); return; }
+  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'PUT' });
+  if (r && r.ok) { showMsg('verbose-msg', 'Verbose enabled for ' + uid, true); loadVerboseUsers(); }
+  else showMsg('verbose-msg', 'Error', false);
+}
+
+async function unsetVerbose() {
+  const uid = document.getElementById('verbose-uid').value.trim();
+  if (!uid) { showMsg('verbose-msg', 'Enter a user ID', false); return; }
+  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'DELETE' });
+  if (r && r.ok) { showMsg('verbose-msg', 'Verbose disabled for ' + uid, true); loadVerboseUsers(); }
+  else showMsg('verbose-msg', 'Error', false);
+}
+
+async function unsetVerboseUser(uid) {
+  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'DELETE' });
+  if (r && r.ok) loadVerboseUsers();
+}
+
+// --- Sessions ---
+async function loadSessions() {
+  const r = await apiFetch('/ui/sessions');
+  if (!r) return;
+  const d = await r.json();
+  const tbody = document.getElementById('sessions-tbody');
+  tbody.innerHTML = '';
+  for (const [sid, det] of Object.entries(d.session_details)) {
+    const tr = document.createElement('tr');
+    const ts = det.created_at ? det.created_at.substring(0, 19).replace('T', ' ') : '—';
+    tr.innerHTML = `<td style="font-family:monospace">${esc(sid)}</td><td>${esc(det.user_id)}</td>
+      <td><span class="badge badge-gray">${esc(det.platform)}</span></td>
+      <td style="font-family:monospace;font-size:.78rem">${esc(det.chat_id)}</td><td style="font-size:.78rem">${ts}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteSession('${esc(sid)}')">Clear</button></td>`;
+    tbody.appendChild(tr);
+  }
+  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No active sessions</td></tr>';
+}
+
+async function deleteSession(sid) {
+  if (!confirm('Clear session ' + sid + '?')) return;
+  const r = await apiFetch('/ui/sessions/' + encodeURIComponent(sid), { method: 'DELETE' });
+  if (r && r.ok) loadSessions();
+}
+
+// --- Direct Chat ---
+async function sendDirectChat() {
+  const uid = document.getElementById('dc-uid').value.trim();
+  const msg = document.getElementById('dc-msg').value.trim();
+  if (!uid || !msg) return;
+
+  const result_box = document.getElementById('dc-result');
+  const spinner = document.getElementById('dc-spinner');
+  result_box.style.display = 'none';
+  spinner.style.display = 'block';
+
+  const r = await apiFetch('/ui/direct-chat', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: uid, message: msg }),
+  });
+  if (!r || !r.ok) { spinner.style.display = 'none'; return; }
+  const { dc_id } = await r.json();
+
+  // Long-poll for result
+  const poll = await apiFetch(`/ui/direct-chat-result/${dc_id}?timeout=90`);
+  spinner.style.display = 'none';
+  result_box.style.display = 'block';
+  if (!poll || !poll.ok) { result_box.className = 'chat-box chat-error'; result_box.textContent = 'Error polling result'; return; }
+  const res = await poll.json();
+  if (res.content) {
+    result_box.className = 'chat-box chat-result';
+    result_box.textContent = res.content;
+  } else {
+    result_box.className = 'chat-box chat-error';
+    result_box.textContent = '(No response or timeout)';
+  }
+}
+
+// --- User Config ---
+async function loadTemplate() {
+  const uid = document.getElementById('cfg-uid').value.trim();
+  if (!uid) { alert('Enter a user ID first'); return; }
+  const r = await apiFetch('/ui/user-config/' + encodeURIComponent(uid));
+  if (!r) return;
+  const d = await r.json();
+  document.getElementById('cfg-content').value = d.template;
+  document.getElementById('cfg-fields').style.display = 'block';
+}
+
+async function loadUserJsonConfig() {
+  const uid = document.getElementById('cfg-uid').value.trim();
+  if (!uid) { alert('Enter a user ID first'); return; }
+  showMsg('cfg-msg', 'Loading config…', true);
+  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid));
+  if (!r || !r.ok) { showMsg('cfg-msg', 'Failed to load config', false); return; }
+  const d = await r.json();
+  if (d.status === 'timeout') { showMsg('cfg-msg', 'Timeout — core agent may not be running', false); return; }
+  const c = d.config || {};
+  document.getElementById('cfg-model-id').value = c.model_id || '';
+  document.getElementById('cfg-history-limit').value = c.history_token_limit ?? '';
+  document.getElementById('cfg-memory-agent').value = c.memory_agent_id || '';
+  document.getElementById('cfg-timezone').value = c.timezone || '';
+  document.getElementById('cfg-system-prompt').value = c.system_prompt || '';
+  document.getElementById('cfg-content').value = c.user_config_md || '';
+  document.getElementById('cfg-fields').style.display = 'block';
+  showMsg('cfg-msg', 'Config loaded', true);
+}
+
+async function saveUserJsonConfig() {
+  const uid = document.getElementById('cfg-uid').value.trim();
+  if (!uid) { showMsg('cfg-msg', 'Enter a user ID first', false); return; }
+  const config = {
+    model_id: document.getElementById('cfg-model-id').value.trim() || null,
+    history_token_limit: (() => { const v = parseInt(document.getElementById('cfg-history-limit').value); return Number.isFinite(v) ? v : null; })(),
+    memory_agent_id: document.getElementById('cfg-memory-agent').value.trim() || null,
+    timezone: document.getElementById('cfg-timezone').value.trim() || null,
+    system_prompt: document.getElementById('cfg-system-prompt').value.trim() || null,
+    user_config_md: document.getElementById('cfg-content').value.trim() || '',
+  };
+  showMsg('cfg-msg', 'Saving…', true);
+  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!r || !r.ok) { showMsg('cfg-msg', 'Save failed', false); return; }
+  const d = await r.json();
+  showMsg('cfg-msg', d.status === 'ok' ? 'Config saved' : (d.status || 'Error'), d.status === 'ok');
+}
+
+async function saveUserConfig() {
+  const uid = document.getElementById('cfg-uid').value.trim();
+  const content = document.getElementById('cfg-content').value.trim();
+  if (!uid || !content) { showMsg('cfg-msg', 'User ID and content required', false); return; }
+  const r = await apiFetch('/ui/user-config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: uid, content }),
+  });
+  if (!r) return;
+  const d = await r.json();
+  showMsg('cfg-msg', d.status === 'ok' ? 'Markdown config sent to core agent.' : 'Error', d.status === 'ok');
+}
+
+// --- Logs ---
+async function loadLogs() {
+  const n = document.getElementById('log-n').value;
+  const r = await apiFetch(`/ui/logs?n=${n}`);
+  if (!r) return;
+  const d = await r.json();
+  const box = document.getElementById('log-box');
+  box.textContent = d.logs.join('\n') || '(no log entries)';
+  box.scrollTop = box.scrollHeight;
+}
+
+// --- Setup ---
+async function loadOnboarding() {
+  const r = await apiFetch('/ui/onboarding');
+  if (!r) return;
+  const d = await r.json();
+  const el = document.getElementById('onboard-info');
+  el.innerHTML = `
+    <div style="margin-bottom:.5rem">Router: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.router_url)}</code></div>
+    <div style="margin-bottom:.5rem">Receive URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.receive_url)}</code></div>
+    <div>Status: <span class="badge ${d.registered ? 'badge-green' : 'badge-red'}">${d.registered ? 'Registered as ' + esc(d.agent_id||'') : 'Not registered'}</span></div>
+  `;
+}
+
+async function doRegister() {
+  const token = document.getElementById('inv-token').value.trim();
+  if (!token) { showMsg('register-msg', 'Enter an invitation token', false); return; }
+  const r = await apiFetch('/ui/onboarding/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invitation_token: token }),
+  });
+  if (!r) return;
+  const d = await r.json();
+  showMsg('register-msg', d.status === 'ok' ? 'Registered as ' + d.agent_id : 'Registration failed', d.status === 'ok');
+  loadOnboarding();
+}
+
+// --- Helpers ---
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function showMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  el.textContent = text;
+  setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+}
+
+// --- Change Password ---
+async function changePassword() {
+  const cur = document.getElementById('chpw-current').value;
+  const nw = document.getElementById('chpw-new').value;
+  if (!cur || !nw) { showMsg('chpw-msg', 'Both fields required', false); return; }
+  const r = await apiFetch('/ui/change-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  if (!r) return;
+  if (r.ok) { showMsg('chpw-msg', 'Password changed', true); document.getElementById('chpw-current').value = ''; document.getElementById('chpw-new').value = ''; }
+  else { const e = await r.json().catch(() => ({})); showMsg('chpw-msg', e.detail || 'Error', false); }
+}
+
+// --- Init ---
+(async () => {
+  const r = await fetch('/ui/whoami', { credentials: 'same-origin' });
+  const d = await r.json();
+  if (d.authenticated) showMain(); else showLogin();
+})();
+</script>
+</body>
+</html>

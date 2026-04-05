@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128187;</text></svg>">
+<title>Coding Agent Admin</title>
+<style>
+  :root{--bg:#0f1117;--surface:#1a1f2e;--surface2:#22263a;--border:#2d3748;--accent:#63b3ed;--accent-dim:#2b6cb0;--text:#e2e8f0;--text-dim:#718096;--text-muted:#a0aec0;--green:#68d391;--green-bg:#1c4532;--red:#fc8181;--red-bg:#3d0f0f;--yellow:#f6e05e;--yellow-bg:#3d3a0f;--blue-bg:#1a365d}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* Login */
+  #login-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2rem; width: 320px; }
+  .login-card h1 { font-size: 1.3rem; margin-bottom: 1.5rem; color: var(--accent); text-align: center; }
+  .login-card input { width: 100%; padding: .6rem .8rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: .95rem; margin-bottom: 1rem; }
+  .login-card input:focus { outline: 2px solid var(--accent); }
+
+  /* Main */
+  #main-screen { display: none; }
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: .75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+  .topbar h1 { font-size: 1rem; color: var(--accent); font-weight: 600; }
+  .tabs { display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 1.5rem; overflow-x: auto; }
+  .tab { padding: .65rem 1.1rem; cursor: pointer; font-size: .87rem; color: var(--text-dim); border-bottom: 2px solid transparent; white-space: nowrap; transition: color .15s; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel { display: none; padding: 1.5rem; }
+  .panel.active { display: block; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem; margin-bottom: 1rem; }
+  .card h2 { font-size: .95rem; color: var(--accent); margin-bottom: .8rem; }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: .2rem .55rem; border-radius: 99px; font-size: .75rem; font-weight: 600; }
+  .badge-green { background: var(--green-bg); color: var(--green); }
+  .badge-red { background: var(--red-bg); color: var(--red); }
+  .badge-gray { background: var(--border); color: var(--text-muted); }
+  .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; overflow-x: auto; display: block; }
+  th { text-align: left; padding: .5rem .7rem; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--border); }
+  td { padding: .5rem .7rem; border-bottom: 1px solid var(--surface2); word-break: break-all; }
+  tr:hover td { background: var(--surface2); }
+
+  /* Forms */
+  .form-row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: .8rem; }
+  .form-group { display: flex; flex-direction: column; gap: .3rem; flex: 1; min-width: 140px; }
+  .form-group label { font-size: .78rem; color: var(--text-dim); }
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    padding: .5rem .7rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-size: .875rem; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  textarea { font-family: monospace; resize: vertical; min-height: 80px; }
+
+  /* Buttons */
+  .btn { padding: .45rem .9rem; border: none; border-radius: 4px; cursor: pointer; font-size: .85rem; font-weight: 500; transition: opacity .15s; }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent-dim); color: #fff; }
+  .btn-danger { background: var(--red-bg); color: var(--red); }
+  .btn-sm { padding: .3rem .6rem; font-size: .78rem; }
+
+  /* Stat grid */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .7rem; }
+  .stat-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .7rem; }
+  .stat-item .label { font-size: .72rem; color: var(--text-dim); margin-bottom: .25rem; }
+  .stat-item .value { font-size: .9rem; font-weight: 600; }
+
+  /* Log */
+  .log-detail { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .8rem; font-family: monospace; font-size: .78rem; color: var(--text-muted); max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+
+  /* Messages */
+  .msg { padding: .45rem .7rem; border-radius: 4px; font-size: .83rem; margin-top: .5rem; }
+  .msg-ok { background: var(--green-bg); color: var(--green); }
+  .msg-err { background: var(--red-bg); color: var(--red); }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; inset: 0; background: var(--border); border-radius: 20px; transition: .2s; }
+  .toggle .slider::before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: var(--text); border-radius: 50%; transition: .2s; }
+  .toggle input:checked + .slider { background: var(--accent-dim); }
+  .toggle input:checked + .slider::before { transform: translateX(16px); }
+
+  /* Config form */
+  .config-section { border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-bottom: .8rem; }
+  .config-section h3 { font-size: .85rem; color: var(--text-dim); margin-bottom: .6rem; }
+  .config-row { display: flex; align-items: center; justify-content: space-between; padding: .4rem 0; }
+  .config-row .config-label { font-size: .84rem; }
+  .config-row .config-hint { font-size: .72rem; color: var(--text-dim); }
+
+  /* Workspace */
+  .dir-entry { padding: .5rem .7rem; border-bottom: 1px solid var(--surface2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .dir-entry:hover { background: var(--surface2); }
+  .breadcrumb { display: flex; gap: .3rem; align-items: center; font-size: .84rem; margin-bottom: .8rem; flex-wrap: wrap; }
+  .breadcrumb a { cursor: pointer; }
+  .breadcrumb span.sep { color: var(--border); }
+  .file-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: .8rem; font-family: monospace; font-size: .78rem; max-height: 500px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Coding Agent</h1>
+    <input type="password" id="pw" placeholder="Admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+    <div id="login-err" style="color:var(--red);font-size:.82rem;margin-top:.6rem;text-align:center"></div>
+  </div>
+</div>
+
+<!-- Main UI -->
+<div id="main-screen">
+  <div class="topbar">
+    <h1>Coding Agent Admin</h1>
+    <button class="btn btn-sm" onclick="doLogout()" style="background:var(--border);color:var(--text-muted)">Sign out</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('status')">Status</div>
+    <div class="tab" onclick="showTab('users')">Users</div>
+    <div class="tab" onclick="showTab('config')">User Config</div>
+    <div class="tab" onclick="showTab('logs')">Logs</div>
+    <div class="tab" onclick="showTab('workspace')">Workspace</div>
+    <div class="tab" onclick="showTab('setup')">Setup</div>
+  </div>
+
+  <!-- Status -->
+  <div class="panel active" id="tab-status">
+    <div class="card">
+      <h2>Agent Status</h2>
+      <div class="stat-grid" id="status-grid">Loading...</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="loadStatus()">Refresh</button>
+  </div>
+
+  <!-- Users -->
+  <div class="panel" id="tab-users">
+    <div class="card">
+      <h2>Add User</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label>User ID</label>
+          <input type="text" id="new-uid" placeholder="e.g. john">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="addUser()">Add</button>
+        </div>
+      </div>
+      <div id="user-msg"></div>
+    </div>
+    <div class="card">
+      <h2>Registered Users</h2>
+      <table>
+        <thead><tr><th>User ID</th><th>Workspace</th><th>Network</th><th>Max Iter</th><th>Max Tools</th><th></th></tr></thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- User Config -->
+  <div class="panel" id="tab-config">
+    <div class="card">
+      <h2>Per-User Configuration</h2>
+      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+        Select a user to view and edit their security settings, resource limits, and permissions.
+      </p>
+      <div class="form-row" style="margin-bottom:1rem">
+        <div class="form-group">
+          <label>User ID</label>
+          <select id="cfg-user-select" onchange="loadUserConfig(this.value)">
+            <option value="">Select user...</option>
+          </select>
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary btn-sm" onclick="loadCfgUsers()">Refresh</button>
+        </div>
+      </div>
+
+      <div id="cfg-form" style="display:none">
+        <!-- Model -->
+        <div class="config-section">
+          <h3>LLM Model</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Model ID (empty = DEFAULT_MODEL_ID env var, or "default")</label>
+              <input type="text" id="cfg-model-id" placeholder="e.g. local_gptoss20b">
+            </div>
+          </div>
+        </div>
+
+        <!-- Security -->
+        <div class="config-section">
+          <h3>Security</h3>
+          <div class="config-row">
+            <div>
+              <div class="config-label">Limit to workspace</div>
+              <div class="config-hint">Restrict all file operations to the user's workspace directory</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="cfg-limit-ws"><span class="slider"></span></label>
+          </div>
+          <div class="config-row">
+            <div>
+              <div class="config-label">Allow network access</div>
+              <div class="config-hint">Enable web_fetch tool and outbound network from commands</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="cfg-network"><span class="slider"></span></label>
+          </div>
+          <div class="config-row">
+            <div>
+              <div class="config-label">Allow all commands</div>
+              <div class="config-hint">Disable the command blocklist entirely (use in trusted environments)</div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="cfg-allow-all-cmd"><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <!-- Paths -->
+        <div class="config-section">
+          <h3>Allowed Paths</h3>
+          <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:.5rem">Extra directories accessible outside workspace (one per line)</p>
+          <textarea id="cfg-allowed-paths" rows="3" placeholder="/usr/lib/python3&#10;/opt/shared-libs"></textarea>
+        </div>
+
+        <!-- Blocked commands -->
+        <div class="config-section">
+          <h3>Blocked Commands</h3>
+          <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:.5rem">Command patterns to block (one per line)</p>
+          <textarea id="cfg-blocked-cmds" rows="4" placeholder="rm -rf /&#10;shutdown&#10;reboot"></textarea>
+        </div>
+
+        <!-- Limits -->
+        <div class="config-section">
+          <h3>Resource Limits</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Max iterations per task</label>
+              <input type="number" id="cfg-max-iter" min="1" max="200">
+            </div>
+            <div class="form-group">
+              <label>Max tool calls per task</label>
+              <input type="number" id="cfg-max-tools" min="1" max="1000">
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" onclick="saveUserConfig()">Save Configuration</button>
+        <div id="cfg-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="panel" id="tab-logs">
+    <div class="form-row" style="margin-bottom:.7rem">
+      <div class="form-group" style="max-width:160px">
+        <label>User</label>
+        <input type="text" id="log-user" placeholder="All users">
+      </div>
+      <div class="form-group" style="max-width:140px">
+        <label>Status</label>
+        <select id="log-status">
+          <option value="">All</option>
+          <option>completed</option>
+          <option>error</option>
+          <option>timeout</option>
+          <option>max_iterations</option>
+        </select>
+      </div>
+      <div style="align-self:flex-end">
+        <button class="btn btn-primary btn-sm" onclick="loadLogs()">Search</button>
+      </div>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Task ID</th><th>User</th><th>Status</th><th>Iter</th><th>Tools</th><th>Started</th><th>Duration</th></tr></thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+      <div id="logs-empty" style="color:var(--text-dim);text-align:center;padding:1.5rem;display:none">No logs found</div>
+    </div>
+    <div class="card" id="log-detail-card" style="display:none">
+      <h2>Log Detail</h2>
+      <div class="log-detail" id="log-detail-content"></div>
+    </div>
+  </div>
+
+  <!-- Workspace -->
+  <div class="panel" id="tab-workspace">
+    <div class="form-row" style="margin-bottom:.7rem">
+      <div class="form-group" style="max-width:200px">
+        <label>User</label>
+        <select id="ws-user" onchange="browseWs(this.value,'.')"><option value="">Select user...</option></select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="breadcrumb" id="ws-bc"></div>
+      <div id="ws-entries"></div>
+      <div id="ws-file-view" style="display:none">
+        <div style="margin-bottom:.5rem"><button class="btn btn-sm" onclick="wsBack()">Back</button></div>
+        <div class="file-preview" id="ws-file-text"></div>
+      </div>
+      <div id="ws-empty" style="color:var(--text-dim);text-align:center;padding:2rem">Select a user to browse workspace</div>
+    </div>
+  </div>
+
+  <!-- Setup -->
+  <div class="panel" id="tab-setup">
+    <div class="card" id="onboard-card">
+      <h2>Router Connection</h2>
+      <div id="onboard-info" style="font-size:.87rem;color:var(--text-dim);margin-bottom:.8rem">Loading...</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Invitation Token (to register or re-register)</label>
+          <input type="text" id="inv-token" placeholder="Paste invitation token from router admin">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="doRegister()">Register</button>
+        </div>
+      </div>
+      <div id="register-msg"></div>
+    </div>
+    <div class="card">
+      <h2>LLM Backend</h2>
+      <p style="font-size:.82rem;color:var(--text-dim)">
+        LLM models are configured in <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">agents/llm_agent/config.json</code>.
+        Per-user model assignment is in the User Config tab.
+      </p>
+      <div id="llm-info" style="margin-top:.6rem"></div>
+    </div>
+    <div class="card">
+      <h2>Timeouts</h2>
+      <p style="font-size:.82rem;color:var(--text-dim)">
+        Configured via <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">.env</code>.
+        LLM timeout and tool timeout apply per-call.
+      </p>
+      <div id="timeout-info" style="margin-top:.6rem"></div>
+    </div>
+    <div class="card">
+      <h2>Change Admin Password</h2>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Current Password</label>
+          <input type="password" id="chpw-current" placeholder="Current password">
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="chpw-new" placeholder="New password">
+        </div>
+        <div style="align-self:flex-end">
+          <button class="btn btn-primary" onclick="changePassword()">Change</button>
+        </div>
+      </div>
+      <div id="chpw-msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function apiFetch(path, opts = {}) {
+  const r = await fetch(path, { credentials: 'same-origin', ...opts });
+  if (r.status === 401) { showLogin(); return null; }
+  return r;
+}
+
+// ── Auth ──
+async function doLogin() {
+  const pw = document.getElementById('pw').value;
+  const r = await fetch('/ui/login', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (r.ok) { showMain(); }
+  else { document.getElementById('login-err').textContent = 'Invalid password'; }
+}
+
+async function doLogout() {
+  await fetch('/ui/logout', { method: 'POST', credentials: 'same-origin' });
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('main-screen').style.display = 'none';
+}
+
+function showMain() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('main-screen').style.display = 'block';
+  loadStatus();
+}
+
+// ── Tabs ──
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[onclick="showTab('${name}')"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'status') loadStatus();
+  if (name === 'users') loadUsers();
+  if (name === 'config') loadCfgUsers();
+  if (name === 'logs') loadLogs();
+  if (name === 'workspace') loadWsUsers();
+  if (name === 'setup') loadSetup();
+}
+
+// ── Status ──
+async function loadStatus() {
+  const r = await apiFetch('/ui/status');
+  if (!r) return;
+  const d = await r.json();
+  const b = (v, y, n) => `<span class="badge ${v ? 'badge-green' : 'badge-red'}">${v ? y : n}</span>`;
+  document.getElementById('status-grid').innerHTML = `
+    <div class="stat-item"><div class="label">Router</div><div class="value">${b(d.router_connected,'Connected','Disconnected')}</div></div>
+    <div class="stat-item"><div class="label">Agent ID</div><div class="value" style="font-size:.78rem">${esc(d.agent_id)}</div></div>
+    <div class="stat-item"><div class="label">LLM Agent</div><div class="value" style="font-size:.78rem">${esc(d.llm_agent_id)}</div></div>
+    <div class="stat-item"><div class="label">Workspace</div><div class="value" style="font-size:.78rem">${esc(d.workspace_root)}</div></div>
+    <div class="stat-item"><div class="label">Destinations</div><div class="value" style="font-size:.78rem">${d.available_destinations.length ? esc(d.available_destinations.join(', ')) : '<span class="badge badge-gray">None</span>'}</div></div>
+    <div class="stat-item"><div class="label">Users</div><div class="value" style="font-size:.78rem">${esc(d.configured_users.join(', '))}</div></div>
+    <div class="stat-item"><div class="label">Endpoint</div><div class="value" style="font-size:.72rem">${esc(d.endpoint_url)}</div></div>
+  `;
+}
+
+// ── Users ──
+async function loadUsers() {
+  const r = await apiFetch('/ui/users');
+  if (!r) return;
+  const d = await r.json();
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = '';
+  for (const [uid, cfg] of Object.entries(d.users)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(uid)}</td>
+      <td><span class="badge ${cfg.limit_to_workspace ? 'badge-green' : 'badge-yellow'}">${cfg.limit_to_workspace ? 'Limited' : 'Unrestricted'}</span></td>
+      <td><span class="badge ${cfg.allow_network ? 'badge-green' : 'badge-gray'}">${cfg.allow_network ? 'Yes' : 'No'}</span></td>
+      <td>${cfg.max_iterations}</td><td>${cfg.max_tool_calls}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${esc(uid)}')">Delete</button></td>`;
+    tbody.appendChild(tr);
+  }
+  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No users</td></tr>';
+}
+
+async function addUser() {
+  const uid = document.getElementById('new-uid').value.trim();
+  if (!uid) { showMsg('user-msg', 'User ID required', false); return; }
+  const r = await apiFetch('/ui/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: uid }),
+  });
+  if (!r) return;
+  if (r.ok) { showMsg('user-msg', 'User created: ' + uid, true); document.getElementById('new-uid').value = ''; loadUsers(); }
+  else { const e = await r.json().catch(() => ({})); showMsg('user-msg', e.detail || 'Error', false); }
+}
+
+async function deleteUser(uid) {
+  if (!confirm(`Delete user "${uid}" and their workspace?`)) return;
+  await apiFetch('/ui/users/' + encodeURIComponent(uid), {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delete_workspace: true }),
+  });
+  loadUsers();
+}
+
+// ── User Config ──
+let cfgCurrentUser = '';
+
+async function loadCfgUsers() {
+  const r = await apiFetch('/ui/users');
+  if (!r) return;
+  const d = await r.json();
+  const sel = document.getElementById('cfg-user-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">Select user...</option>';
+  for (const uid of Object.keys(d.users)) {
+    const o = document.createElement('option');
+    o.value = uid; o.textContent = uid;
+    sel.appendChild(o);
+  }
+  if (prev && [...sel.options].some(o => o.value === prev)) {
+    sel.value = prev;
+    loadUserConfig(prev);
+  }
+}
+
+async function loadUserConfig(uid) {
+  cfgCurrentUser = uid;
+  const form = document.getElementById('cfg-form');
+  if (!uid) { form.style.display = 'none'; return; }
+  form.style.display = 'block';
+  const r = await apiFetch('/ui/users/' + encodeURIComponent(uid));
+  if (!r) return;
+  const d = await r.json();
+  const c = d.config;
+  document.getElementById('cfg-model-id').value = c.model_id || '';
+
+  document.getElementById('cfg-limit-ws').checked = c.limit_to_workspace;
+  document.getElementById('cfg-network').checked = c.allow_network;
+  document.getElementById('cfg-allow-all-cmd').checked = c.allow_all_commands;
+  document.getElementById('cfg-allowed-paths').value = (c.allowed_paths || []).join('\n');
+  document.getElementById('cfg-blocked-cmds').value = (c.blocked_commands || []).join('\n');
+  document.getElementById('cfg-max-iter').value = c.max_iterations;
+  document.getElementById('cfg-max-tools').value = c.max_tool_calls;
+}
+
+async function saveUserConfig() {
+  if (!cfgCurrentUser) return;
+  const body = {
+    model_id: document.getElementById('cfg-model-id').value,
+    limit_to_workspace: document.getElementById('cfg-limit-ws').checked,
+    allow_network: document.getElementById('cfg-network').checked,
+    allow_all_commands: document.getElementById('cfg-allow-all-cmd').checked,
+    allowed_paths: document.getElementById('cfg-allowed-paths').value.split('\n').map(s => s.trim()).filter(Boolean),
+    blocked_commands: document.getElementById('cfg-blocked-cmds').value.split('\n').map(s => s.trim()).filter(Boolean),
+    max_iterations: parseInt(document.getElementById('cfg-max-iter').value) || 20,
+    max_tool_calls: parseInt(document.getElementById('cfg-max-tools').value) || 50,
+  };
+  const r = await apiFetch('/ui/users/' + encodeURIComponent(cfgCurrentUser), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r) return;
+  if (r.ok) showMsg('cfg-msg', 'Configuration saved for ' + cfgCurrentUser, true);
+  else showMsg('cfg-msg', 'Error saving config', false);
+}
+
+// ── Logs ──
+async function loadLogs() {
+  let q = '?limit=50';
+  const u = document.getElementById('log-user').value.trim();
+  const s = document.getElementById('log-status').value;
+  if (u) q += '&user_id=' + encodeURIComponent(u);
+  if (s) q += '&status=' + encodeURIComponent(s);
+  const r = await apiFetch('/ui/logs' + q);
+  if (!r) return;
+  const d = await r.json();
+  const tbody = document.getElementById('logs-tbody');
+  const empty = document.getElementById('logs-empty');
+  tbody.innerHTML = '';
+  if (!d.logs.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  for (const log of d.logs) {
+    const dur = log.started_at && log.finished_at
+      ? ((new Date(log.finished_at) - new Date(log.started_at)) / 1000).toFixed(1) + 's' : '-';
+    const statusCls = { completed: 'badge-green', error: 'badge-red', timeout: 'badge-red', max_iterations: 'badge-yellow', running: 'badge-gray' }[log.status] || 'badge-gray';
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => showLogDetail(log.task_id);
+    tr.innerHTML = `<td style="font-family:monospace;font-size:.78rem">${esc(log.task_id).substring(0, 12)}...</td>
+      <td>${esc(log.user_id)}</td>
+      <td><span class="badge ${statusCls}">${esc(log.status)}</span></td>
+      <td>${log.iterations || '-'}</td><td>${log.tool_calls || '-'}</td>
+      <td style="font-size:.78rem">${log.started_at ? new Date(log.started_at).toLocaleString() : '-'}</td>
+      <td>${dur}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function showLogDetail(taskId) {
+  const r = await apiFetch('/ui/logs/' + encodeURIComponent(taskId));
+  if (!r) return;
+  const d = await r.json();
+  document.getElementById('log-detail-card').style.display = 'block';
+  document.getElementById('log-detail-content').textContent = JSON.stringify(d, null, 2);
+}
+
+// ── Workspace ──
+let wsUser = '', wsPath = '.';
+
+async function loadWsUsers() {
+  const r = await apiFetch('/ui/users');
+  if (!r) return;
+  const d = await r.json();
+  const sel = document.getElementById('ws-user');
+  sel.innerHTML = '<option value="">Select user...</option>';
+  for (const uid of Object.keys(d.users)) {
+    const o = document.createElement('option');
+    o.value = uid; o.textContent = uid;
+    sel.appendChild(o);
+  }
+}
+
+async function browseWs(uid, path) {
+  if (!uid) return;
+  wsUser = uid; wsPath = path;
+  document.getElementById('ws-empty').style.display = 'none';
+  document.getElementById('ws-file-view').style.display = 'none';
+  const r = await apiFetch('/ui/workspace/' + encodeURIComponent(uid) + '?path=' + encodeURIComponent(path));
+  if (!r) return;
+  if (!r.ok) {
+    document.getElementById('ws-entries').innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:1.5rem">Workspace not found</div>';
+    return;
+  }
+  const d = await r.json();
+
+  // Breadcrumb
+  const bc = document.getElementById('ws-bc');
+  const parts = path === '.' ? [] : path.split('/');
+  bc.innerHTML = `<a onclick="browseWs('${esc(wsUser)}','.')">root</a>`;
+  let acc = '';
+  for (const p of parts) {
+    if (!p) continue;
+    acc += (acc ? '/' : '') + p;
+    const full = acc;
+    bc.innerHTML += `<span class="sep">/</span><a onclick="browseWs('${esc(wsUser)}','${esc(full)}')">${esc(p)}</a>`;
+  }
+
+  const el = document.getElementById('ws-entries');
+  if (d.type === 'file') {
+    el.innerHTML = '';
+    document.getElementById('ws-file-view').style.display = 'block';
+    document.getElementById('ws-file-text').textContent = d.content || '(binary or too large)';
+    return;
+  }
+  if (!d.entries.length) { el.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:1.5rem">Empty directory</div>'; return; }
+  el.innerHTML = '';
+  for (const e of d.entries) {
+    const div = document.createElement('div');
+    div.className = 'dir-entry';
+    div.onclick = () => browseWs(wsUser, e.path);
+    const icon = e.type === 'directory' ? '\uD83D\uDCC1' : '\uD83D\uDCC4';
+    const sz = e.type === 'file' ? fmtSize(e.size) : '';
+    div.innerHTML = `<span>${icon} ${esc(e.name)}</span><span style="color:var(--text-dim);font-size:.78rem">${sz}</span>`;
+    el.appendChild(div);
+  }
+}
+
+function wsBack() {
+  const parts = wsPath.split('/');
+  parts.pop();
+  browseWs(wsUser, parts.length ? parts.join('/') : '.');
+}
+
+// ── Setup ──
+async function loadSetup() {
+  // Onboarding
+  const r = await apiFetch('/ui/onboarding');
+  if (!r) return;
+  const d = await r.json();
+  document.getElementById('onboard-info').innerHTML = `
+    <div style="margin-bottom:.5rem">Router: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.router_url)}</code></div>
+    <div style="margin-bottom:.5rem">Endpoint: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.endpoint_url)}</code></div>
+    <div style="margin-bottom:.5rem">Status: <span class="badge ${d.registered ? 'badge-green' : 'badge-red'}">${d.registered ? 'Registered as ' + esc(d.agent_id) : 'Not registered'}</span></div>
+    ${d.available_destinations.length ? '<div>Destinations: ' + esc(d.available_destinations.join(', ')) + '</div>' : ''}
+  `;
+
+  // LLM + timeout info from status
+  const r2 = await apiFetch('/ui/status');
+  if (!r2) return;
+  const s = await r2.json();
+  document.getElementById('llm-info').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-item"><div class="label">LLM Agent</div><div class="value" style="font-size:.78rem">${esc(s.llm_agent_id)}</div></div>
+    </div>
+  `;
+  document.getElementById('timeout-info').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-item"><div class="label">LLM Timeout</div><div class="value">${s.llm_timeout}s</div></div>
+      <div class="stat-item"><div class="label">Tool Timeout</div><div class="value">${s.tool_timeout}s</div></div>
+    </div>
+  `;
+}
+
+async function doRegister() {
+  const token = document.getElementById('inv-token').value.trim();
+  if (!token) { showMsg('register-msg', 'Enter an invitation token', false); return; }
+  const r = await apiFetch('/ui/onboarding/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invitation_token: token }),
+  });
+  if (!r) return;
+  const d = await r.json();
+  if (d.status === 'ok') { showMsg('register-msg', 'Registered as ' + d.agent_id, true); loadSetup(); }
+  else showMsg('register-msg', d.detail || 'Registration failed', false);
+}
+
+// ── Change Password ──
+async function changePassword() {
+  const cur = document.getElementById('chpw-current').value;
+  const nw = document.getElementById('chpw-new').value;
+  if (!cur || !nw) { showMsg('chpw-msg', 'Both fields required', false); return; }
+  const r = await apiFetch('/ui/change-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: nw }),
+  });
+  if (!r) return;
+  if (r.ok) {
+    showMsg('chpw-msg', 'Password changed successfully', true);
+    document.getElementById('chpw-current').value = '';
+    document.getElementById('chpw-new').value = '';
+  } else {
+    const e = await r.json().catch(() => ({}));
+    showMsg('chpw-msg', e.detail || 'Error changing password', false);
+  }
+}
+
+// ── Helpers ──
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(1) + ' MB';
+}
+
+function showMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
+  el.textContent = text;
+  setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+}
+
+// ── Init ──
+(async () => {
+  const r = await fetch('/ui/whoami', { credentials: 'same-origin' });
+  const d = await r.json();
+  if (d.authenticated) showMain(); else showLogin();
+})();
+</script>
+</body>
+</html>

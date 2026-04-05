@@ -1,0 +1,15 @@
+{
+  "CORE_AGENT_TIMEOUT": "Overall agent-loop deadline per invocation in seconds (must be < router ASGI timeout)",
+  "CORE_TOOL_TIMEOUT": "Deadline in seconds for one batch of parallel tool calls (must be < CORE_AGENT_TIMEOUT)",
+  "CORE_HISTORY_DIR": "Directory for session history storage (relative to agent directory)",
+  "CORE_HISTORY_ARCHIVE_DIR": "Directory for archived session history",
+  "CORE_USER_CONFIG_DIR": "Directory for per-user configuration files",
+  "CORE_HISTORY_TOKEN_LIMIT": "Rough token limit for session history (chars / 4). Oldest messages trimmed and sent to memory when exceeded",
+  "CORE_MAX_AGENT_ITERATIONS": "Maximum LLM agent loop iterations per invocation (default: 25)",
+  "CORE_MEMORY_AGENT_ID": "Agent ID of the memory agent (must match the registered agent name)",
+  "CORE_LLM_AGENT_ID": "Agent ID of the LLM inference agent (default: llm_agent)",
+  "CORE_LLM_MODEL_ID": "(Optional) Model config key to use from llm_agent's config.json (default: 'default')",
+  "CORE_LINK_HISTORY_TOKEN_RATIO": "Fraction of CORE_HISTORY_TOKEN_LIMIT used for history in linked-session mode (default: 0.5)",
+  "CORE_LINK_TRUNCATION_KEEP_RATIO": "Proportion of linked history to keep when truncating (default: 0.5)",
+  "CORE_SYSTEM_PROMPT": "(Optional) Top-level system prompt injected into every LLM call. Overrides the built-in default"
+}

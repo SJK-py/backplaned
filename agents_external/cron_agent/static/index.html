@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cron Agent Admin</title>
+<style>
+  :root{--bg:#0f1117;--surface:#1a1f2e;--surface2:#22263a;--border:#2d3748;--accent:#63b3ed;--accent-dim:#2b6cb0;--text:#e2e8f0;--text-dim:#718096;--text-muted:#a0aec0;--green:#68d391;--green-bg:#1c4532;--red:#fc8181;--red-bg:#3d0f0f;--yellow:#f6e05e;--yellow-bg:#3d3a0f;--blue-bg:#1a365d}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+  #login{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .login-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2rem;width:320px}
+  .login-card h1{font-size:1.3rem;margin-bottom:1.5rem;color:var(--accent);text-align:center}
+  .login-card input{width:100%;padding:.6rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);margin-bottom:1rem}
+  #main{display:none}
+  .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 1.5rem;display:flex;align-items:center;justify-content:space-between}
+  .topbar h1{font-size:1rem;color:var(--accent)}
+  .tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);padding:0 1.5rem}
+  .tab{padding:.65rem 1.1rem;cursor:pointer;font-size:.87rem;color:var(--text-dim);border-bottom:2px solid transparent}
+  .tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .panel{display:none;padding:1.5rem}.panel.active{display:block}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.2rem;margin-bottom:1rem}
+  .card h2{font-size:.95rem;color:var(--accent);margin-bottom:.8rem}
+  table{width:100%;border-collapse:collapse;font-size:.875rem;overflow-x:auto;display:block}
+  th{text-align:left;padding:.5rem .7rem;color:var(--text-dim);border-bottom:1px solid var(--border)}
+  td{padding:.5rem .7rem;border-bottom:1px solid var(--surface2);word-break:break-all}
+  .badge{display:inline-block;padding:.2rem .55rem;border-radius:99px;font-size:.75rem;font-weight:600}
+  .badge-green{background:var(--green-bg);color:var(--green)}.badge-red{background:var(--red-bg);color:var(--red)}
+  .badge-gray{background:var(--border);color:var(--text-muted)}.badge-blue{background:var(--blue-bg);color:var(--accent)}
+  .btn{padding:.45rem .9rem;border:none;border-radius:4px;cursor:pointer;font-size:.85rem;font-weight:500}
+  .btn:hover{opacity:.85}.btn-primary{background:var(--accent-dim);color:#fff}
+  .btn-danger{background:var(--red-bg);color:var(--red)}.btn-sm{padding:.3rem .6rem;font-size:.78rem}
+  .form-row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.8rem}
+  .form-group{display:flex;flex-direction:column;gap:.3rem;flex:1;min-width:140px}
+  .form-group label{font-size:.78rem;color:var(--text-dim)}
+  input[type=text],input[type=password],select,textarea{padding:.5rem;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:.875rem;width:100%}
+  textarea{font-family:monospace;resize:vertical;min-height:80px}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.7rem}
+  .stat-item{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.7rem}
+  .stat-item .label{font-size:.72rem;color:var(--text-dim);margin-bottom:.25rem}
+  .stat-item .value{font-size:.9rem;font-weight:600}
+  .mono{font-family:monospace}
+  .msg{padding:.45rem .7rem;border-radius:4px;font-size:.83rem;margin-top:.5rem}
+  .msg-ok{background:var(--green-bg);color:var(--green)}.msg-err{background:var(--red-bg);color:var(--red)}
+  .detail-back{cursor:pointer;color:var(--accent);font-size:.87rem;margin-bottom:1rem}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="login-card">
+    <h1>Cron Agent</h1>
+    <input type="password" id="pw" placeholder="Admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+    <div id="login-err" style="color:var(--red);font-size:.82rem;margin-top:.6rem;text-align:center"></div>
+  </div>
+</div>
+
+<div id="main">
+  <div class="topbar"><h1>Cron Agent Admin</h1><button class="btn btn-sm" onclick="doLogout()" style="background:var(--border);color:var(--text-muted)">Sign out</button></div>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('status')">Status</div>
+    <div class="tab" onclick="showTab('jobs')">Jobs</div>
+    <div class="tab" onclick="showTab('logs')">Logs</div>
+    <div class="tab" onclick="showTab('setup')">Setup</div>
+  </div>
+
+  <div class="panel active" id="tab-status">
+    <div class="card"><h2>Agent Status</h2><div class="stat-grid" id="status-grid">Loading...</div></div>
+    <div style="display:flex;gap:.5rem;margin-top:.5rem">
+      <button class="btn btn-primary btn-sm" onclick="loadStatus()">Refresh</button>
+      <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="refreshAgentInfo()">Refresh Agent Info</button>
+      <span id="refresh-msg" style="font-size:.78rem;color:var(--text-dim)"></span>
+    </div>
+  </div>
+
+  <div class="panel" id="tab-jobs">
+    <div class="card" id="jobs-content"><h2>Users & Jobs</h2><p style="color:var(--text-dim)">Loading...</p></div>
+    <button class="btn btn-primary btn-sm" onclick="loadJobs()" style="margin-top:.5rem">Refresh</button>
+  </div>
+
+  <div class="panel" id="tab-logs">
+    <div class="card" id="logs-content"><h2>Execution Logs</h2><p style="color:var(--text-dim)">Loading...</p></div>
+    <button class="btn btn-primary btn-sm" onclick="loadLogs()" style="margin-top:.5rem">Refresh</button>
+  </div>
+
+  <div class="panel" id="tab-setup">
+    <div class="card" id="onboard-card">
+      <h2>Router Connection</h2>
+      <div id="onboard-info" style="font-size:.87rem;color:var(--text-dim);margin-bottom:.8rem">Loading...</div>
+      <div class="form-row">
+        <div class="form-group"><label>Invitation Token</label><input type="text" id="inv-token" placeholder="Paste token"></div>
+        <div style="align-self:flex-end"><button class="btn btn-primary" onclick="doRegister()">Register</button></div>
+      </div>
+      <div id="register-msg"></div>
+    </div>
+    <div class="card">
+      <h2>Change Admin Password</h2>
+      <div class="form-row">
+        <div class="form-group"><label>Current Password</label><input type="password" id="chpw-current" placeholder="Current password"></div>
+        <div class="form-group"><label>New Password</label><input type="password" id="chpw-new" placeholder="New password"></div>
+        <div style="align-self:flex-end"><button class="btn btn-primary" onclick="changePassword()">Change</button></div>
+      </div>
+      <div id="chpw-msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function api(path, opts={}) {
+  const r = await fetch(path, {credentials:'same-origin',...opts});
+  if (r.status===401){showLogin();return null}
+  return r;
+}
+
+let selectedUser = null;
+
+function showLogin(){document.getElementById('login').style.display='flex';document.getElementById('main').style.display='none'}
+function showMain(){document.getElementById('login').style.display='none';document.getElementById('main').style.display='block';loadStatus()}
+
+async function doLogin(){
+  const r = await fetch('/ui/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
+  if(r.ok)showMain();else document.getElementById('login-err').textContent='Invalid password';
+}
+async function doLogout(){await fetch('/ui/logout',{method:'POST',credentials:'same-origin'});showLogin()}
+
+function showTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector(`.tab[onclick="showTab('${name}')"]`).classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='status')loadStatus();if(name==='jobs'){selectedUser=null;loadJobs()}
+  if(name==='logs')loadLogs();if(name==='setup')loadOnboarding();
+}
+
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+
+async function loadStatus(){
+  const r=await api('/ui/status');if(!r)return;const d=await r.json();
+  const b=(v,y,n)=>`<span class="badge ${v?'badge-green':'badge-red'}">${v?y:n}</span>`;
+  document.getElementById('status-grid').innerHTML=`
+    <div class="stat-item"><div class="label">Agent ID</div><div class="value mono" style="font-size:.78rem">${esc(d.agent_id)||'-'}</div></div>
+    <div class="stat-item"><div class="label">Router</div><div class="value">${b(d.router_connected,'Connected','Disconnected')}</div></div>
+    <div class="stat-item"><div class="label">Router URL</div><div class="value mono" style="font-size:.75rem">${esc(d.router_url)}</div></div>
+    <div class="stat-item"><div class="label">Receive URL</div><div class="value mono" style="font-size:.75rem">${esc(d.receive_url)}</div></div>
+    <div class="stat-item"><div class="label">Scheduler</div><div class="value">${b(d.scheduler_running,'Running','Stopped')}</div></div>
+    <div class="stat-item"><div class="label">Check Interval</div><div class="value">${d.check_interval}s</div></div>
+    <div class="stat-item"><div class="label">LLM Agent</div><div class="value mono" style="font-size:.78rem">${esc(d.llm_agent_id)}</div></div>
+    <div class="stat-item"><div class="label">Core Agent</div><div class="value mono" style="font-size:.78rem">${esc(d.core_agent_id)}</div></div>
+    <div class="stat-item"><div class="label">Default Model</div><div class="value mono" style="font-size:.78rem">${esc(d.default_model_id)}</div></div>
+    <div class="stat-item"><div class="label">Users</div><div class="value">${d.user_count}</div></div>`;
+}
+
+async function loadJobs(){
+  const el=document.getElementById('jobs-content');
+  if(selectedUser){await loadUserJobs(selectedUser);return}
+  const r=await api('/ui/users');if(!r)return;const d=await r.json();
+  if(!d.users.length){el.innerHTML='<h2>Users & Jobs</h2><p style="color:var(--text-dim)">No users yet.</p>';return}
+  let rows=d.users.map(u=>`<tr style="cursor:pointer" onclick="selectedUser='${esc(u.user_id)}';loadUserJobs('${esc(u.user_id)}')">
+    <td class="mono">${esc(u.user_id)}</td><td>${u.total_jobs} (${u.enabled_jobs} enabled)</td>
+    <td class="mono" style="font-size:.78rem">${esc(u.model_id)}</td><td>${esc(u.timezone)}</td>
+    <td>${esc(u.nighttime)}</td></tr>`).join('');
+  el.innerHTML=`<h2>Users</h2><table><tr><th>User ID</th><th>Jobs</th><th>Model</th><th>TZ</th><th>Night</th></tr>${rows}</table>`;
+}
+
+let editingJob=null;
+
+function fmtDt(s){if(!s)return '-';try{return s.substring(0,19).replace('T',' ')}catch(e){return s}}
+
+async function loadUserJobs(uid){
+  const el=document.getElementById('jobs-content');
+  const r=await api(`/ui/users/${uid}/jobs`);if(!r)return;const d=await r.json();
+  const s=d.settings;const jobs=Object.values(d.jobs);
+  let rows=jobs.map(j=>{
+    const en=j.enabled?'<span class="badge badge-green">on</span>':'<span class="badge badge-gray">off</span>';
+    return `<tr>
+      <td class="mono" style="font-size:.78rem">${j.id}</td>
+      <td>${esc(j.description)}</td>
+      <td class="mono" style="font-size:.78rem">${j.cron_expression}</td>
+      <td>${en}</td>
+      <td style="font-size:.78rem">${fmtDt(j.start_at)}</td>
+      <td style="font-size:.78rem">${fmtDt(j.end_at)}</td>
+      <td style="font-size:.78rem">${fmtDt(j.last_run)}</td>
+      <td>${j.run_count||0}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm" style="background:var(--blue-bg);color:var(--accent)" onclick="openEditJob('${esc(uid)}','${esc(j.id)}')">Edit</button>
+        <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="toggleJob('${esc(uid)}','${esc(j.id)}',${!j.enabled})">${j.enabled?'Pause':'Resume'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteJob('${esc(uid)}','${esc(j.id)}')">Del</button>
+      </td></tr>`;
+  }).join('')||'<tr><td colspan="9" style="color:var(--text-dim)">No cron jobs</td></tr>';
+  el.innerHTML=`
+    <div class="detail-back" onclick="selectedUser=null;loadJobs()">&larr; Back to users</div>
+    <h2>Settings for ${esc(uid)}</h2>
+    <div class="card" style="padding:.8rem;margin-bottom:1rem">
+      <div class="form-row">
+        <div class="form-group"><label>Timezone</label><input type="text" id="set-tz" value="${s.timezone||'UTC'}"></div>
+        <div class="form-group"><label>Night Start</label><input type="text" id="set-ns" value="${s.nighttime_start||'22:00'}"></div>
+        <div class="form-group"><label>Night End</label><input type="text" id="set-ne" value="${s.nighttime_end||'07:00'}"></div>
+        <div class="form-group"><label>Model ID</label><input type="text" id="set-mid" value="${s.model_id||''}" placeholder="(default)"></div>
+        <button class="btn btn-primary btn-sm" style="align-self:flex-end" onclick="saveSettings('${esc(uid)}')">Save</button>
+      </div>
+    </div>
+    <h2>Cron Jobs (${jobs.length})</h2>
+    <table><tr><th>ID</th><th>Description</th><th>Cron</th><th>Status</th><th>Start At</th><th>End At</th><th>Last Run</th><th>Runs</th><th></th></tr>${rows}</table>
+    <div id="edit-job-area" style="display:none"></div>`;
+  if(editingJob)openEditJob(uid,editingJob);
+}
+
+async function saveSettings(uid){
+  const body={timezone:document.getElementById('set-tz').value,nighttime_start:document.getElementById('set-ns').value,nighttime_end:document.getElementById('set-ne').value};
+  const mid=document.getElementById('set-mid').value.trim();if(mid)body.model_id=mid;
+  await api(`/ui/users/${uid}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  loadUserJobs(uid);
+}
+
+async function openEditJob(uid,jid){
+  editingJob=jid;
+  const r=await api(`/ui/users/${uid}/jobs`);if(!r)return;const d=await r.json();
+  const j=d.jobs[jid];if(!j){editingJob=null;return}
+  const area=document.getElementById('edit-job-area');
+  area.style.display='block';
+  area.innerHTML=`
+    <div class="card" style="padding:1rem;margin-top:1rem;border-color:var(--accent)">
+      <h2>Edit Job: ${esc(jid)}</h2>
+      <div class="form-row">
+        <div class="form-group"><label>Description</label><input type="text" id="ej-desc" value="${esc(j.description)}"></div>
+        <div class="form-group"><label>Cron Expression</label><input type="text" id="ej-cron" value="${esc(j.cron_expression)}"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:.6rem"><label>Message (task prompt)</label><textarea id="ej-msg" rows="4">${esc(j.message)}</textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>Model ID <span style="color:var(--text-dim)">(blank = user/global default)</span></label><input type="text" id="ej-model" value="${esc(j.model_id||'')}" placeholder="(default)"></div>
+        <div class="form-group"><label>Start At <span style="color:var(--text-dim)">(ISO datetime, blank = immediate)</span></label><input type="text" id="ej-start" value="${esc(j.start_at||'')}" placeholder="2026-04-01T09:00:00"></div>
+        <div class="form-group"><label>End At <span style="color:var(--text-dim)">(ISO datetime, blank = no expiry)</span></label><input type="text" id="ej-end" value="${esc(j.end_at||'')}" placeholder="2026-12-31T23:59:59"></div>
+      </div>
+      <div style="display:flex;gap:.5rem;margin-top:.5rem">
+        <button class="btn btn-primary btn-sm" onclick="saveEditJob('${esc(uid)}','${esc(jid)}')">Save Changes</button>
+        <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="closeEditJob()">Cancel</button>
+        <span id="ej-msg-result" style="font-size:.78rem;color:var(--text-dim)"></span>
+      </div>
+    </div>`;
+  area.scrollIntoView({behavior:'smooth'});
+}
+
+function closeEditJob(){editingJob=null;const a=document.getElementById('edit-job-area');if(a)a.style.display='none'}
+
+async function saveEditJob(uid,jid){
+  const updates={};
+  const desc=document.getElementById('ej-desc').value.trim();if(desc)updates.description=desc;
+  const cron=document.getElementById('ej-cron').value.trim();if(cron)updates.cron_expression=cron;
+  const msg=document.getElementById('ej-msg').value.trim();if(msg)updates.message=msg;
+  const model=document.getElementById('ej-model').value.trim();updates.model_id=model||null;
+  const start=document.getElementById('ej-start').value.trim();updates.start_at=start||null;
+  const end=document.getElementById('ej-end').value.trim();updates.end_at=end||null;
+  const r=await api(`/ui/users/${uid}/jobs/${jid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updates)});
+  const el=document.getElementById('ej-msg-result');
+  if(r&&r.ok){el.textContent='Saved.';el.style.color='var(--green)';editingJob=null;setTimeout(()=>loadUserJobs(uid),500)}
+  else{el.textContent='Save failed.';el.style.color='var(--red)'}
+}
+
+async function toggleJob(uid,jid,enabled){
+  await api(`/ui/users/${uid}/jobs/${jid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+  loadUserJobs(uid);
+}
+
+async function deleteJob(uid,jid){
+  if(!confirm('Delete this cron job?'))return;
+  await api(`/ui/users/${uid}/jobs/${jid}`,{method:'DELETE'});
+  loadUserJobs(uid);
+}
+
+async function loadLogs(){
+  const r=await api('/ui/logs?n=50');if(!r)return;const d=await r.json();
+  const el=document.getElementById('logs-content');
+  if(!d.logs.length){el.innerHTML='<h2>Execution Logs</h2><p style="color:var(--text-dim)">No logs yet.</p>';return}
+  let rows=d.logs.map(l=>`<tr>
+    <td class="mono" style="font-size:.78rem">${esc(l.job_id||'-')}</td>
+    <td>${esc(l.user_id||'-')}</td>
+    <td><span class="badge ${l.action==='executed'?'badge-green':l.action==='error'?'badge-red':'badge-gray'}">${l.action||'-'}</span></td>
+    <td>${l.reported?'<span class="badge badge-blue">yes</span>':'-'}</td>
+    <td style="font-size:.78rem">${esc(l.error||'')}</td></tr>`).join('');
+  el.innerHTML=`<h2>Execution Logs</h2><table><tr><th>Job ID</th><th>User</th><th>Action</th><th>Reported</th><th>Error</th></tr>${rows}</table>`;
+}
+
+async function refreshAgentInfo(){
+  const msg=document.getElementById('refresh-msg');
+  msg.textContent='Refreshing...';
+  const r=await api('/ui/refresh-info',{method:'POST'});
+  if(!r){msg.textContent='';return}
+  const d=await r.json();
+  msg.textContent=d.status==='refreshed'?'Agent info refreshed.':'No change.';
+  setTimeout(()=>{msg.textContent=''},3000);
+}
+
+async function loadOnboarding(){
+  const r=await api('/ui/onboarding');if(!r)return;const d=await r.json();
+  const dests=d.available_destinations||[];
+  const destsStr=dests.length?dests.join(', '):'(none)';
+  document.getElementById('onboard-info').innerHTML=`
+    <div style="margin-bottom:.4rem">Router: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.router_url)}</code></div>
+    <div style="margin-bottom:.4rem">Receive URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.receive_url)}</code></div>
+    <div style="margin-bottom:.4rem">Status: <span class="badge ${d.registered?'badge-green':'badge-red'}">${d.registered?'Registered as '+d.agent_id:'Not registered'}</span>
+      ${d.router_reachable?'<span class="badge badge-green" style="margin-left:.3rem">Router reachable</span>':'<span class="badge badge-red" style="margin-left:.3rem">Router unreachable</span>'}</div>
+    <div style="font-size:.82rem;color:var(--text-dim)">Available destinations: ${esc(destsStr)}</div>`;
+}
+
+async function doRegister(){
+  const token=document.getElementById('inv-token').value.trim();if(!token)return;
+  const r=await api('/ui/onboarding/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invitation_token:token})});
+  if(!r)return;const d=await r.json();
+  const el=document.getElementById('register-msg');
+  el.className='msg '+(d.status==='ok'?'msg-ok':'msg-err');
+  el.textContent=d.status==='ok'?'Registered as '+d.agent_id:(d.detail||'Failed');
+  loadOnboarding();
+}
+
+function showMsg(id,t,ok){const e=document.getElementById(id);e.className='msg '+(ok?'msg-ok':'msg-err');e.textContent=t;setTimeout(()=>{e.textContent='';e.className=''},4000)}
+
+async function changePassword(){
+  const cur=document.getElementById('chpw-current').value;
+  const nw=document.getElementById('chpw-new').value;
+  if(!cur||!nw){showMsg('chpw-msg','Both fields required',false);return}
+  const r=await api('/ui/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:cur,new_password:nw})});
+  if(!r)return;
+  if(r.ok){showMsg('chpw-msg','Password changed',true);document.getElementById('chpw-current').value='';document.getElementById('chpw-new').value=''}
+  else{const e=await r.json().catch(()=>({}));showMsg('chpw-msg',e.detail||'Error',false)}
+}
+(async()=>{const r=await fetch('/ui/whoami',{credentials:'same-origin'});const d=await r.json();if(d.authenticated)showMain();else showLogin()})();
+</script>
+</body>
+</html>

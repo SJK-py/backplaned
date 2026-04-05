@@ -1,0 +1,21 @@
+{
+  "models": {
+    "default": {
+      "provider": "LLM provider: openai_compat | openai | anthropic | gemini",
+      "base_url": "Base URL for OpenAI-compatible endpoint (not used for native openai/anthropic)",
+      "api_key": "API key for the provider",
+      "model": "Model identifier (e.g. gpt-4, claude-sonnet-4-20250514, gemini-pro)",
+      "max_tokens": "Maximum completion tokens per call (integer)",
+      "temperature": "Sampling temperature 0.0-2.0 (float)",
+      "timeout": "Timeout in seconds for a single LLM call (integer)",
+      "fallback": "Model ID to fall back to on failure (null = fall back to 'default')",
+      "available_to_all": "If true, any user can select this model. If false, only users listed in allowed_models may use it (boolean, default: false)"
+    },
+    "fast": "(Example) A second model config for quick/cheap tasks"
+  },
+  "allowed_models": "Object mapping user_id to comma-separated model IDs the user may access (e.g. {\"alice\": \"default,fast\"})",
+  "retry_count": "Number of retries before switching to fallback model (integer)",
+  "retry_interval": "Initial delay between retries in seconds (float)",
+  "retry_interval_multiplier": "Multiply retry interval by this after each retry (float, e.g. 2.0 for exponential backoff)",
+  "total_retry_count": "Maximum total retries across all fallback models (integer)"
+}

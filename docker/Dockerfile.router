@@ -1,0 +1,38 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency manifest and install
+COPY pyproject.toml .
+RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
+
+# Copy source code
+COPY router.py helper.py start.sh ./
+COPY agents/ agents/
+COPY agents_external/channel_agent/ agents_external/channel_agent/
+COPY agents_external/mcp_agent/ agents_external/mcp_agent/
+COPY agents_external/mcp_server/ agents_external/mcp_server/
+COPY agents_external/cron_agent/ agents_external/cron_agent/
+COPY agents_external/kb_agent/ agents_external/kb_agent/
+COPY agents_external/reminder_agent/ agents_external/reminder_agent/
+COPY agents_external/web_admin/ agents_external/web_admin/
+
+# Create data directories
+RUN mkdir -p data proxyfiles && \
+    for d in channel_agent mcp_agent mcp_server cron_agent kb_agent reminder_agent web_admin; do \
+        mkdir -p "agents_external/$d/data"; \
+    done
+
+RUN chmod +x start.sh
+
+EXPOSE 8000 8080 8081 8082 8083 8085 8086 8101
+
+CMD ["./start.sh"]

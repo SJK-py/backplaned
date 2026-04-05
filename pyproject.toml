@@ -1,0 +1,51 @@
+[project]
+name = "agora"
+version = "0.1.0"
+description = "ESB-style multi-agent router and personal assistant agent suite"
+requires-python = ">=3.12"
+
+dependencies = [
+    # Core framework
+    "fastapi>=0.135",
+    "uvicorn>=0.42",
+    "httpx>=0.28",
+    "httpx-sse>=0.4",
+    "pydantic>=2.12",
+    "python-dotenv>=1.2",
+    "python-multipart>=0.0.22",
+    "itsdangerous>=2.2",
+
+    # LLM providers
+    "openai>=2.30",
+    "anthropic>=0.86",
+
+    # Document conversion (md_converter)
+    "markitdown>=0.1.5",
+    "markitdown-ocr>=0.1.0",
+
+    # Memory (memory_agent)
+    "mem0ai>=1.0.9",
+    "qdrant-client>=1.17",
+
+    # Knowledge base (kb_agent)
+    "lancedb>=0.30",
+
+    # MCP protocol (mcp_agent, mcp_server)
+    "mcp>=1.26",
+
+    # Telegram (channel_agent)
+    "python-telegram-bot>=22.7",
+
+    # Discord (channel_agent — uses raw websockets)
+    "websockets>=16.0",
+
+    # Reminder/cron (rrule parsing)
+    "python-dateutil>=2.9",
+
+    # SSE streaming
+    "sse-starlette>=3.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

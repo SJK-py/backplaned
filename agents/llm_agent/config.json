@@ -1,0 +1,20 @@
+{
+    "models": {
+        "default": {
+            "provider": "openai_compat",
+            "base_url": "",
+            "api_key": "",
+            "model": "",
+            "max_tokens": 16384,
+            "temperature": 1,
+            "timeout": 300,
+            "fallback": null,
+            "available_to_all": true
+        }
+    },
+    "allowed_models": {},
+    "retry_count": 2,
+    "retry_interval": 5,
+    "retry_interval_multiplier": 2,
+    "total_retry_count": 6
+}

@@ -1,0 +1,111 @@
+# ─── Agora Start Configuration ────────────────────────────────────────
+#
+# This file is sourced by start.sh on startup. All values here are
+# propagated into the appropriate .env and config.json files for each
+# agent. Edit this file, then run start.sh.
+#
+# Lines starting with # are comments. Empty values are left unconfigured.
+# Generate secrets with: openssl rand -hex 32
+#
+
+# ═══════════════════════════════════════════════════════════════════════
+# Router
+# ═══════════════════════════════════════════════════════════════════════
+
+# Admin API bearer token for the router. Used by web_admin and start.sh
+# to manage agents, create invitations, and perform admin operations.
+# REQUIRED — generate with: openssl rand -hex 32
+ADMIN_TOKEN=""
+
+# ═══════════════════════════════════════════════════════════════════════
+# Shared Admin Password
+# ═══════════════════════════════════════════════════════════════════════
+
+# Initial password for all agent web UI admin panels. Each agent's
+# password can be changed independently via its web UI after first login.
+# REQUIRED for web UI access.
+ADMIN_PASSWORD=""
+
+# ═══════════════════════════════════════════════════════════════════════
+# LLM Gateway (llm_agent — "default" model)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# All LLM-based agents route inference through llm_agent, which needs
+# at least one model ("default") configured. This is the MINIMUM
+# requirement for agents to work.
+#
+# Supported providers: "openai_compat" (vLLM, llama.cpp, Ollama, etc.),
+#                      "openai", "anthropic"
+
+LLM_PROVIDER="openai_compat"
+LLM_BASE_URL=""                   # e.g. http://localhost:11434/v1
+LLM_API_KEY=""                    # API key (leave empty for local models without auth)
+LLM_MODEL=""                      # e.g. gpt-4o, claude-sonnet-4-20250514, llama3.1
+LLM_MAX_TOKENS=16384              # Max output tokens per completion
+
+# ═══════════════════════════════════════════════════════════════════════
+# Memory Agent (mem0 — calls LLM and embedding APIs directly)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# memory_agent uses the mem0 library, which maintains its own LLM and
+# embedding clients separate from llm_agent. If left empty, LLM values
+# fall back to the LLM Gateway settings above. Embedding has no fallback
+# and must be configured if memory_agent is used.
+
+MEM0_LLM_BASE_URL=""              # Override LLM endpoint (default: LLM_BASE_URL)
+MEM0_LLM_MODEL=""                 # Override LLM model (default: LLM_MODEL)
+MEM0_EMBED_BASE_URL=""            # Embedding API endpoint (REQUIRED for memory_agent)
+MEM0_EMBED_MODEL=""               # Embedding model name (REQUIRED for memory_agent)
+QDRANT_HOST="localhost"           # Qdrant vector DB host
+QDRANT_PORT=6333                  # Qdrant vector DB port
+
+# ═══════════════════════════════════════════════════════════════════════
+# MD Converter OCR (optional — direct LLM call for scanned documents)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# md_converter can optionally use an LLM for OCR on scanned PDFs/images.
+# If left empty, falls back to the LLM Gateway values above.
+
+OCR_ENABLED="false"               # Set to "true" to enable LLM-based OCR
+OCR_BASE_URL=""                   # Override LLM endpoint for OCR (default: LLM_BASE_URL)
+OCR_MODEL=""                      # Override model for OCR (default: LLM_MODEL)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Knowledge Base Embeddings (kb_agent)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# kb_agent needs an embedding endpoint for vector search. If left empty,
+# falls back to MEM0_EMBED_* values above.
+
+KB_EMBED_BASE_URL=""              # Override embedding endpoint (default: MEM0_EMBED_BASE_URL)
+KB_EMBED_MODEL=""                 # Override embedding model (default: MEM0_EMBED_MODEL)
+
+# ═══════════════════════════════════════════════════════════════════════
+# Telegram Integration (optional)
+# ═══════════════════════════════════════════════════════════════════════
+
+TELEGRAM_TOKEN=""                 # Bot token from @BotFather
+TELEGRAM_ALLOWED_IDS=""           # Comma-separated Telegram user IDs allowed to interact
+
+# ═══════════════════════════════════════════════════════════════════════
+# Discord Integration (optional)
+# ═══════════════════════════════════════════════════════════════════════
+
+DISCORD_TOKEN=""                  # Bot token from Discord Developer Portal
+DISCORD_ALLOWED_IDS=""            # Comma-separated Discord user IDs allowed to interact
+
+# ═══════════════════════════════════════════════════════════════════════
+# Ports (bare-metal deployment)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Default ports for each service. Change if you have conflicts.
+
+ROUTER_PORT=8000
+WEB_ADMIN_PORT=8080
+CHANNEL_PORT=8081
+MCP_AGENT_PORT=8082
+MCP_SERVER_PORT=8083
+CRON_PORT=8085
+KB_PORT=8086
+CODING_PORT=8100
+REMINDER_PORT=8101

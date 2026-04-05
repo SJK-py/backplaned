@@ -1,0 +1,64 @@
+version: "3.8"
+
+services:
+  # ── Router + embedded agents + lightweight external agents ──────────
+  router:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.router
+    ports:
+      - "${ROUTER_PORT:-8000}:8000"
+      - "${WEB_ADMIN_PORT:-8080}:8080"
+      - "${CHANNEL_PORT:-8081}:8081"
+      - "${MCP_AGENT_PORT:-8082}:8082"
+      - "${MCP_SERVER_PORT:-8083}:8083"
+      - "${CRON_PORT:-8085}:8085"
+      - "${KB_PORT:-8086}:8086"
+      - "${REMINDER_PORT:-8101}:8101"
+    volumes:
+      - "${DATA_ROOT:-./data}/router:/app/data"
+      - "${DATA_ROOT:-./data}/proxyfiles:/app/proxyfiles"
+      - "${DATA_ROOT:-./data}/channel_agent:/app/agents_external/channel_agent/data"
+      - "${DATA_ROOT:-./data}/mcp_agent:/app/agents_external/mcp_agent/data"
+      - "${DATA_ROOT:-./data}/mcp_server:/app/agents_external/mcp_server/data"
+      - "${DATA_ROOT:-./data}/cron_agent:/app/agents_external/cron_agent/data"
+      - "${DATA_ROOT:-./data}/kb_agent:/app/agents_external/kb_agent/data"
+      - "${DATA_ROOT:-./data}/reminder_agent:/app/agents_external/reminder_agent/data"
+      - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
+    env_file:
+      - ../start.config
+    restart: unless-stopped
+
+  # ── Coding Agent (isolated sandbox) ─────────────────────────────────
+  coding:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.coding
+    ports:
+      - "${CODING_PORT:-8100}:8100"
+    volumes:
+      - "${DATA_ROOT:-./data}/coding_agent:/app/data"
+    env_file:
+      - ../start.config
+    environment:
+      - ROUTER_URL=http://router:8000
+      - AGENT_ENDPOINT_URL=http://coding:8100
+    depends_on:
+      - router
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 8G
+
+  # ── Qdrant (vector database for memory_agent and kb_agent) ──────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - "${DATA_ROOT:-./data}/qdrant:/qdrant/storage"
+    restart: unless-stopped

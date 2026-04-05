@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Environment and secrets
+.env
+*/.env
+*/*/.env
+start.config
+
+# Credentials (generated at runtime)
+*/data/credentials.json
+*/data/admin_password.json
+**/credentials.json
+**/admin_password.json
+
+# Database
+*.db
+
+# Runtime data
+proxyfiles/
+*/data/
+**/data/sessions/
+**/data/logs/
+**/data/output/
+**/data/workspaces/
+**/data/inboxes/
+**/data/users/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

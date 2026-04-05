@@ -1,0 +1,3 @@
+{
+    "exclude_agents": ["coding_agent", "core_personal_agent"]
+}
