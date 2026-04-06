@@ -859,9 +859,14 @@ def _extract_thinking_summary(thinking_blocks: Optional[list[dict[str, Any]]]) -
     thinking = "\n".join(texts)
     if not thinking:
         return None
-    # Get the last non-empty line (most relevant decision)
+    # Get the last non-empty line (most relevant decision), capped at 200 chars.
     lines = [l.strip() for l in thinking.split("\n") if l.strip()]
-    return lines[-1] if lines else None
+    if not lines:
+        return None
+    summary = lines[-1]
+    if len(summary) > 200:
+        summary = summary[:200] + "…"
+    return summary
 
 
 async def _push_progress(task_id: str, event_type: str, content: str = "", metadata: Optional[dict] = None) -> None:
