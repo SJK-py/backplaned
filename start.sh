@@ -127,9 +127,10 @@ fi
 # Propagate memory_agent settings
 MEM_CFG="$ROOT/agents/memory_agent/config.json"
 [ -n "${MEM0_LLM_BASE_URL:-$LLM_BASE_URL}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_BASE_URL" "${MEM0_LLM_BASE_URL:-$LLM_BASE_URL}"
+[ -n "${MEM0_LLM_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_API_KEY" "${MEM0_LLM_API_KEY:-$LLM_API_KEY}"
 [ -n "${MEM0_LLM_MODEL:-$LLM_MODEL}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_MODEL" "${MEM0_LLM_MODEL:-$LLM_MODEL}"
-[ -n "$LLM_API_KEY" ] && set_json_key "$MEM_CFG" "MEM0_LLM_API_KEY" "${LLM_API_KEY}"
 [ -n "$MEM0_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_BASE_URL" "$MEM0_EMBED_BASE_URL"
+[ -n "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_API_KEY" "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}"
 [ -n "$MEM0_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_MODEL" "$MEM0_EMBED_MODEL"
 [ -n "$QDRANT_HOST" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_HOST" "$QDRANT_HOST"
 [ -n "$QDRANT_PORT" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_PORT" "$QDRANT_PORT"
@@ -139,13 +140,14 @@ if [ "$OCR_ENABLED" = "true" ]; then
     OCR_CFG="$ROOT/agents/md_converter/config.json"
     set_json_key "$OCR_CFG" "OCR_ENABLED" "true"
     set_json_key "$OCR_CFG" "OCR_BASE_URL" "${OCR_BASE_URL:-$LLM_BASE_URL}"
+    [ -n "${OCR_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$OCR_CFG" "OCR_API_KEY" "${OCR_API_KEY:-$LLM_API_KEY}"
     set_json_key "$OCR_CFG" "OCR_MODEL" "${OCR_MODEL:-$LLM_MODEL}"
-    [ -n "$LLM_API_KEY" ] && set_json_key "$OCR_CFG" "OCR_API_KEY" "$LLM_API_KEY"
 fi
 
 # Propagate kb_agent embedding settings
 KB_ENV="$ROOT/agents_external/kb_agent/.env"
 [ -n "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}" ] && set_env_var "$KB_ENV" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}"
+[ -n "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$KB_ENV" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}"
 [ -n "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}" ] && set_env_var "$KB_ENV" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}"
 
 # Propagate Telegram/Discord settings
