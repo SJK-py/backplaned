@@ -595,7 +595,10 @@ async def _call_gemini(
             try:
                 result_obj = json.loads(result_content)
             except (json.JSONDecodeError, TypeError):
-                result_obj = {"result": result_content}
+                result_obj = None
+            # Gemini FunctionResponse requires a dict — wrap non-dict values.
+            if not isinstance(result_obj, dict):
+                result_obj = {"result": result_obj if result_obj is not None else result_content}
             gem_contents.append(types.Content(
                 role="user",
                 parts=[types.Part.from_function_response(
