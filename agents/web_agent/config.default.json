@@ -1,7 +1,13 @@
 {
     "LLM_AGENT_ID": "llm_agent",
+    "LLM_MODEL_ID": "",
     "SEARCH_PROVIDER": "duckduckgo",
     "SEARXNG_BASE_URL": "",
     "BRAVE_API_KEY": "",
-    "FETCH_MAX_CHARS": "12000"
+    "SEARCH_MAX_RESULTS": "",
+    "FETCH_MAX_CHARS": "12000",
+    "FETCH_TIMEOUT": "",
+    "AGENT_TIMEOUT": "",
+    "MAX_ITERATIONS": "",
+    "MAX_TOOL_CALLS": ""
 }
