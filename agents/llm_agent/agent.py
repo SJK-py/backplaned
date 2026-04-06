@@ -157,43 +157,36 @@ def _normalize_response(
     content: Optional[str],
     tool_calls: list[dict[str, Any]],
     reasoning_content: Optional[str],
-    include_thinking: bool,
     usage: Optional[dict[str, int]] = None,
     thinking_blocks: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """
-    Build normalized response dict with optional thinking.
+    Build normalized response dict.
 
-    Handles thinking from two sources:
-    1. ``reasoning_content`` field (OpenAI o1, some providers)
-    2. ``<think>`` tags in content (Qwen3, DeepSeek-R1, etc.)
-
-    When ``include_thinking`` is True, thinking is prepended as
-    ``<think>...</think>`` in the content field.
-    When False, thinking is stripped from content entirely.
+    Strips ``<think>...</think>`` tags from content (used by Qwen3,
+    DeepSeek-R1, etc.) and captures them as thinking_blocks alongside
+    any provider-native thinking data.
 
     ``thinking_blocks`` carries opaque provider-specific thinking data
     that callers must round-trip in multi-turn tool-calling conversations.
+    Callers can also extract a summary for verbose progress events.
     """
     # Extract thinking from <think> tags in content
     clean_content, tag_thinking = _strip_thinking(content)
 
-    # Merge thinking sources
-    all_thinking = "\n".join(
-        t for t in [reasoning_content, tag_thinking] if t
-    ) or None
+    # Merge all thinking sources into thinking_blocks
+    all_blocks = list(thinking_blocks or [])
+    # Add thinking from <think> tags and reasoning_content as generic blocks
+    extra_thinking = "\n".join(t for t in [reasoning_content, tag_thinking] if t) or None
+    if extra_thinking and not all_blocks:
+        # Only add as a block if no provider-native blocks already captured it
+        all_blocks.append({"type": "thinking", "text": extra_thinking})
 
-    if include_thinking and all_thinking:
-        final_content = f"<think>\n{all_thinking}\n</think>\n{clean_content or ''}"
-        final_content = final_content.strip()
-    else:
-        final_content = clean_content
-
-    result: dict[str, Any] = {"content": final_content, "tool_calls": tool_calls}
+    result: dict[str, Any] = {"content": clean_content, "tool_calls": tool_calls}
     if usage:
         result["usage"] = usage
-    if thinking_blocks:
-        result["thinking_blocks"] = thinking_blocks
+    if all_blocks:
+        result["thinking_blocks"] = all_blocks
     return result
 
 
@@ -251,9 +244,8 @@ async def _call_openai_compat(
     temperature: Optional[float],
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
 ) -> dict[str, Any]:
-    """Call an OpenAI-compatible endpoint (also used for native openai/gemini)."""
+    """Call an OpenAI-compatible endpoint (also used for native openai)."""
     provider = model_cfg["provider"]
     base_url = model_cfg.get("base_url")
     if provider == "openai":
@@ -316,7 +308,7 @@ async def _call_openai_compat(
             "completion_tokens": getattr(resp.usage, "completion_tokens", 0) or 0,
         }
 
-    return _normalize_response(choice.message.content, tool_calls, reasoning, include_thinking, usage)
+    return _normalize_response(choice.message.content, tool_calls, reasoning, usage)
 
 
 async def _call_anthropic(
@@ -326,7 +318,6 @@ async def _call_anthropic(
     temperature: Optional[float],
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
 ) -> dict[str, Any]:
     """Call the Anthropic Messages API."""
     client = _get_anthropic_client(
@@ -470,7 +461,7 @@ async def _call_anthropic(
             "completion_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
         }
 
-    return _normalize_response(content, tool_calls, reasoning, include_thinking, usage,
+    return _normalize_response(content, tool_calls, reasoning, usage,
                                thinking_blocks=thinking_blocks or None)
 
 
@@ -481,7 +472,6 @@ async def _call_gemini(
     temperature: Optional[float],
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
 ) -> dict[str, Any]:
     """Call the Gemini API via the native google-genai SDK."""
     from google.genai import types
@@ -638,7 +628,7 @@ async def _call_gemini(
             "completion_tokens": getattr(resp.usage_metadata, "candidates_token_count", 0) or 0,
         }
 
-    return _normalize_response(content, tool_calls, reasoning, include_thinking, usage,
+    return _normalize_response(content, tool_calls, reasoning, usage,
                                thinking_blocks=thinking_blocks or None)
 
 
@@ -649,16 +639,15 @@ async def _dispatch_llm_call(
     temperature: Optional[float],
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
 ) -> dict[str, Any]:
     """Route to the correct provider implementation."""
     provider = model_cfg.get("provider", "openai_compat")
     if provider in ("openai_compat", "openai"):
-        return await _call_openai_compat(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
+        return await _call_openai_compat(model_cfg, messages, tools, temperature, max_tokens, tool_choice)
     if provider == "gemini":
-        return await _call_gemini(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
+        return await _call_gemini(model_cfg, messages, tools, temperature, max_tokens, tool_choice)
     if provider == "anthropic":
-        return await _call_anthropic(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
+        return await _call_anthropic(model_cfg, messages, tools, temperature, max_tokens, tool_choice)
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -675,7 +664,6 @@ async def _call_with_retry(
     temperature: Optional[float],
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
     user_id: str = "not_specified",
 ) -> dict[str, Any]:
     """
@@ -714,7 +702,7 @@ async def _call_with_retry(
                 break
             try:
                 return await _dispatch_llm_call(
-                    model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking,
+                    model_cfg, messages, tools, temperature, max_tokens, tool_choice,
                 )
             except Exception as exc:
                 logger.warning(
@@ -795,7 +783,6 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     tool_choice: Optional[Any] = None
-    include_thinking: bool = False
     model_id: Optional[str] = explicit_model_id
 
     if llmcall_raw:
@@ -806,7 +793,6 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
         tool_choice = llmcall.tool_choice
         temperature = llmcall.temperature
         max_tokens = llmcall.max_tokens
-        include_thinking = llmcall.include_thinking
         if llmcall.model_id and not model_id:
             model_id = llmcall.model_id
     elif llmdata_raw:
@@ -883,7 +869,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
 
     # Call LLM with retry + fallback
     result = await _call_with_retry(
-        cfg, model_id, messages, tools, temperature, max_tokens, tool_choice, include_thinking,
+        cfg, model_id, messages, tools, temperature, max_tokens, tool_choice,
         user_id=user_id,
     )
 

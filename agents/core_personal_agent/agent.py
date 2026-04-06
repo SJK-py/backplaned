@@ -488,7 +488,6 @@ async def _llm_call(
     loop_state: "_LoopState",
     model_id: Optional[str] = None,
     tool_choice: Optional[Any] = None,
-    include_thinking: bool = False,
 ) -> _LLMResponse:
     """
     Call the centralized llm_agent and return a normalised _LLMResponse.
@@ -506,7 +505,6 @@ async def _llm_call(
         "messages": messages,
         "tools": tools,
         "model_id": model_id or LLM_MODEL_ID,
-        "include_thinking": include_thinking,
     }
     if tool_choice is not None:
         llmcall_payload["tool_choice"] = tool_choice
@@ -821,14 +819,13 @@ def _handle_read_file_text(arguments: dict[str, Any], session_id: str) -> str:
         return f"Error reading file: {exc}"
 
 
-def _extract_thinking_summary(content: Optional[str]) -> Optional[str]:
-    """Extract the last sentence from <think> tags in content, if present."""
-    if not content:
+def _extract_thinking_summary(thinking_blocks: Optional[list[dict[str, Any]]]) -> Optional[str]:
+    """Extract a brief summary from thinking_blocks for verbose progress events."""
+    if not thinking_blocks:
         return None
-    match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
-    if not match:
-        return None
-    thinking = match.group(1).strip()
+    # Concatenate all thinking text from the blocks
+    parts = [b.get("text") or b.get("thinking") or "" for b in thinking_blocks]
+    thinking = "\n".join(p.strip() for p in parts if p.strip())
     if not thinking:
         return None
     # Get the last non-empty line (most relevant decision)
@@ -1175,22 +1172,14 @@ async def _agent_loop(
         llm_resp = await _llm_call(
             llm_messages, tools, loop_state,
             model_id=user_model_id,
-            include_thinking=True,
         )
         if llm_resp.usage:
             loop_state.prompt_tokens += llm_resp.usage.get("prompt_tokens", 0)
             loop_state.completion_tokens += llm_resp.usage.get("completion_tokens", 0)
 
-        # Extract thinking summary and strip <think> tags from content
-        # for history storage. Progress events get the summary.
-        thinking_summary = _extract_thinking_summary(llm_resp.content)
-        if llm_resp.content:
-            llm_resp = _LLMResponse(
-                content=re.sub(r"<think>.*?</think>\s*", "", llm_resp.content, flags=re.DOTALL).strip() or None,
-                tool_calls=llm_resp.tool_calls,
-                usage=llm_resp.usage,
-                thinking_blocks=llm_resp.thinking_blocks,
-            )
+        # Extract thinking summary for verbose progress events.
+        # Content is already clean (llm_agent strips <think> tags).
+        thinking_summary = _extract_thinking_summary(llm_resp.thinking_blocks)
 
         if not llm_resp.tool_calls:
             # Final answer — push progress and persist to session history.
