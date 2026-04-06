@@ -135,7 +135,7 @@ Each embedded agent under `agents/` has:
 
 Key configurations:
 - **llm_agent** — Model definitions, provider settings, retry policy, per-user model ACL
-- **memory_agent** — LLM/embedding endpoints, LanceDB table name, embedding dimensions
+- **memory_agent** — LLM model ID (routed via llm_agent), embedding endpoint, LanceDB table settings
 - **md_converter** — OCR toggle and VLM endpoint for scanned document support
 - **web_agent** — Search provider (DuckDuckGo/SearXNG/Brave), fetch limits
 

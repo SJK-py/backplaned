@@ -1,9 +1,9 @@
 """
 agents/memory_agent/memory_store.py — Self-contained memory store.
 
-Replaces mem0 + Qdrant with a local LanceDB vector store and direct LLM
-calls for fact extraction and memory consolidation.  The two-pass algorithm
-mirrors mem0's core logic:
+Replaces mem0 + Qdrant with a local LanceDB vector store and LLM-driven
+fact extraction / memory consolidation.  The two-pass algorithm mirrors
+mem0's core logic:
 
   Pass 1 (Fact Extraction):
     Send conversation text to the LLM to extract discrete, atomic facts.
@@ -13,7 +13,11 @@ mirrors mem0's core logic:
     the LLM to classify each as ADD / UPDATE / DELETE / NONE.  Execute the
     resulting operations against the local LanceDB table.
 
-Search is a straightforward vector similarity lookup — no LLM call needed.
+Search uses LanceDB hybrid mode (vector + BM25 full-text) for best recall.
+
+LLM calls are made via an injectable callable so the agent layer can route
+them through llm_agent (with per-user model control).  Embedding calls are
+made directly for latency reasons.
 """
 
 from __future__ import annotations
@@ -25,13 +29,16 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import lancedb
 import pyarrow as pa
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# Type alias: (system_prompt, user_message) -> raw LLM text
+LLMCallable = Callable[[str, str], str]
 
 # ---------------------------------------------------------------------------
 # LLM prompt templates
@@ -137,27 +144,14 @@ Return ONLY valid JSON in this exact structure:
 # ---------------------------------------------------------------------------
 
 class MemoryStore:
-    """Self-contained memory store backed by LanceDB + OpenAI-compatible LLM."""
-
-    _SCHEMA = pa.schema(
-        [
-            pa.field("id", pa.string()),
-            pa.field("user_id", pa.string()),
-            pa.field("text", pa.string()),
-            pa.field("created_at", pa.float64()),
-            pa.field("updated_at", pa.float64()),
-            pa.field("vector", pa.list_(pa.float32())),
-        ]
-    )
+    """Self-contained memory store backed by LanceDB with hybrid search."""
 
     def __init__(
         self,
         *,
         db_path: str | Path,
         table_name: str = "memories",
-        llm_base_url: str,
-        llm_api_key: str,
-        llm_model: str,
+        llm_fn: LLMCallable,
         embed_base_url: str,
         embed_api_key: str,
         embed_model: str,
@@ -167,11 +161,10 @@ class MemoryStore:
         self._table_name = table_name
         self._embedding_dims = embedding_dims
 
-        # LLM client (for fact extraction & consolidation)
-        self._llm = OpenAI(base_url=llm_base_url, api_key=llm_api_key)
-        self._llm_model = llm_model
+        # Injectable LLM callable (routed through llm_agent)
+        self._llm_fn = llm_fn
 
-        # Embedding client (may be the same server, different model)
+        # Embedding client (direct for latency)
         self._embedder = OpenAI(base_url=embed_base_url, api_key=embed_api_key)
         self._embed_model = embed_model
 
@@ -187,7 +180,6 @@ class MemoryStore:
         """Open or create the memories table."""
         if self._table_name in self._db.table_names():
             return self._db.open_table(self._table_name)
-        # Create empty table with schema
         return self._db.create_table(
             self._table_name,
             schema=self._make_schema(),
@@ -204,6 +196,13 @@ class MemoryStore:
                 pa.field("vector", pa.list_(pa.float32(), self._embedding_dims)),
             ]
         )
+
+    def _rebuild_fts_index(self) -> None:
+        """Rebuild the BM25 full-text search index on the text column."""
+        try:
+            self._table.create_fts_index("text", replace=True)
+        except Exception as exc:
+            logger.warning("FTS index rebuild: %s", exc)
 
     # ------------------------------------------------------------------
     # Embedding
@@ -222,27 +221,17 @@ class MemoryStore:
     # ------------------------------------------------------------------
 
     def _llm_call(self, system: str, user: str) -> str:
-        """Single LLM chat completion call."""
-        resp = self._llm.chat.completions.create(
-            model=self._llm_model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=0,
-            response_format={"type": "json_object"},
-        )
-        return resp.choices[0].message.content or ""
+        """Call LLM via the injected callable."""
+        return self._llm_fn(system, user)
 
-    def _parse_json(self, text: str) -> dict[str, Any]:
+    @staticmethod
+    def _parse_json(text: str) -> dict[str, Any]:
         """Robustly parse JSON from LLM output."""
         text = text.strip()
-        # Try direct parse first
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-        # Try extracting from markdown code block
         m = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
         if m:
             try:
@@ -264,7 +253,6 @@ class MemoryStore:
         parsed = self._parse_json(raw)
 
         facts = parsed.get("facts", [])
-        # Normalize: handle cases where LLM returns list of dicts
         result: list[str] = []
         for f in facts:
             if isinstance(f, str) and f.strip():
@@ -311,7 +299,8 @@ class MemoryStore:
                 if rid not in candidates:
                     candidates[rid] = row
 
-        # Build old memory list with sequential integer IDs (prevents LLM hallucinating UUIDs)
+        # Build old memory list with sequential integer IDs
+        # (prevents LLM from hallucinating UUIDs)
         uuid_to_idx: dict[str, str] = {}
         idx_to_uuid: dict[str, str] = {}
         old_memory_list: list[dict[str, str]] = []
@@ -358,6 +347,7 @@ class MemoryStore:
         """Apply ADD/UPDATE/DELETE/NONE operations to the store."""
         stats = {"add": 0, "update": 0, "delete": 0, "none": 0}
         now = time.time()
+        mutated = False
 
         for op in operations:
             event = str(op.get("event", "NONE")).upper()
@@ -380,6 +370,7 @@ class MemoryStore:
                     ]
                 )
                 stats["add"] += 1
+                mutated = True
                 logger.debug("ADD memory: %s", text[:80])
 
             elif event == "UPDATE" and text and existing_uuid:
@@ -394,6 +385,7 @@ class MemoryStore:
                         },
                     )
                     stats["update"] += 1
+                    mutated = True
                     logger.debug(
                         "UPDATE memory %s: %s -> %s",
                         existing_uuid,
@@ -407,12 +399,17 @@ class MemoryStore:
                 try:
                     self._table.delete(f"id = '{existing_uuid}'")
                     stats["delete"] += 1
+                    mutated = True
                     logger.debug("DELETE memory %s", existing_uuid)
                 except Exception as exc:
                     logger.warning("DELETE failed for %s: %s", existing_uuid, exc)
 
             else:
                 stats["none"] += 1
+
+        # Rebuild FTS index when data changed
+        if mutated:
+            self._rebuild_fts_index()
 
         return stats
 
@@ -437,9 +434,10 @@ class MemoryStore:
         return {"facts_extracted": len(facts), "operations": stats}
 
     def search(self, query: str, *, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Semantic search over memories for a user.
+        """Hybrid search (vector + BM25) over memories for a user.
 
-        Returns a list of dicts with 'id', 'text', 'created_at', 'updated_at', and '_distance'.
+        Returns a list of dicts with 'id', 'memory', 'created_at',
+        'updated_at', and 'score'.
         """
         try:
             count = self._table.count_rows(f"user_id = '{user_id}'")
@@ -451,23 +449,50 @@ class MemoryStore:
         vec = self._embed_one(query)
         try:
             results = (
-                self._table.search(vec)
+                self._table.search(query_type="hybrid")
+                .vector(vec)
+                .text(query)
                 .where(f"user_id = '{user_id}'")
                 .limit(limit)
                 .to_list()
             )
-        except Exception as exc:
-            logger.error("Search failed: %s", exc)
-            return []
+        except Exception:
+            # FTS index may not exist yet — fall back to vector-only search
+            logger.debug("Hybrid search unavailable, falling back to vector search")
+            try:
+                results = (
+                    self._table.search(vec)
+                    .where(f"user_id = '{user_id}'")
+                    .limit(limit)
+                    .to_list()
+                )
+            except Exception as exc:
+                logger.error("Search failed: %s", exc)
+                return []
 
-        # Return clean results without the raw vector
-        return [
-            {
-                "id": r["id"],
-                "memory": r["text"],
-                "created_at": r.get("created_at"),
-                "updated_at": r.get("updated_at"),
-                "score": 1.0 - float(r.get("_distance", 0.0)),
-            }
-            for r in results
-        ]
+        # Determine score column (LanceDB uses different names)
+        score_col = None
+        if results:
+            first = results[0]
+            for col in ("_relevance_score", "_score", "_distance"):
+                if col in first:
+                    score_col = col
+                    break
+
+        out: list[dict[str, Any]] = []
+        for r in results:
+            score = 0.0
+            if score_col:
+                raw = float(r.get(score_col, 0.0))
+                # _distance is lower-is-better; _relevance_score is higher-is-better
+                score = (1.0 - raw) if score_col == "_distance" else raw
+            out.append(
+                {
+                    "id": r["id"],
+                    "memory": r["text"],
+                    "created_at": r.get("created_at"),
+                    "updated_at": r.get("updated_at"),
+                    "score": score,
+                }
+            )
+        return out
