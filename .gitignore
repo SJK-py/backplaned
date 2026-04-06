@@ -10,6 +10,7 @@ __pycache__/
 */*/.env
 start.config
 agents/*/config.json
+agents_external/*/config.json
 
 # Credentials (generated at runtime)
 */data/credentials.json
