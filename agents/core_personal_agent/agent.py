@@ -859,9 +859,14 @@ def _extract_thinking_summary(thinking_blocks: Optional[list[dict[str, Any]]]) -
     thinking = "\n".join(texts)
     if not thinking:
         return None
-    # Get the last non-empty line (most relevant decision)
+    # Get the last non-empty line (most relevant decision), capped at 200 chars.
     lines = [l.strip() for l in thinking.split("\n") if l.strip()]
-    return lines[-1] if lines else None
+    if not lines:
+        return None
+    summary = lines[-1]
+    if len(summary) > 200:
+        summary = summary[:200] + "…"
+    return summary
 
 
 async def _push_progress(task_id: str, event_type: str, content: str = "", metadata: Optional[dict] = None) -> None:
@@ -1230,11 +1235,11 @@ async def _agent_loop(
             return AgentOutput(content=reply, files=files_out)
 
         # Push thinking + tool call progress events.
-        # Prefer the LLM's text message accompanying tool calls; fall back
-        # to the last line of thinking blocks for context.
+        # Thinking summary is sent separately; only attach LLM's explicit
+        # text message (not thinking) to the first tool_call event.
         if thinking_summary:
             await _push_progress(loop_state.task_id, "thinking", thinking_summary)
-        tool_call_context = (llm_resp.content or "").strip() or thinking_summary or ""
+        tool_call_context = (llm_resp.content or "").strip()
         for tc in llm_resp.tool_calls:
             tool_msg = f"{tool_call_context}\nCalling {tc.name}" if tool_call_context else f"Calling {tc.name}"
             await _push_progress(
