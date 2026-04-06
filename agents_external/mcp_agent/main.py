@@ -70,7 +70,10 @@ from mcp_manager import MCPManager, MCPServerConfig
 
 HOST: str = os.environ.get("AGENT_HOST", "0.0.0.0")
 PORT: int = int(os.environ.get("AGENT_PORT", "8082"))
-ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "changeme")
+ADMIN_PASSWORD: str = os.environ.get("ADMIN_PASSWORD", "")
+if not ADMIN_PASSWORD:
+    import warnings as _w
+    _w.warn("ADMIN_PASSWORD is not set — web UI login will be unavailable until configured", stacklevel=1)
 SESSION_SECRET: str = os.environ.get("SESSION_SECRET", _secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")

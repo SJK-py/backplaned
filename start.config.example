@@ -109,3 +109,10 @@ CRON_PORT=8085
 KB_PORT=8086
 CODING_PORT=8100
 REMINDER_PORT=8101
+
+# ═══════════════════════════════════════════════════════════════════════
+# Docker (docker-compose only)
+# ═══════════════════════════════════════════════════════════════════════
+
+# DATA_ROOT="./data"              # Host directory for all persistent data volumes
+# QDRANT_API_KEY=""               # API key for Qdrant authentication (recommended in production)

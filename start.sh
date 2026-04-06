@@ -4,19 +4,28 @@ set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 VENV_BIN="$ROOT/.venv/$([ -d "$ROOT/.venv/Scripts" ] && echo Scripts || echo bin)"
 
-# ── Load start.config (user settings) ───────────────────────────────────
+# ── Load root .env (router defaults — loaded first so start.config wins) ─
+if [ ! -f "$ROOT/.env" ]; then
+    if [ -f "$ROOT/.env.example" ]; then
+        cp "$ROOT/.env.example" "$ROOT/.env"
+        echo "[start] Created .env from .env.example"
+    else
+        echo "[start] ERROR: $ROOT/.env not found and no .env.example to copy from." >&2
+        exit 1
+    fi
+fi
+set -a
+# shellcheck disable=SC1091
+source "$ROOT/.env"
+set +a
+
+# ── Load start.config (user settings — takes precedence over .env) ─────
 if [ -f "$ROOT/start.config" ]; then
     set -a
     # shellcheck disable=SC1091
     source "$ROOT/start.config"
     set +a
 fi
-
-# ── Load root .env (router defaults) ────────────────────────────────────
-set -a
-# shellcheck disable=SC1091
-source "$ROOT/.env"
-set +a
 
 # ── Propagate start.config values into agent configs ────────────────────
 
@@ -63,6 +72,15 @@ f.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="ut
 PYEOF
 }
 
+# ── Bootstrap config.json from defaults if missing ─────────────────────
+for default_cfg in "$ROOT"/agents/*/config.default.json; do
+    agent_dir="$(dirname "$default_cfg")"
+    cfg="$agent_dir/config.json"
+    if [ ! -f "$cfg" ]; then
+        cp "$default_cfg" "$cfg"
+    fi
+done
+
 # Propagate ADMIN_TOKEN to root .env and web_admin
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/.env" "ADMIN_TOKEN" "$ADMIN_TOKEN"
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/agents_external/web_admin/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
@@ -81,6 +99,20 @@ if [ -n "$ADMIN_PASSWORD" ]; then
         set_env_var "$agent_env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
     done
 fi
+
+# Generate and propagate SESSION_SECRET (shared across all agents)
+SESSION_SECRET="${SESSION_SECRET:-$("$VENV_BIN/python3" -c 'import secrets; print(secrets.token_hex(32))')}"
+for agent_env in \
+    "$ROOT/agents_external/channel_agent/.env" \
+    "$ROOT/agents_external/coding_agent/.env" \
+    "$ROOT/agents_external/cron_agent/.env" \
+    "$ROOT/agents_external/kb_agent/.env" \
+    "$ROOT/agents_external/mcp_agent/.env" \
+    "$ROOT/agents_external/mcp_server/.env" \
+    "$ROOT/agents_external/reminder_agent/.env" \
+    "$ROOT/agents_external/web_admin/.env"; do
+    set_env_var "$agent_env" "SESSION_SECRET" "$SESSION_SECRET"
+done
 
 # Propagate LLM Gateway settings to llm_agent config.json
 if [ -n "$LLM_BASE_URL" ]; then
@@ -359,6 +391,35 @@ echo "[start]   KB Agent        PID=$KB_PID          http://localhost:${KB_PORT}
 echo "[start] Press Ctrl+C to stop all."
 echo ""
 
-trap "echo '[stop] Shutting down...'; kill $ALL_PIDS 2>/dev/null; wait" SIGINT SIGTERM
+_shutdown() {
+    echo "[stop] Shutting down..."
+    kill $ALL_PIDS 2>/dev/null
+    wait
+    exit 0
+}
+trap _shutdown SIGINT SIGTERM
 
-wait
+# Monitor child processes — log which service died instead of silently exiting
+set +e
+while true; do
+    wait -n -p EXITED_PID $ALL_PIDS 2>/dev/null
+    EXIT_CODE=$?
+    # Identify which service exited
+    for name_pid in \
+        "Router:$ROUTER_PID" "Web Admin:$WEB_ADMIN_PID" "Channel Agent:$CHANNEL_PID" \
+        "MCP Server:$MCP_SERVER_PID" "MCP Agent:$MCP_AGENT_PID" "Coding Agent:$CODING_PID" \
+        "Reminder Agent:$REMINDER_PID" "Cron Agent:$CRON_PID" "KB Agent:$KB_PID"; do
+        svc="${name_pid%%:*}"
+        pid="${name_pid##*:}"
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "[start] WARNING: $svc (PID=$pid) exited with code $EXIT_CODE"
+        fi
+    done
+    # If the router itself died, shut everything down
+    if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
+        echo "[start] ERROR: Router has exited — shutting down all services."
+        kill $ALL_PIDS 2>/dev/null
+        wait
+        exit 1
+    fi
+done
