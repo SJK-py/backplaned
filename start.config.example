@@ -101,6 +101,20 @@ DISCORD_TOKEN=""                  # Bot token from Discord Developer Portal
 DISCORD_ALLOWED_IDS=""            # Comma-separated Discord user IDs allowed to interact
 
 # ═══════════════════════════════════════════════════════════════════════
+# Exclude External Agents (optional)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Comma-separated list of external agent directory names to skip during
+# bootstrap (config propagation, invitation creation) and startup.
+# Useful for Docker deployments where some agents run in separate
+# containers, or to disable agents you don't need.
+#
+# Available agents: channel_agent, coding_agent, cron_agent, kb_agent,
+#                   mcp_agent, mcp_server, reminder_agent, web_admin
+
+# EXCLUDE_AGENTS=""                 # e.g. "coding_agent" or "coding_agent,kb_agent"
+
+# ═══════════════════════════════════════════════════════════════════════
 # Ports (bare-metal deployment)
 # ═══════════════════════════════════════════════════════════════════════
 #
@@ -122,3 +136,4 @@ REMINDER_PORT=8101
 
 # DATA_ROOT="./data"              # Host directory for all persistent data volumes
 # QDRANT_API_KEY=""               # API key for Qdrant authentication (recommended in production)
+# EXCLUDE_AGENTS="coding_agent"   # coding_agent runs in its own container; exclude from router
