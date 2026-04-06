@@ -4,15 +4,7 @@ set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 VENV_BIN="$ROOT/.venv/$([ -d "$ROOT/.venv/Scripts" ] && echo Scripts || echo bin)"
 
-# ── Load start.config (user settings) ───────────────────────────────────
-if [ -f "$ROOT/start.config" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$ROOT/start.config"
-    set +a
-fi
-
-# ── Load root .env (router defaults) ────────────────────────────────────
+# ── Load root .env (router defaults — loaded first so start.config wins) ─
 if [ ! -f "$ROOT/.env" ]; then
     if [ -f "$ROOT/.env.example" ]; then
         cp "$ROOT/.env.example" "$ROOT/.env"
@@ -26,6 +18,14 @@ set -a
 # shellcheck disable=SC1091
 source "$ROOT/.env"
 set +a
+
+# ── Load start.config (user settings — takes precedence over .env) ─────
+if [ -f "$ROOT/start.config" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/start.config"
+    set +a
+fi
 
 # ── Propagate start.config values into agent configs ────────────────────
 
