@@ -442,6 +442,7 @@ async def run_agent_loop(
         llm_content = llm_result.get("content")
         llm_tool_calls = llm_result.get("tool_calls", [])
         llm_usage = llm_result.get("usage")
+        llm_thinking_blocks = llm_result.get("thinking_blocks")
         if llm_usage:
             prompt_tokens += llm_usage.get("prompt_tokens", 0)
             completion_tokens += llm_usage.get("completion_tokens", 0)
@@ -454,6 +455,8 @@ async def run_agent_loop(
                 {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": json.dumps(tc["arguments"])}}
                 for tc in llm_tool_calls
             ]
+        if llm_thinking_blocks:
+            assistant_dict["thinking_blocks"] = llm_thinking_blocks
         messages.append(assistant_dict)
 
         if not llm_tool_calls:

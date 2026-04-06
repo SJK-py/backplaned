@@ -159,6 +159,7 @@ def _normalize_response(
     reasoning_content: Optional[str],
     include_thinking: bool,
     usage: Optional[dict[str, int]] = None,
+    thinking_blocks: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """
     Build normalized response dict with optional thinking.
@@ -170,6 +171,9 @@ def _normalize_response(
     When ``include_thinking`` is True, thinking is prepended as
     ``<think>...</think>`` in the content field.
     When False, thinking is stripped from content entirely.
+
+    ``thinking_blocks`` carries opaque provider-specific thinking data
+    that callers must round-trip in multi-turn tool-calling conversations.
     """
     # Extract thinking from <think> tags in content
     clean_content, tag_thinking = _strip_thinking(content)
@@ -188,6 +192,8 @@ def _normalize_response(
     result: dict[str, Any] = {"content": final_content, "tool_calls": tool_calls}
     if usage:
         result["usage"] = usage
+    if thinking_blocks:
+        result["thinking_blocks"] = thinking_blocks
     return result
 
 
@@ -197,6 +203,7 @@ def _normalize_response(
 
 _openai_clients: dict[tuple, Any] = {}   # (provider, base_url, api_key) → AsyncOpenAI
 _anthropic_clients: dict[tuple, Any] = {}  # (api_key,) → AsyncAnthropic
+_gemini_clients: dict[tuple, Any] = {}     # (api_key,) → genai.Client
 
 
 def _get_openai_client(provider: str, base_url: Optional[str], api_key: str, timeout: float) -> Any:
@@ -218,6 +225,17 @@ def _get_anthropic_client(api_key: str, timeout: float) -> Any:
     if client is None:
         client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
         _anthropic_clients[key] = client
+    return client
+
+
+def _get_gemini_client(api_key: str) -> Any:
+    """Return a cached google-genai Client, creating one if needed."""
+    from google import genai
+    key = (api_key,)
+    client = _gemini_clients.get(key)
+    if client is None:
+        client = genai.Client(api_key=api_key)
+        _gemini_clients[key] = client
     return client
 
 
@@ -266,6 +284,11 @@ async def _call_openai_compat(
                 kwargs["tool_choice"] = tool_choice
         else:
             kwargs["tool_choice"] = "auto"
+
+    # reasoning_effort — OpenAI o-series / Gemini OpenAI-compat
+    reasoning_effort = model_cfg.get("reasoning_effort")
+    if reasoning_effort and provider in ("openai", "gemini"):
+        kwargs["reasoning_effort"] = reasoning_effort
 
     resp = await client.chat.completions.create(**kwargs)
 
@@ -331,6 +354,9 @@ async def _call_anthropic(
         elif role == "assistant" and m.get("tool_calls"):
             # Convert OpenAI assistant tool_calls to Anthropic tool_use blocks.
             content_blocks: list[dict[str, Any]] = []
+            # Round-trip thinking blocks from previous response (must come first).
+            for tb in m.get("thinking_blocks") or []:
+                content_blocks.append(tb)
             text = m.get("content")
             if text:
                 content_blocks.append({"type": "text", "text": text})
@@ -408,16 +434,26 @@ async def _call_anthropic(
         else:
             kwargs["tool_choice"] = {"type": "auto"}
 
+    # Thinking configuration
+    if model_cfg.get("enable_thinking"):
+        kwargs["thinking"] = {"type": "adaptive"}
+    reasoning_effort = model_cfg.get("reasoning_effort")
+    if reasoning_effort:
+        kwargs["output_config"] = {"effort": reasoning_effort}
+
     resp = await client.messages.create(**kwargs)
 
     text_parts: list[str] = []
     reasoning: Optional[str] = None
     tool_calls: list[dict[str, Any]] = []
+    thinking_blocks: list[dict[str, Any]] = []
     for block in resp.content:
         if block.type == "text":
             text_parts.append(block.text)
         elif block.type == "thinking":
             reasoning = getattr(block, "thinking", None)
+            # Preserve the full thinking block for round-tripping (includes signature).
+            thinking_blocks.append(block.model_dump())
         elif block.type == "tool_use":
             tool_calls.append({
                 "id": block.id,
@@ -434,7 +470,176 @@ async def _call_anthropic(
             "completion_tokens": getattr(resp.usage, "output_tokens", 0) or 0,
         }
 
-    return _normalize_response(content, tool_calls, reasoning, include_thinking, usage)
+    return _normalize_response(content, tool_calls, reasoning, include_thinking, usage,
+                               thinking_blocks=thinking_blocks or None)
+
+
+async def _call_gemini(
+    model_cfg: dict[str, Any],
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    tool_choice: Optional[Any] = None,
+    include_thinking: bool = False,
+) -> dict[str, Any]:
+    """Call the Gemini API via the native google-genai SDK."""
+    from google.genai import types
+
+    client = _get_gemini_client(model_cfg.get("api_key", ""))
+
+    # --- Convert OpenAI-format tools to Gemini FunctionDeclaration ---
+    gem_tools = None
+    if tools:
+        func_decls = []
+        for t in tools:
+            fn = t.get("function", t)
+            params = fn.get("parameters", {})
+            func_decls.append(types.FunctionDeclaration(
+                name=fn.get("name", t.get("name", "")),
+                description=fn.get("description", ""),
+                parameters=params if params else None,
+            ))
+        gem_tools = [types.Tool(function_declarations=func_decls)]
+
+    # --- Convert OpenAI-format messages to Gemini contents ---
+    system_instruction = None
+    gem_contents: list[types.Content] = []
+
+    for m in messages:
+        role = m.get("role")
+        if role == "system":
+            system_instruction = m.get("content", "")
+        elif role == "user":
+            content = m.get("content", "")
+            gem_contents.append(types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=content)],
+            ))
+        elif role == "assistant":
+            parts: list[types.Part] = []
+            # Round-trip thinking blocks from previous response.
+            for tb in m.get("thinking_blocks") or []:
+                parts.append(types.Part(thought=True, text=tb.get("text", "")))
+            text = m.get("content")
+            if text:
+                parts.append(types.Part.from_text(text=text))
+            # Convert tool_calls to FunctionCall parts.
+            for tc in m.get("tool_calls") or []:
+                fn = tc.get("function", tc)
+                tc_args = fn.get("arguments", {})
+                if isinstance(tc_args, str):
+                    try:
+                        tc_args = json.loads(tc_args)
+                    except (json.JSONDecodeError, TypeError):
+                        tc_args = {}
+                parts.append(types.Part.from_function_call(
+                    name=fn.get("name", tc.get("name", "")),
+                    args=tc_args,
+                ))
+            if parts:
+                gem_contents.append(types.Content(role="model", parts=parts))
+        elif role == "tool":
+            # Convert OpenAI tool result to Gemini FunctionResponse.
+            tc_name = m.get("name", "")
+            # Try to find the tool name from the preceding assistant message's tool_calls.
+            if not tc_name:
+                tc_id = m.get("tool_call_id", "")
+                for prev_m in reversed(messages):
+                    if prev_m.get("role") == "assistant":
+                        for tc in prev_m.get("tool_calls") or []:
+                            fn = tc.get("function", tc)
+                            if tc.get("id") == tc_id:
+                                tc_name = fn.get("name", tc.get("name", ""))
+                                break
+                        break
+            result_content = m.get("content", "")
+            try:
+                result_obj = json.loads(result_content)
+            except (json.JSONDecodeError, TypeError):
+                result_obj = {"result": result_content}
+            gem_contents.append(types.Content(
+                role="user",
+                parts=[types.Part.from_function_response(
+                    name=tc_name,
+                    response=result_obj,
+                )],
+            ))
+
+    # --- Build generation config ---
+    gen_config: dict[str, Any] = {}
+    temp = temperature if temperature is not None else model_cfg.get("temperature", 0.7)
+    if temp is not None:
+        gen_config["temperature"] = temp
+    mt = max_tokens if max_tokens is not None else model_cfg.get("max_tokens", 4096)
+    if mt is not None:
+        gen_config["max_output_tokens"] = mt
+
+    # Thinking configuration
+    thinking_config: dict[str, Any] = {}
+    if model_cfg.get("enable_thinking"):
+        thinking_config["include_thoughts"] = True
+    reasoning_effort = model_cfg.get("reasoning_effort")
+    thinking_budget = model_cfg.get("thinking_budget")
+    if reasoning_effort:
+        # Map reasoning_effort to thinkingLevel (Gemini 3.x) or thinkingBudget (2.5).
+        # The SDK auto-selects the right param based on model.
+        _effort_to_budget = {"low": 1024, "medium": 8192, "high": 24576}
+        thinking_config["thinking_budget"] = _effort_to_budget.get(reasoning_effort, 8192)
+    if thinking_budget is not None:
+        thinking_config["thinking_budget"] = int(thinking_budget)
+    if thinking_config:
+        thinking_config.setdefault("include_thoughts", True)
+        gen_config["thinking_config"] = types.ThinkingConfig(**thinking_config)
+
+    config = types.GenerateContentConfig(**gen_config)
+    if system_instruction:
+        config.system_instruction = system_instruction
+    if gem_tools:
+        config.tools = gem_tools
+
+    # --- Call API ---
+    resp = await asyncio.to_thread(
+        client.models.generate_content,
+        model=model_cfg["model"],
+        contents=gem_contents,
+        config=config,
+    )
+
+    # --- Parse response ---
+    text_parts: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    thinking_blocks: list[dict[str, Any]] = []
+    reasoning: Optional[str] = None
+    tc_counter = 0
+
+    for candidate in resp.candidates:
+        for part in candidate.content.parts:
+            if getattr(part, "thought", False):
+                thinking_blocks.append({"type": "thinking", "text": part.text or ""})
+                reasoning = part.text
+            elif part.function_call:
+                fc = part.function_call
+                tool_calls.append({
+                    "id": f"call_{tc_counter}",
+                    "name": fc.name,
+                    "arguments": dict(fc.args) if fc.args else {},
+                })
+                tc_counter += 1
+            elif part.text:
+                text_parts.append(part.text)
+
+    content = "\n\n".join(text_parts) if text_parts else None
+
+    usage = None
+    if resp.usage_metadata:
+        usage = {
+            "prompt_tokens": getattr(resp.usage_metadata, "prompt_token_count", 0) or 0,
+            "completion_tokens": getattr(resp.usage_metadata, "candidates_token_count", 0) or 0,
+        }
+
+    return _normalize_response(content, tool_calls, reasoning, include_thinking, usage,
+                               thinking_blocks=thinking_blocks or None)
 
 
 async def _dispatch_llm_call(
@@ -448,8 +653,10 @@ async def _dispatch_llm_call(
 ) -> dict[str, Any]:
     """Route to the correct provider implementation."""
     provider = model_cfg.get("provider", "openai_compat")
-    if provider in ("openai_compat", "openai", "gemini"):
+    if provider in ("openai_compat", "openai"):
         return await _call_openai_compat(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
+    if provider == "gemini":
+        return await _call_gemini(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
     if provider == "anthropic":
         return await _call_anthropic(model_cfg, messages, tools, temperature, max_tokens, tool_choice, include_thinking)
     raise ValueError(f"Unsupported provider: {provider}")

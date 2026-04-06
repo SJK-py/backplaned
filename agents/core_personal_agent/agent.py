@@ -475,6 +475,7 @@ class _LLMResponse:
     content: Optional[str]
     tool_calls: list[_ToolCall]
     usage: Optional[dict[str, int]] = None
+    thinking_blocks: Optional[list[dict[str, Any]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +553,8 @@ async def _llm_call(
             name=tc_raw.get("name", ""),
             arguments=tc_raw.get("arguments", {}),
         ))
-    return _LLMResponse(content=parsed.get("content"), tool_calls=tcs, usage=parsed.get("usage"))
+    return _LLMResponse(content=parsed.get("content"), tool_calls=tcs, usage=parsed.get("usage"),
+                        thinking_blocks=parsed.get("thinking_blocks"))
 
 
 # ---------------------------------------------------------------------------
@@ -965,7 +967,7 @@ def _append_tool_turn(
     """
     pending_images: list[tuple[str, str]] = []
 
-    messages.append({
+    assistant_msg: dict[str, Any] = {
         "role": "assistant",
         "content": llm_resp.content,
         "tool_calls": [
@@ -979,7 +981,10 @@ def _append_tool_turn(
             }
             for tc in llm_resp.tool_calls
         ],
-    })
+    }
+    if llm_resp.thinking_blocks:
+        assistant_msg["thinking_blocks"] = llm_resp.thinking_blocks
+    messages.append(assistant_msg)
     for tc in llm_resp.tool_calls:
         result = tc_results.get(tc.id, "Error: no result received.")
         if _is_image_result(result):
@@ -1184,6 +1189,7 @@ async def _agent_loop(
                 content=re.sub(r"<think>.*?</think>\s*", "", llm_resp.content, flags=re.DOTALL).strip() or None,
                 tool_calls=llm_resp.tool_calls,
                 usage=llm_resp.usage,
+                thinking_blocks=llm_resp.thinking_blocks,
             )
 
         if not llm_resp.tool_calls:
