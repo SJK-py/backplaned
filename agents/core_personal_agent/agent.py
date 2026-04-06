@@ -1214,14 +1214,19 @@ async def _agent_loop(
             return AgentOutput(content=reply, files=files_out)
 
         # Push thinking + tool call progress events.
+        # Prefer the LLM's text message accompanying tool calls; fall back
+        # to the last line of thinking blocks for context.
         if thinking_summary:
             await _push_progress(loop_state.task_id, "thinking", thinking_summary)
+        tool_call_context = (llm_resp.content or "").strip() or thinking_summary or ""
         for tc in llm_resp.tool_calls:
+            tool_msg = f"{tool_call_context}\nCalling {tc.name}" if tool_call_context else f"Calling {tc.name}"
             await _push_progress(
                 loop_state.task_id, "tool_call",
-                f"Calling {tc.name}",
+                tool_msg,
                 {"tool": tc.name, "arguments": tc.arguments},
             )
+            tool_call_context = ""  # Only attach context to the first tool call
 
         # --- Dispatch tool calls ---
         # Local tools (read_image, read_file_text) are handled in-process.
