@@ -56,7 +56,12 @@ def _html_to_text(raw_html: str) -> str:
     return _normalize(_strip_tags(text))
 
 
-def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
+def _format_results(
+    query: str,
+    items: list[dict[str, Any]],
+    n: int,
+    content_len_limit: int = 0,
+) -> str:
     """Format search results into plain text."""
     if not items:
         return f"No results for: {query}"
@@ -64,8 +69,13 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     for i, item in enumerate(items[:n], 1):
         title = _normalize(_strip_tags(item.get("title", "")))
         snippet = _normalize(_strip_tags(item.get("content", "")))
+        if content_len_limit and len(snippet) > content_len_limit:
+            snippet = snippet[:content_len_limit] + "..."
         url = item.get("url", "")
+        published = item.get("publishedDate")
         lines.append(f"{i}. {title}\n   {url}")
+        if published:
+            lines.append(f"   Published: {published}")
         if snippet:
             lines.append(f"   {snippet}")
     return "\n".join(lines)
@@ -77,21 +87,33 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
 
 
 async def search_searxng(
-    query: str, base_url: str, count: int = 5, timeout: float = 10.0,
+    query: str,
+    base_url: str,
+    count: int = 5,
+    timeout: float = 10.0,
+    time_range: Optional[str] = None,
+    language: Optional[str] = None,
+    content_len_limit: int = 0,
 ) -> str:
     """Search via self-hosted SearXNG instance."""
     if not base_url:
         return "Error: SEARXNG_BASE_URL not configured"
     endpoint = f"{base_url.rstrip('/')}/search"
+    params: dict[str, Any] = {"q": query, "format": "json"}
+    if time_range:
+        params["time_range"] = time_range
+    if language:
+        params["language"] = language
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(
                 endpoint,
-                params={"q": query, "format": "json"},
+                params=params,
                 headers={"User-Agent": USER_AGENT},
             )
             r.raise_for_status()
-        return _format_results(query, r.json().get("results", []), count)
+        results = r.json().get("results", [])
+        return _format_results(query, results, count, content_len_limit)
     except Exception as e:
         return f"Error: SearXNG search failed: {e}"
 
@@ -154,11 +176,18 @@ async def web_search(
     brave_api_key: str = "",
     count: int = 5,
     timeout: float = 10.0,
+    time_range: Optional[str] = None,
+    language: Optional[str] = None,
+    content_len_limit: int = 0,
 ) -> str:
     """Dispatch to the configured search backend."""
     provider = provider.strip().lower()
     if provider == "searxng":
-        return await search_searxng(query, searxng_base_url, count, timeout)
+        return await search_searxng(
+            query, searxng_base_url, count, timeout,
+            time_range=time_range, language=language,
+            content_len_limit=content_len_limit,
+        )
     elif provider == "brave":
         return await search_brave(query, brave_api_key, count, timeout)
     elif provider == "duckduckgo":
@@ -255,6 +284,15 @@ WEB_TOOLS: list[dict[str, Any]] = [
                         "description": "Number of results (1-10, default 5)",
                         "minimum": 1,
                         "maximum": 10,
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "year"],
+                        "description": "Filter results by time range (SearXNG only)",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Language code for results, e.g. 'en', 'ko' (SearXNG only)",
                     },
                 },
                 "required": ["query"],

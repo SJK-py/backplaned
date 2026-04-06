@@ -73,6 +73,7 @@ SEARCH_PROVIDER: str = "searxng"
 SEARXNG_BASE_URL: str = "http://localhost:8080"
 BRAVE_API_KEY: str = ""
 SEARCH_MAX_RESULTS: int = 5
+CONTENT_LEN_LIMIT: int = 500
 FETCH_MAX_CHARS: int = 12000
 FETCH_TIMEOUT: float = 15.0
 AGENT_TIMEOUT: float = 120.0
@@ -84,7 +85,8 @@ _MAX_TOOL_CALLS: int = 15
 def _refresh_config() -> None:
     """Re-read config.json and update module-level variables."""
     global LLM_AGENT_ID, LLM_MODEL_ID, SEARCH_PROVIDER, SEARXNG_BASE_URL
-    global BRAVE_API_KEY, SEARCH_MAX_RESULTS, FETCH_MAX_CHARS, FETCH_TIMEOUT
+    global BRAVE_API_KEY, SEARCH_MAX_RESULTS, CONTENT_LEN_LIMIT
+    global FETCH_MAX_CHARS, FETCH_TIMEOUT
     global AGENT_TIMEOUT, _MAX_ITERATIONS, _MAX_TOOL_CALLS
     cfg = _load_config()
     LLM_AGENT_ID = str(cfg.get("LLM_AGENT_ID", "llm_agent"))
@@ -93,6 +95,7 @@ def _refresh_config() -> None:
     SEARXNG_BASE_URL = str(cfg.get("SEARXNG_BASE_URL", "http://localhost:8080"))
     BRAVE_API_KEY = str(cfg.get("BRAVE_API_KEY", ""))
     SEARCH_MAX_RESULTS = int(cfg.get("SEARCH_MAX_RESULTS", 5))
+    CONTENT_LEN_LIMIT = int(cfg.get("CONTENT_LEN_LIMIT", 500))
     FETCH_MAX_CHARS = int(cfg.get("FETCH_MAX_CHARS", 12000))
     FETCH_TIMEOUT = float(cfg.get("FETCH_TIMEOUT", 15))
     AGENT_TIMEOUT = float(cfg.get("AGENT_TIMEOUT", 120))
@@ -266,6 +269,9 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             brave_api_key=BRAVE_API_KEY,
             count=args.get("count", SEARCH_MAX_RESULTS),
             timeout=FETCH_TIMEOUT,
+            time_range=args.get("time_range"),
+            language=args.get("language"),
+            content_len_limit=CONTENT_LEN_LIMIT,
         )
     if name == "web_fetch":
         return await web_fetch(
