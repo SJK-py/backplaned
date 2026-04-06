@@ -63,18 +63,17 @@ AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL", f"http://localhos
 RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"{AGENT_ENDPOINT_URL}/receive")
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_TOKEN", "")
-TELEGRAM_ALLOWED_IDS: list[str] = [
-    x.strip() for x in os.environ.get("TELEGRAM_ALLOWED_IDS", "").split(",") if x.strip()
-]
 DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
-DISCORD_ALLOWED_IDS: list[str] = [
-    x.strip() for x in os.environ.get("DISCORD_ALLOWED_IDS", "").split(",") if x.strip()
-]
 
 CORE_AGENT_ID: str = os.environ.get("CORE_AGENT_ID", "core_personal_agent")
 DATA_DIR: Path = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 SESSIONS_FILE: Path = DATA_DIR / "sessions.json"
 CREDENTIALS_FILE: Path = DATA_DIR / "credentials.json"
+INVITATION_TOKENS_FILE: Path = DATA_DIR / "invitation_tokens.json"
+RATE_LIMITS_FILE: Path = DATA_DIR / "rate_limits.json"
+
+RATE_LIMIT_WINDOW: int = int(os.environ.get("RATE_LIMIT_WINDOW", "3600"))
+RATE_LIMIT_MAX_TRIALS: int = int(os.environ.get("RATE_LIMIT_MAX_TRIALS", "5"))
 LOG_CAPACITY: int = int(os.environ.get("LOG_CAPACITY", "500"))
 FILE_MAX_AGE: int = int(os.environ.get("FILE_MAX_AGE", "3600"))  # seconds, default 1 hour
 
@@ -188,6 +187,129 @@ def _is_verbose_user(user_id: str) -> bool:
     """Check if a user has verbose mode enabled."""
     data = _load_data()
     return user_id in data.get("verbose_users", [])
+
+
+# ---------------------------------------------------------------------------
+# Invitation token management
+# ---------------------------------------------------------------------------
+
+def _load_tokens_data() -> dict[str, Any]:
+    if INVITATION_TOKENS_FILE.exists():
+        try:
+            return json.loads(INVITATION_TOKENS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"tokens": {}}
+
+
+def _save_tokens_data(data: dict[str, Any]) -> None:
+    INVITATION_TOKENS_FILE.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _create_invitation_token(user_id: str, ttl: int, config: Optional[dict] = None) -> str:
+    """Generate a new invitation token and persist it."""
+    token = secrets.token_urlsafe(32)
+    td = _load_tokens_data()
+    td["tokens"][token] = {
+        "user_id": user_id,
+        "config": config or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "ttl": ttl,
+    }
+    _save_tokens_data(td)
+    return token
+
+
+def _get_valid_tokens() -> list[dict[str, Any]]:
+    """Return non-expired tokens with their token string included."""
+    td = _load_tokens_data()
+    now = datetime.now(timezone.utc)
+    result = []
+    for tok, info in td["tokens"].items():
+        created = datetime.fromisoformat(info["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if (now - created).total_seconds() < info.get("ttl", 86400):
+            result.append({"token": tok, **info})
+    return result
+
+
+def _consume_token(token_string: str) -> Optional[dict[str, Any]]:
+    """Validate and remove an invitation token. Returns token data or None."""
+    td = _load_tokens_data()
+    info = td["tokens"].get(token_string)
+    if not info:
+        return None
+    created = datetime.fromisoformat(info["created_at"])
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if (now - created).total_seconds() >= info.get("ttl", 86400):
+        # Expired — clean up
+        del td["tokens"][token_string]
+        _save_tokens_data(td)
+        return None
+    # Valid — consume
+    del td["tokens"][token_string]
+    _save_tokens_data(td)
+    return info
+
+
+def _delete_invitation_token(token_string: str) -> bool:
+    """Remove a token manually. Returns True if it existed."""
+    td = _load_tokens_data()
+    if token_string in td["tokens"]:
+        del td["tokens"][token_string]
+        _save_tokens_data(td)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting for unregistered users
+# ---------------------------------------------------------------------------
+
+def _check_rate_limit(platform: str, platform_user_id: str) -> bool:
+    """
+    Check and update rate limit for an unregistered user.
+    Returns True if the user is BLOCKED (exceeded limit).
+    """
+    key = f"{platform}:{platform_user_id}"
+    now = datetime.now(timezone.utc)
+
+    # Load
+    rl_data: dict[str, Any] = {}
+    if RATE_LIMITS_FILE.exists():
+        try:
+            rl_data = json.loads(RATE_LIMITS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            rl_data = {}
+
+    entry = rl_data.get(key)
+    if entry:
+        last_trial = datetime.fromisoformat(entry["last_trial"])
+        if last_trial.tzinfo is None:
+            last_trial = last_trial.replace(tzinfo=timezone.utc)
+        if (now - last_trial).total_seconds() > RATE_LIMIT_WINDOW:
+            # Window expired — reset
+            rl_data[key] = {"count": 1, "last_trial": now.isoformat()}
+        else:
+            entry["count"] += 1
+            entry["last_trial"] = now.isoformat()
+            if entry["count"] > RATE_LIMIT_MAX_TRIALS:
+                RATE_LIMITS_FILE.write_text(
+                    json.dumps(rl_data, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                return True
+    else:
+        rl_data[key] = {"count": 1, "last_trial": now.isoformat()}
+
+    RATE_LIMITS_FILE.write_text(
+        json.dumps(rl_data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return False
 
 
 async def _stream_progress_to_user(
@@ -764,24 +886,88 @@ async def _handle_incoming(
     if not text:
         text = "(file attached)"
 
-    user_id = await _get_user_id(platform, platform_user_id)
-    if not user_id:
-        logger.info(
-            "No user mapping for %s:%s — ignoring message",
-            platform, platform_user_id,
-        )
-        # Optionally send a rejection notice:
-        await _send_to_chat(
-            platform, chat_id,
-            "You are not registered. Please contact the administrator."
-        )
-        return
-
-    # --- Slash commands ---
+    # --- Slash command pre-parse ---
     cmd = None
+    parts: list[str] = []
     if text.startswith("/"):
         parts = text.split(None, 1)
         cmd = parts[0].lstrip("/").split("@")[0].lower()  # strip @botname suffix
+
+    user_id = await _get_user_id(platform, platform_user_id)
+
+    # --- /register: available to unregistered users ---
+    if cmd == "register":
+        if user_id:
+            await _send_to_chat(
+                platform, chat_id,
+                f"You are already registered as {user_id}. Use /config to review your configuration.",
+            )
+            return
+        # Rate limit check
+        if _check_rate_limit(platform, platform_user_id):
+            await _send_to_chat(
+                platform, chat_id,
+                "Too many attempts. Please try again later.",
+            )
+            return
+        token_str = parts[1].strip() if len(parts) > 1 else ""
+        if not token_str:
+            await _send_to_chat(
+                platform, chat_id,
+                "Usage: /register <invitation_token>",
+            )
+            return
+        token_info = _consume_token(token_str)
+        if not token_info:
+            await _send_to_chat(
+                platform, chat_id,
+                "Invalid or expired invitation token.",
+            )
+            return
+        # Register the user
+        new_user_id = token_info["user_id"]
+        mapping_key = _user_mapping_key(platform, platform_user_id)
+        async with _data_lock:
+            data = _load_data()
+            data["user_mappings"][mapping_key] = new_user_id
+            _save_data(data)
+        logger.info("Registered user %s via invitation token (%s:%s)", new_user_id, platform, platform_user_id)
+        # Apply pre-configured config if present
+        pre_config = token_info.get("config")
+        if pre_config and any(v is not None and v != "" for v in pre_config.values()):
+            config_json = json.dumps(pre_config, ensure_ascii=False)
+            data = _load_data()
+            core_agent_id = _get_core_agent(data, new_user_id)
+            await _spawn_to_core(
+                identifier="SYSTEM",
+                user_id=new_user_id,
+                session_id="SYSTEM",
+                message=f"<update_user_config> {config_json}",
+                core_agent_id=core_agent_id,
+            )
+        await _send_to_chat(
+            platform, chat_id,
+            f"Registered as {new_user_id}. Use /config to review your configuration.",
+        )
+        return
+
+    if not user_id:
+        # Rate limit check for unregistered users
+        if _check_rate_limit(platform, platform_user_id):
+            await _send_to_chat(
+                platform, chat_id,
+                "Too many attempts. Please try again later.",
+            )
+            return
+        logger.info(
+            "No user mapping for %s:%s — prompting registration",
+            platform, platform_user_id,
+        )
+        await _send_to_chat(
+            platform, chat_id,
+            "You are not registered. Use /register <invitation_token> to register.",
+        )
+        return
 
     # Resolve per-user core agent (read-only lookup, no lock needed).
     user_core_agent = _get_core_agent(_load_data(), user_id)
@@ -915,7 +1101,8 @@ async def _handle_incoming(
             "/config — show config · /config <instruction> — modify config\n"
             "/model — list models · /model <id> — switch model\n"
             "/link — list linkable agents · /link <id> — direct talk\n"
-            "/unlink — end direct agent link"
+            "/unlink — end direct agent link\n"
+            "/register <token> — register with invitation token"
         )
         return
 
@@ -1111,8 +1298,6 @@ async def _run_telegram() -> None:
             return
         user = update.effective_user
         platform_user_id = str(user.id)
-        if TELEGRAM_ALLOWED_IDS and platform_user_id not in TELEGRAM_ALLOWED_IDS:
-            return
         chat_id = str(msg.chat_id)
         text = msg.text or msg.caption or ""
 
@@ -1167,6 +1352,7 @@ async def _run_telegram() -> None:
             BotCommand("model", "List or switch LLM model"),
             BotCommand("link", "Direct talk with an agent"),
             BotCommand("unlink", "End direct agent link"),
+            BotCommand("register", "Register with invitation token"),
         ])
     except Exception as e:
         logger.warning("Failed to register Telegram commands: %s", e)
@@ -1246,8 +1432,6 @@ async def _run_discord() -> None:
         channel_id = str(payload.get("channel_id", ""))
         content = payload.get("content") or ""
         if not sender_id or not channel_id:
-            return
-        if DISCORD_ALLOWED_IDS and sender_id not in DISCORD_ALLOWED_IDS:
             return
         # In guilds, only respond if mentioned or DM
         guild_id = payload.get("guild_id")
@@ -1531,7 +1715,12 @@ async def ui_list_users(ca_session: Optional[str] = Cookie(default=None)) -> dic
     _require_auth(ca_session)
     async with _data_lock:
         data = _load_data()
-    return {"user_mappings": data["user_mappings"]}
+    return {
+        "user_mappings": data["user_mappings"],
+        "core_agent_map": data.get("core_agent_map", {}),
+        "verbose_users": data.get("verbose_users", []),
+        "default_core_agent": CORE_AGENT_ID,
+    }
 
 
 @app.post("/ui/users")
@@ -1651,6 +1840,61 @@ async def ui_unset_verbose(
             verbose.remove(user_id)
         _save_data(data)
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Invitation tokens
+# ---------------------------------------------------------------------------
+
+@app.get("/ui/invitation-tokens")
+async def ui_list_invitation_tokens(ca_session: Optional[str] = Cookie(default=None)) -> dict:
+    _require_auth(ca_session)
+    return {"tokens": _get_valid_tokens()}
+
+
+@app.post("/ui/invitation-tokens")
+async def ui_create_invitation_token(
+    request: Request,
+    ca_session: Optional[str] = Cookie(default=None),
+) -> dict:
+    _require_auth(ca_session)
+    body = await request.json()
+    user_id = str(body.get("user_id", "")).strip()
+    ttl = int(body.get("ttl", 86400))
+    config = body.get("config") or {}
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id required")
+    token = _create_invitation_token(user_id, ttl, config)
+    return {"token": token, "user_id": user_id, "ttl": ttl}
+
+
+@app.put("/ui/invitation-tokens/{token}/config")
+async def ui_update_invitation_token_config(
+    token: str,
+    request: Request,
+    ca_session: Optional[str] = Cookie(default=None),
+) -> dict:
+    """Update the pre-configured user config embedded in an invitation token."""
+    _require_auth(ca_session)
+    body = await request.json()
+    config = body.get("config", {})
+    td = _load_tokens_data()
+    if token not in td["tokens"]:
+        raise HTTPException(status_code=404, detail="Token not found")
+    td["tokens"][token]["config"] = config
+    _save_tokens_data(td)
+    return {"status": "ok"}
+
+
+@app.delete("/ui/invitation-tokens/{token}")
+async def ui_delete_invitation_token(
+    token: str,
+    ca_session: Optional[str] = Cookie(default=None),
+) -> dict:
+    _require_auth(ca_session)
+    if _delete_invitation_token(token):
+        return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Token not found")
 
 
 # ---------------------------------------------------------------------------
