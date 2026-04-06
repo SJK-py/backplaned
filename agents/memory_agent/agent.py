@@ -69,6 +69,10 @@ EMBED_MODEL: str = _cfg("MEM0_EMBED_MODEL", "Qwen3-Embedding-4B-GGUF")
 
 QDRANT_HOST: str = _cfg("MEM0_QDRANT_HOST", "172.23.90.92")
 QDRANT_PORT: int = int(_cfg("MEM0_QDRANT_PORT", "6333"))
+
+# Detect whether the host value is a full URL (with protocol) or a bare hostname.
+# QdrantClient expects `url=` for URLs and `host=` for bare hostnames.
+_QDRANT_IS_URL: bool = QDRANT_HOST.startswith("http://") or QDRANT_HOST.startswith("https://")
 COLLECTION_NAME: str = _cfg("MEM0_COLLECTION_NAME", "mem0")
 EMBEDDING_DIMS: Optional[int] = int(_cfg("MEM0_EMBEDDING_DIMS") or 0) or None
 
@@ -112,7 +116,10 @@ def _ensure_collection() -> None:
             "Set it to the embedding model's output dimension."
         )
         return
-    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    if _QDRANT_IS_URL:
+        client = QdrantClient(url=QDRANT_HOST)
+    else:
+        client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
     try:
         existing = {c.name for c in client.get_collections().collections}
         if COLLECTION_NAME not in existing:
@@ -171,8 +178,7 @@ def _get_memory() -> Memory:
                         "vector_store": {
                             "provider": "qdrant",
                             "config": {
-                                "host": QDRANT_HOST,
-                                "port": QDRANT_PORT,
+                                **({"url": QDRANT_HOST} if _QDRANT_IS_URL else {"host": QDRANT_HOST, "port": QDRANT_PORT}),
                                 "collection_name": COLLECTION_NAME,
                                 **({"embedding_model_dims": EMBEDDING_DIMS} if EMBEDDING_DIMS else {}),
                             },
