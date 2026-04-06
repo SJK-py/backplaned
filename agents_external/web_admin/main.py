@@ -56,6 +56,7 @@ if not ADMIN_PASSWORD:
     _w.warn("ADMIN_PASSWORD is not set — web UI login will be unavailable until configured", stacklevel=1)
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 ROUTER_ADMIN_TOKEN: str = os.environ.get("ROUTER_ADMIN_TOKEN", "")
+INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
 
 SECRET_KEY: str = os.environ.get("SESSION_SECRET", _secrets.token_hex(32))
 SESSION_COOKIE = "ar_session"
@@ -63,7 +64,7 @@ SESSION_MAX_AGE = 3600 * 8  # 8 hours
 
 _DATA_DIR = Path(__file__).parent / "data"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
-CREDENTIALS_FILE = _DATA_DIR / "web_agent_credentials.json"
+CREDENTIALS_FILE = _DATA_DIR / "credentials.json"
 _admin_pw = PasswordFile(_DATA_DIR / "admin_password.json", ADMIN_PASSWORD)
 
 WEB_AGENT_INFO = AgentInfo(
@@ -137,41 +138,48 @@ _web_agent_auth_token: Optional[str] = None
 _web_agent_http_client: Optional[httpx.AsyncClient] = None
 
 
-def _load_web_agent_credentials() -> Optional[dict]:
+def _load_credentials() -> Optional[dict]:
     if CREDENTIALS_FILE.exists():
         try:
-            return json.loads(CREDENTIALS_FILE.read_text())
+            return json.loads(CREDENTIALS_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
     return None
 
 
-def _save_web_agent_credentials(agent_id: str, auth_token: str) -> None:
+def _save_credentials(agent_id: str, auth_token: str) -> None:
     CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CREDENTIALS_FILE.write_text(json.dumps({"agent_id": agent_id, "auth_token": auth_token}))
+    CREDENTIALS_FILE.write_text(
+        json.dumps({"agent_id": agent_id, "auth_token": auth_token}),
+        encoding="utf-8",
+    )
 
 
 async def _ensure_web_agent() -> None:
+    """Register with the router using the standard invitation-token pattern."""
     global _web_agent_id, _web_agent_auth_token, _web_agent_http_client
 
-    creds = _load_web_agent_credentials()
+    creds = _load_credentials()
     if creds:
         # Verify the agent still exists in the router
         try:
-            agents = await _router_get("/admin/agents")
-            known_ids = {a["agent_id"] for a in agents}
-            if creds["agent_id"] in known_ids:
-                _web_agent_id = creds["agent_id"]
-                _web_agent_auth_token = creds["auth_token"]
-                print(f"[web] Web-agent reused: {_web_agent_id}")
-                if _web_agent_http_client:
-                    await _web_agent_http_client.aclose()
-                _web_agent_http_client = httpx.AsyncClient(
-                    headers={"Authorization": f"Bearer {_web_agent_auth_token}"},
-                    timeout=30.0,
+            async with httpx.AsyncClient(timeout=10.0) as c:
+                r = await c.get(
+                    f"{ROUTER_URL}/agent/destinations",
+                    headers={"Authorization": f"Bearer {creds['auth_token']}"},
                 )
-                return
-            # Agent absent from router (DB may have been wiped) — fall through to re-register.
+                if r.status_code == 200:
+                    _web_agent_id = creds["agent_id"]
+                    _web_agent_auth_token = creds["auth_token"]
+                    print(f"[web] Web-agent reused: {_web_agent_id}")
+                    if _web_agent_http_client:
+                        await _web_agent_http_client.aclose()
+                    _web_agent_http_client = httpx.AsyncClient(
+                        headers={"Authorization": f"Bearer {_web_agent_auth_token}"},
+                        timeout=30.0,
+                    )
+                    return
+                # 401/403 means credentials are invalid — fall through to re-onboard.
         except Exception as exc:
             # Router unreachable — trust saved credentials rather than attempting re-registration.
             print(f"[web] Could not verify web-agent credentials: {exc} — using saved credentials")
@@ -183,43 +191,28 @@ async def _ensure_web_agent() -> None:
             )
             return
 
-    if not ROUTER_ADMIN_TOKEN:
-        print("[web] ROUTER_ADMIN_TOKEN not set - web-agent registration skipped.")
+    if not INVITATION_TOKEN:
+        print("[web] INVITATION_TOKEN not set and no saved credentials — web-agent registration skipped.")
         return
 
-    # Wait for the router to be ready, then create a single invitation token and onboard.
     receive_url = f"http://localhost:{PORT}/agent/receive"
-    for attempt in range(1, 16):
-        try:
-            inv = await _router_post(
-                "/admin/invitation",
-                {
-                    "inbound_groups": ["embedded"],
-                    "outbound_groups": ["embedded"],
-                    "expires_in_hours": 1,
-                },
-            )
-            invitation_token: str = inv["token"]
-            resp: OnboardResponse = await onboard(
-                router_url=ROUTER_URL,
-                invitation_token=invitation_token,
-                endpoint_url=receive_url,
-                agent_info=WEB_AGENT_INFO,
-            )
-            _web_agent_id = resp.agent_id
-            _web_agent_auth_token = resp.auth_token
-            _save_web_agent_credentials(_web_agent_id, _web_agent_auth_token)
-            _web_agent_http_client = httpx.AsyncClient(
-                headers={"Authorization": f"Bearer {_web_agent_auth_token}"},
-                timeout=30.0,
-            )
-            print(f"[web] Web-agent registered: {_web_agent_id}")
-            return
-        except Exception as exc:
-            if attempt < 15:
-                await asyncio.sleep(2)
-            else:
-                print(f"[web] Web-agent registration failed: {exc}")
+    try:
+        resp: OnboardResponse = await onboard(
+            router_url=ROUTER_URL,
+            invitation_token=INVITATION_TOKEN,
+            endpoint_url=receive_url,
+            agent_info=WEB_AGENT_INFO,
+        )
+        _web_agent_id = resp.agent_id
+        _web_agent_auth_token = resp.auth_token
+        _save_credentials(_web_agent_id, _web_agent_auth_token)
+        _web_agent_http_client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {_web_agent_auth_token}"},
+            timeout=30.0,
+        )
+        print(f"[web] Web-agent registered: {_web_agent_id}")
+    except Exception as exc:
+        print(f"[web] Web-agent registration failed: {exc}")
 
 
 # ---------------------------------------------------------------------------
