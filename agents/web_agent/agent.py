@@ -80,6 +80,8 @@ AGENT_TIMEOUT: float = 120.0
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000")
 _MAX_ITERATIONS: int = 10
 _MAX_TOOL_CALLS: int = 15
+_MAX_SEARCHES: int = 2
+_MAX_FETCHES: int = 3
 
 
 def _refresh_config() -> None:
@@ -87,7 +89,7 @@ def _refresh_config() -> None:
     global LLM_AGENT_ID, LLM_MODEL_ID, SEARCH_PROVIDER, SEARXNG_BASE_URL
     global BRAVE_API_KEY, SEARCH_MAX_RESULTS, CONTENT_LEN_LIMIT
     global FETCH_MAX_CHARS, FETCH_TIMEOUT
-    global AGENT_TIMEOUT, _MAX_ITERATIONS, _MAX_TOOL_CALLS
+    global AGENT_TIMEOUT, _MAX_ITERATIONS, _MAX_TOOL_CALLS, _MAX_SEARCHES, _MAX_FETCHES
     cfg = _load_config()
     LLM_AGENT_ID = str(cfg.get("LLM_AGENT_ID", "llm_agent"))
     LLM_MODEL_ID = str(cfg.get("LLM_MODEL_ID", "")) or ""
@@ -101,6 +103,8 @@ def _refresh_config() -> None:
     AGENT_TIMEOUT = float(cfg.get("AGENT_TIMEOUT", 120))
     _MAX_ITERATIONS = int(cfg.get("MAX_ITERATIONS", 10))
     _MAX_TOOL_CALLS = int(cfg.get("MAX_TOOL_CALLS", 15))
+    _MAX_SEARCHES = int(cfg.get("MAX_SEARCHES", 2))
+    _MAX_FETCHES = int(cfg.get("MAX_FETCHES", 3))
 
 
 _refresh_config()  # Initial load
@@ -123,7 +127,7 @@ AGENT_INFO = AgentInfo(
     required_input=["llmdata"],
 )
 
-SYSTEM_PROMPT = """\
+_SYSTEM_PROMPT_TEMPLATE = """\
 You are a web research agent in a multi-agent system. You search the web, \
 read pages, and produce well-sourced reports for the calling agent.
 
@@ -135,8 +139,8 @@ read pages, and produce well-sourced reports for the calling agent.
 5. Only search again if the first results are clearly insufficient.
 
 ## Limits
-- Maximum 2 searches per request unless explicitly asked for more.
-- Maximum 3 page fetches total. Each fetch returns truncated content — \
+- Maximum {max_searches} searches per request unless explicitly asked for more.
+- Maximum {max_fetches} page fetches total. Each fetch returns truncated content — \
 read what you get and work with it.
 - Do NOT fetch URLs that are likely login walls, app stores, or aggregators.
 
@@ -147,6 +151,13 @@ and context for the caller to use your findings.
 - Cite every claim: [Source Title](url)
 - Note gaps or conflicts. Do NOT fabricate.
 """
+
+
+def _build_system_prompt() -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(
+        max_searches=_MAX_SEARCHES,
+        max_fetches=_MAX_FETCHES,
+    )
 
 # ---------------------------------------------------------------------------
 # Auth token (injected by the router as an environment variable at startup)
@@ -308,7 +319,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
     llmdata = LLMData.model_validate(llmdata_raw)
 
     # Build system prompt
-    system_parts = [SYSTEM_PROMPT]
+    system_parts = [_build_system_prompt()]
     if llmdata.agent_instruction:
         system_parts.append(f"## Additional Instructions\n{llmdata.agent_instruction}")
     if llmdata.context:
