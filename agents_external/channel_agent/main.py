@@ -1993,7 +1993,7 @@ async def ui_direct_chat_result(
 # ---------------------------------------------------------------------------
 
 _USER_CONFIG_TEMPLATE = """\
-# User: {user_id}
+# Name: {user_id}
 # Language: English
 # Tone preference: friendly, concise
 # Background: (describe the user's role, expertise, and context)

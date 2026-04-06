@@ -111,7 +111,9 @@ AGENT_INFO = AgentInfo(
     description=(
         "Web research agent. Searches the web and reads pages to produce a "
         "sourced report. Provide your research question in llmdata.prompt, "
-        "and background context in llmdata.context if available."
+        "and background context in llmdata.context if available. "
+        "Note: this agent has no awareness of the current date or time — "
+        "include explicit dates in your query when temporal context matters."
     ),
     input_schema="llmdata: LLMData",
     output_schema="content: str",
