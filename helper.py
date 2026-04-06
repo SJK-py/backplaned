@@ -223,8 +223,6 @@ class LLMCall(BaseModel):
     """Per-call max_tokens override (uses model default if None)."""
     model_id: Optional[str] = None
     """Model config key from llm_agent's config.json (uses "default" if None)."""
-    include_thinking: bool = False
-    """If True, include model thinking/reasoning in the response as <think>...</think> tags."""
 
 
 class AgentOutput(BaseModel):

@@ -331,6 +331,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
         llm_content = llm_result.get("content")
         llm_tool_calls = llm_result.get("tool_calls", [])
         llm_usage = llm_result.get("usage")
+        llm_thinking_blocks = llm_result.get("thinking_blocks")
         if llm_usage:
             prompt_tokens += llm_usage.get("prompt_tokens", 0)
             completion_tokens += llm_usage.get("completion_tokens", 0)
@@ -351,6 +352,8 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 }
                 for tc in llm_tool_calls
             ]
+        if llm_thinking_blocks:
+            assistant_dict["thinking_blocks"] = llm_thinking_blocks
         messages.append(assistant_dict)
 
         # No tool calls — final report
