@@ -161,9 +161,9 @@ fi
 if ! is_excluded "channel_agent"; then
     CHAN_ENV="$ROOT/agents_external/channel_agent/.env"
     [ -n "$TELEGRAM_TOKEN" ] && set_env_var "$CHAN_ENV" "TELEGRAM_TOKEN" "$TELEGRAM_TOKEN"
-    [ -n "$TELEGRAM_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "TELEGRAM_ALLOWED_IDS" "$TELEGRAM_ALLOWED_IDS"
     [ -n "$DISCORD_TOKEN" ] && set_env_var "$CHAN_ENV" "DISCORD_TOKEN" "$DISCORD_TOKEN"
-    [ -n "$DISCORD_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "DISCORD_ALLOWED_IDS" "$DISCORD_ALLOWED_IDS"
+    [ -n "$RATE_LIMIT_WINDOW" ] && set_env_var "$CHAN_ENV" "RATE_LIMIT_WINDOW" "$RATE_LIMIT_WINDOW"
+    [ -n "$RATE_LIMIT_MAX_TRIALS" ] && set_env_var "$CHAN_ENV" "RATE_LIMIT_MAX_TRIALS" "$RATE_LIMIT_MAX_TRIALS"
 fi
 
 # ── Ports (propagate to agent .env files) ────────────────────────────────

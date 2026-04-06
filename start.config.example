@@ -91,14 +91,19 @@ KB_VECTOR_DIM=""                  # Embedding vector dimension for kb_agent (def
 # ═══════════════════════════════════════════════════════════════════════
 
 TELEGRAM_TOKEN=""                 # Bot token from @BotFather
-TELEGRAM_ALLOWED_IDS=""           # Comma-separated Telegram user IDs allowed to interact
 
 # ═══════════════════════════════════════════════════════════════════════
 # Discord Integration (optional)
 # ═══════════════════════════════════════════════════════════════════════
 
 DISCORD_TOKEN=""                  # Bot token from Discord Developer Portal
-DISCORD_ALLOWED_IDS=""            # Comma-separated Discord user IDs allowed to interact
+
+# ═══════════════════════════════════════════════════════════════════════
+# Channel Agent Rate Limiting (optional)
+# ═══════════════════════════════════════════════════════════════════════
+
+RATE_LIMIT_WINDOW=3600            # Seconds before rate limit counter resets
+RATE_LIMIT_MAX_TRIALS=5           # Max attempts from unregistered users per window
 
 # ═══════════════════════════════════════════════════════════════════════
 # Exclude External Agents (optional)
