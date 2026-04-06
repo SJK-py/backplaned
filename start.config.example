@@ -58,6 +58,7 @@ MEM0_LLM_MODEL=""                 # Override LLM model (default: LLM_MODEL)
 MEM0_EMBED_BASE_URL=""            # Embedding API endpoint (REQUIRED for memory_agent)
 MEM0_EMBED_API_KEY=""             # Embedding API key (default: LLM_API_KEY)
 MEM0_EMBED_MODEL=""               # Embedding model name (REQUIRED for memory_agent)
+MEM0_EMBEDDING_DIMS=""            # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for auto-creating Qdrant collection
 QDRANT_HOST="localhost"           # Qdrant vector DB host
 QDRANT_PORT=6333                  # Qdrant vector DB port
 
@@ -83,6 +84,7 @@ OCR_MODEL=""                      # Override model for OCR (default: LLM_MODEL)
 KB_EMBED_BASE_URL=""              # Override embedding endpoint (default: MEM0_EMBED_BASE_URL)
 KB_EMBED_API_KEY=""               # Override embedding API key (default: MEM0_EMBED_API_KEY)
 KB_EMBED_MODEL=""                 # Override embedding model (default: MEM0_EMBED_MODEL)
+KB_VECTOR_DIM=""                  # Embedding vector dimension for kb_agent (default: MEM0_EMBEDDING_DIMS)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Telegram Integration (optional)
