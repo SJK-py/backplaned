@@ -46,7 +46,7 @@ class AgentConfig(BaseModel):
     tool_timeout: int = 60
 
     # Workspace
-    workspace_root: str = "/data/workspaces"
+    workspace_root: str = "data/workspaces"
 
     # Router
     router_url: str = "http://localhost:8000"
@@ -62,7 +62,7 @@ class AgentConfig(BaseModel):
     # Paths
     data_dir: str = "data"
     user_config_path: str = "config.json"
-    log_dir: str = "/data/logs"
+    log_dir: str = "data/logs"
 
     # LLM Agent
     llm_agent_id: str = "llm_agent"
