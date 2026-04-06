@@ -105,7 +105,6 @@
     <div class="tab" onclick="showTab('users')">Users</div>
     <div class="tab" onclick="showTab('sessions')">Sessions</div>
     <div class="tab" onclick="showTab('chat')">Direct Chat</div>
-    <div class="tab" onclick="showTab('config')">User Config</div>
     <div class="tab" onclick="showTab('logs')">Logs</div>
     <div class="tab" onclick="showTab('setup')">Setup</div>
   </div>
@@ -121,80 +120,101 @@
 
   <!-- Users -->
   <div class="panel" id="tab-users">
-    <div class="card">
-      <h2>Add User Mapping</h2>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Platform</label>
-          <select id="u-platform"><option value="telegram">telegram</option><option value="discord">discord</option></select>
+    <!-- Main user list view -->
+    <div id="users-list-view">
+      <div class="card">
+        <h2>Registered Users</h2>
+        <table id="users-table">
+          <thead><tr><th>User ID</th><th>Platform Mapping(s)</th><th>Core Agent</th><th>Verbose</th><th></th></tr></thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Invitation Tokens</h2>
+        <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
+          Generate invitation tokens for new users. Pre-configure their settings before they register.
+        </p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>User ID</label>
+            <input type="text" id="inv-uid" placeholder="e.g. john">
+          </div>
+          <div class="form-group">
+            <label>TTL (seconds)</label>
+            <input type="text" id="inv-ttl" placeholder="86400" value="86400">
+          </div>
+          <div style="align-self:flex-end">
+            <button class="btn btn-primary" onclick="createInvitationToken()">Invite User</button>
+          </div>
         </div>
-        <div class="form-group">
-          <label>Platform User ID</label>
-          <input type="text" id="u-puid" placeholder="e.g. 123456789">
+        <div id="inv-msg"></div>
+        <table style="margin-top:.8rem">
+          <thead><tr><th>Token</th><th>User ID</th><th>Expires</th><th></th></tr></thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Manual User Mapping</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Platform</label>
+            <select id="u-platform"><option value="telegram">telegram</option><option value="discord">discord</option></select>
+          </div>
+          <div class="form-group">
+            <label>Platform User ID</label>
+            <input type="text" id="u-puid" placeholder="e.g. 123456789">
+          </div>
+          <div class="form-group">
+            <label>User ID (app)</label>
+            <input type="text" id="u-uid" placeholder="e.g. john">
+          </div>
+          <div style="align-self:flex-end">
+            <button class="btn btn-primary" onclick="addUser()">Add</button>
+          </div>
         </div>
-        <div class="form-group">
-          <label>User ID (app)</label>
-          <input type="text" id="u-uid" placeholder="e.g. john">
+        <div id="user-msg"></div>
+      </div>
+    </div>
+
+    <!-- User config sub-view (shown when Configure is clicked) -->
+    <div id="users-config-view" style="display:none">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:.8rem;margin-bottom:1rem">
+          <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="showUsersListView()">&larr; Back</button>
+          <h2 id="cfg-title" style="margin:0">User Configuration</h2>
         </div>
-        <div style="align-self:flex-end">
-          <button class="btn btn-primary" onclick="addUser()">Add</button>
+        <input type="hidden" id="cfg-uid">
+        <input type="hidden" id="cfg-mode" value="registered">
+        <input type="hidden" id="cfg-token" value="">
+
+        <div class="form-row" style="margin-bottom:1rem">
+          <div class="form-group">
+            <label>Core Agent ID <span style="color:var(--text-dim)">(blank = default)</span></label>
+            <input type="text" id="cfg-core-agent" placeholder="core_personal_agent">
+          </div>
+          <div class="form-group" style="flex:0 0 auto;min-width:auto">
+            <label>Verbose Mode</label>
+            <div style="display:flex;gap:.4rem;padding-top:.2rem">
+              <button class="btn btn-sm" id="cfg-verbose-on" style="background:var(--border);color:var(--text-muted)" onclick="toggleCfgVerbose(true)">On</button>
+              <button class="btn btn-sm" id="cfg-verbose-off" style="background:var(--border);color:var(--text-muted)" onclick="toggleCfgVerbose(false)">Off</button>
+            </div>
+          </div>
+        </div>
+        <hr style="border-color:var(--border);margin-bottom:1rem">
+        <div id="cfg-fields">
+          <div class="form-row">
+            <div class="form-group"><label>Model ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-model-id" placeholder="default"></div>
+            <div class="form-group"><label>Summarization Model <span style="color:var(--text-dim)">(blank = use main model)</span></label><input type="text" id="cfg-summarization-model-id" placeholder="(use main model)"></div>
+            <div class="form-group"><label>History Token Limit <span style="color:var(--text-dim)">(blank = global default)</span></label><input type="text" id="cfg-history-limit" placeholder="8000"></div>
+            <div class="form-group"><label>Memory Agent ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-memory-agent" placeholder="memory_agent"></div>
+            <div class="form-group"><label>Timezone <span style="color:var(--text-dim)">(e.g. America/Los_Angeles, Asia/Seoul)</span></label><input type="text" id="cfg-timezone" placeholder="UTC"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:.6rem"><label>System Prompt <span style="color:var(--text-dim)">(blank = default)</span></label><textarea id="cfg-system-prompt" rows="3" placeholder="Custom system prompt for this user…"></textarea></div>
+          <div class="form-group" style="margin-bottom:.6rem"><label>User Config (Markdown)</label><textarea id="cfg-content" rows="6" placeholder="User personality/preference notes…"></textarea></div>
+          <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+          <div id="cfg-msg"></div>
         </div>
       </div>
-      <div id="user-msg"></div>
-    </div>
-    <div class="card">
-      <h2>Registered Users</h2>
-      <table id="users-table">
-        <thead><tr><th>Key</th><th>User ID</th><th></th></tr></thead>
-        <tbody id="users-tbody"></tbody>
-      </table>
-    </div>
-    <div class="card">
-      <h2>Core Agent Assignment</h2>
-      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
-        Override which core agent handles a user's messages.
-        Users without an override use the default: <code id="default-core-agent" style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">…</code>
-      </p>
-      <div class="form-row">
-        <div class="form-group">
-          <label>User ID</label>
-          <input type="text" id="ca-uid" placeholder="e.g. john">
-        </div>
-        <div class="form-group">
-          <label>Core Agent ID</label>
-          <input type="text" id="ca-agent" placeholder="e.g. core_personal_agent">
-        </div>
-        <div style="align-self:flex-end">
-          <button class="btn btn-primary" onclick="setCoreAgent()">Set</button>
-        </div>
-      </div>
-      <div id="ca-msg"></div>
-      <table style="margin-top:.8rem">
-        <thead><tr><th>User ID</th><th>Core Agent</th><th></th></tr></thead>
-        <tbody id="ca-tbody"></tbody>
-      </table>
-    </div>
-    <div class="card">
-      <h2>Verbose Mode</h2>
-      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
-        When enabled, users receive real-time status updates during agent processing
-        (thinking summaries, tool calls, results).
-      </p>
-      <div class="form-row">
-        <div class="form-group">
-          <label>User ID</label>
-          <input type="text" id="verbose-uid" placeholder="e.g. john">
-        </div>
-        <div style="align-self:flex-end;display:flex;gap:.4rem">
-          <button class="btn btn-primary" onclick="setVerbose()">Enable</button>
-          <button class="btn btn-danger" onclick="unsetVerbose()">Disable</button>
-        </div>
-      </div>
-      <div id="verbose-msg"></div>
-      <table style="margin-top:.8rem">
-        <thead><tr><th>Verbose Users</th></tr></thead>
-        <tbody id="verbose-tbody"></tbody>
-      </table>
     </div>
   </div>
 
@@ -235,41 +255,6 @@
       </div>
       <div id="dc-spinner" style="display:none;font-size:.82rem;color:var(--text-dim);margin:.5rem 0">Waiting for response…</div>
       <div class="chat-box" id="dc-result" style="display:none"></div>
-    </div>
-  </div>
-
-  <!-- User Config -->
-  <div class="panel" id="tab-config">
-    <div class="card">
-      <h2>User Configuration</h2>
-      <p style="font-size:.82rem;color:var(--text-dim);margin-bottom:.8rem">
-        Manage per-user config for the core personal agent. Fetches and saves JSON config via
-        <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">&lt;fetch_user_config&gt;</code> /
-        <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">&lt;update_user_config&gt;</code> message tokens.
-      </p>
-      <div class="form-row" style="margin-bottom:.8rem">
-        <div class="form-group">
-          <label>User ID</label>
-          <input type="text" id="cfg-uid" placeholder="e.g. john">
-        </div>
-        <div style="align-self:flex-end;display:flex;gap:.4rem">
-          <button class="btn btn-primary btn-sm" onclick="loadUserJsonConfig()">Load Config</button>
-          <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted)" onclick="loadTemplate()">Load MD Template</button>
-        </div>
-      </div>
-      <div id="cfg-fields" style="display:none">
-        <div class="form-row">
-          <div class="form-group"><label>Model ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-model-id" placeholder="default"></div>
-          <div class="form-group"><label>Summarization Model <span style="color:var(--text-dim)">(blank = use main model)</span></label><input type="text" id="cfg-summarization-model-id" placeholder="(use main model)"></div>
-          <div class="form-group"><label>History Token Limit <span style="color:var(--text-dim)">(blank = global default)</span></label><input type="text" id="cfg-history-limit" placeholder="8000"></div>
-          <div class="form-group"><label>Memory Agent ID <span style="color:var(--text-dim)">(blank = default)</span></label><input type="text" id="cfg-memory-agent" placeholder="memory_agent"></div>
-          <div class="form-group"><label>Timezone <span style="color:var(--text-dim)">(e.g. America/Los_Angeles, Asia/Seoul)</span></label><input type="text" id="cfg-timezone" placeholder="UTC"></div>
-        </div>
-        <div class="form-group" style="margin-bottom:.6rem"><label>System Prompt <span style="color:var(--text-dim)">(blank = default)</span></label><textarea id="cfg-system-prompt" rows="3" placeholder="Custom system prompt for this user…"></textarea></div>
-        <div class="form-group" style="margin-bottom:.6rem"><label>User Config (Markdown)</label><textarea id="cfg-content" rows="6" placeholder="User personality/preference notes…"></textarea></div>
-        <button class="btn btn-primary" onclick="saveUserJsonConfig()">Save Config</button>
-        <div id="cfg-msg"></div>
-      </div>
     </div>
   </div>
 
@@ -334,11 +319,7 @@ async function doLogin() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: pw }),
   });
-  if (r.ok) {
-    showMain();
-  } else {
-    document.getElementById('login-err').textContent = 'Invalid password';
-  }
+  if (r.ok) { showMain(); } else { document.getElementById('login-err').textContent = 'Invalid password'; }
 }
 
 async function doLogout() {
@@ -364,7 +345,7 @@ function showTab(name) {
   document.querySelector(`.tab[onclick="showTab('${name}')"]`).classList.add('active');
   document.getElementById('tab-' + name).classList.add('active');
   if (name === 'status') loadStatus();
-  if (name === 'users') { loadUsers(); loadCoreAgentMap(); loadVerboseUsers(); }
+  if (name === 'users') { showUsersListView(); }
   if (name === 'sessions') loadSessions();
   if (name === 'logs') loadLogs();
   if (name === 'setup') loadOnboarding();
@@ -387,20 +368,187 @@ async function loadStatus() {
   `;
 }
 
-// --- Users ---
+// --- Users: List / Config view toggling ---
+function showUsersListView() {
+  document.getElementById('users-list-view').style.display = 'block';
+  document.getElementById('users-config-view').style.display = 'none';
+  loadUsers();
+  loadInvitationTokens();
+}
+
+function showConfigView(uid, mode, token) {
+  document.getElementById('users-list-view').style.display = 'none';
+  document.getElementById('users-config-view').style.display = 'block';
+  document.getElementById('cfg-uid').value = uid;
+  document.getElementById('cfg-mode').value = mode || 'registered';
+  document.getElementById('cfg-token').value = token || '';
+  document.getElementById('cfg-title').textContent = mode === 'invitation'
+    ? 'Pre-configure: ' + uid
+    : 'Configure: ' + uid;
+  // Reset fields
+  document.getElementById('cfg-core-agent').value = '';
+  document.getElementById('cfg-model-id').value = '';
+  document.getElementById('cfg-summarization-model-id').value = '';
+  document.getElementById('cfg-history-limit').value = '';
+  document.getElementById('cfg-memory-agent').value = '';
+  document.getElementById('cfg-timezone').value = '';
+  document.getElementById('cfg-system-prompt').value = '';
+  document.getElementById('cfg-content').value = '';
+  _cfgVerbose = false;
+  _updateVerboseButtons();
+
+  if (mode === 'registered') {
+    loadRegisteredUserConfig(uid);
+  }
+}
+
+let _cfgVerbose = false;
+function toggleCfgVerbose(on) {
+  _cfgVerbose = on;
+  _updateVerboseButtons();
+}
+function _updateVerboseButtons() {
+  document.getElementById('cfg-verbose-on').style.background = _cfgVerbose ? 'var(--green-bg)' : 'var(--border)';
+  document.getElementById('cfg-verbose-on').style.color = _cfgVerbose ? 'var(--green)' : 'var(--text-muted)';
+  document.getElementById('cfg-verbose-off').style.background = !_cfgVerbose ? 'var(--red-bg)' : 'var(--border)';
+  document.getElementById('cfg-verbose-off').style.color = !_cfgVerbose ? 'var(--red)' : 'var(--text-muted)';
+}
+
+async function loadRegisteredUserConfig(uid) {
+  showMsg('cfg-msg', 'Loading config…', true);
+  // Load core agent map and verbose state
+  const ur = await apiFetch('/ui/users');
+  if (ur) {
+    const ud = await ur.json();
+    const ca = (ud.core_agent_map || {})[uid] || '';
+    document.getElementById('cfg-core-agent').value = ca;
+    _cfgVerbose = (ud.verbose_users || []).includes(uid);
+    _updateVerboseButtons();
+  }
+  // Load user JSON config from core agent
+  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid));
+  if (!r || !r.ok) { showMsg('cfg-msg', 'Failed to load config', false); return; }
+  const d = await r.json();
+  if (d.status === 'timeout') { showMsg('cfg-msg', 'Timeout — core agent may not be running', false); return; }
+  const c = d.config || {};
+  document.getElementById('cfg-model-id').value = c.model_id || '';
+  document.getElementById('cfg-summarization-model-id').value = c.summarization_model_id || '';
+  document.getElementById('cfg-history-limit').value = c.history_token_limit ?? '';
+  document.getElementById('cfg-memory-agent').value = c.memory_agent_id || '';
+  document.getElementById('cfg-timezone').value = c.timezone || '';
+  document.getElementById('cfg-system-prompt').value = c.system_prompt || '';
+  document.getElementById('cfg-content').value = c.user_config_md || '';
+  showMsg('cfg-msg', 'Config loaded', true);
+}
+
+function _gatherConfigFields() {
+  return {
+    model_id: document.getElementById('cfg-model-id').value.trim() || null,
+    summarization_model_id: document.getElementById('cfg-summarization-model-id').value.trim() || null,
+    history_token_limit: (() => { const v = parseInt(document.getElementById('cfg-history-limit').value); return Number.isFinite(v) ? v : null; })(),
+    memory_agent_id: document.getElementById('cfg-memory-agent').value.trim() || null,
+    timezone: document.getElementById('cfg-timezone').value.trim() || null,
+    system_prompt: document.getElementById('cfg-system-prompt').value.trim() || null,
+    user_config_md: document.getElementById('cfg-content').value.trim() || '',
+  };
+}
+
+async function saveConfig() {
+  const uid = document.getElementById('cfg-uid').value.trim();
+  const mode = document.getElementById('cfg-mode').value;
+  const token = document.getElementById('cfg-token').value;
+  if (!uid) { showMsg('cfg-msg', 'No user ID', false); return; }
+
+  const config = _gatherConfigFields();
+  showMsg('cfg-msg', 'Saving…', true);
+
+  if (mode === 'invitation' && token) {
+    // Save config into the invitation token
+    const r = await apiFetch('/ui/invitation-tokens/' + encodeURIComponent(token) + '/config', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    });
+    if (!r || !r.ok) { showMsg('cfg-msg', 'Save failed', false); return; }
+    showMsg('cfg-msg', 'Pre-configuration saved to invitation token', true);
+    return;
+  }
+
+  // Registered user: save core agent + verbose + JSON config
+  const coreAgent = document.getElementById('cfg-core-agent').value.trim();
+  if (coreAgent) {
+    await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: coreAgent }),
+    });
+  } else {
+    await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), { method: 'DELETE' });
+  }
+  // Verbose
+  if (_cfgVerbose) {
+    await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'PUT' });
+  } else {
+    await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'DELETE' });
+  }
+  // JSON config via core agent
+  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ config }),
+  });
+  if (!r || !r.ok) { showMsg('cfg-msg', 'Save failed', false); return; }
+  const d = await r.json();
+  showMsg('cfg-msg', d.status === 'ok' ? 'Config saved' : (d.status || 'Error'), d.status === 'ok');
+}
+
+// --- Users: Registered Users table ---
 async function loadUsers() {
   const r = await apiFetch('/ui/users');
   if (!r) return;
   const d = await r.json();
   const tbody = document.getElementById('users-tbody');
   tbody.innerHTML = '';
-  for (const [key, uid] of Object.entries(d.user_mappings)) {
+  const mappings = d.user_mappings || {};
+  const coreMap = d.core_agent_map || {};
+  const verboseUsers = d.verbose_users || [];
+  const defaultAgent = d.default_core_agent || 'core_personal_agent';
+
+  // Group mappings by user_id
+  const userMap = {};
+  for (const [key, uid] of Object.entries(mappings)) {
+    if (!userMap[uid]) userMap[uid] = [];
+    userMap[uid].push(key);
+  }
+
+  for (const [uid, keys] of Object.entries(userMap)) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${esc(key)}</td><td>${esc(uid)}</td>
-      <td><button class="btn btn-danger btn-sm" onclick="deleteUser('${esc(key)}')">Remove</button></td>`;
+    const agent = coreMap[uid] || defaultAgent;
+    const verbose = verboseUsers.includes(uid);
+    const keysHtml = keys.map(k => `<span class="badge badge-gray" style="margin:.1rem">${esc(k)}</span>`).join(' ');
+    tr.innerHTML = `
+      <td><strong>${esc(uid)}</strong></td>
+      <td>${keysHtml}</td>
+      <td style="font-family:monospace;font-size:.78rem">${esc(agent)}</td>
+      <td>${verbose ? '<span class="badge badge-green">On</span>' : '<span class="badge badge-gray">Off</span>'}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="showConfigView('${esc(uid)}','registered','')">Configure</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteUserMappings('${esc(uid)}')">Remove</button>
+      </td>`;
     tbody.appendChild(tr);
   }
-  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">No users configured</td></tr>';
+  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No users configured</td></tr>';
+}
+
+async function deleteUserMappings(uid) {
+  if (!confirm('Remove all mappings for ' + uid + '?')) return;
+  // Fetch current mappings and delete those belonging to this uid
+  const r = await apiFetch('/ui/users');
+  if (!r) return;
+  const d = await r.json();
+  for (const [key, mappedUid] of Object.entries(d.user_mappings || {})) {
+    if (mappedUid === uid) {
+      await apiFetch('/ui/users/' + encodeURIComponent(key), { method: 'DELETE' });
+    }
+  }
+  loadUsers();
 }
 
 async function addUser() {
@@ -417,84 +565,70 @@ async function addUser() {
   else showMsg('user-msg', 'Error: ' + (await r.text()), false);
 }
 
-async function deleteUser(key) {
-  if (!confirm('Remove mapping for ' + key + '?')) return;
-  const r = await apiFetch('/ui/users/' + encodeURIComponent(key), { method: 'DELETE' });
-  if (r && r.ok) loadUsers();
-}
-
-// --- Core Agent Map ---
-async function loadCoreAgentMap() {
-  const r = await apiFetch('/ui/core-agent-map');
+// --- Invitation Tokens ---
+async function loadInvitationTokens() {
+  const r = await apiFetch('/ui/invitation-tokens');
   if (!r) return;
   const d = await r.json();
-  document.getElementById('default-core-agent').textContent = d.default || '(not set)';
-  const tbody = document.getElementById('ca-tbody');
-  const entries = Object.entries(d.core_agent_map || {});
-  if (!entries.length) {
-    tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-dim)">All users use the default agent</td></tr>';
-    return;
+  const tbody = document.getElementById('inv-tbody');
+  tbody.innerHTML = '';
+  const tokens = d.tokens || [];
+  for (const t of tokens) {
+    const tr = document.createElement('tr');
+    const created = new Date(t.created_at);
+    const expires = new Date(created.getTime() + t.ttl * 1000);
+    const expStr = expires.toISOString().substring(0, 19).replace('T', ' ');
+    const shortToken = t.token.substring(0, 12) + '…';
+    tr.innerHTML = `
+      <td style="font-family:monospace;font-size:.78rem" title="${esc(t.token)}">${esc(shortToken)}
+        <button class="btn btn-sm" style="background:var(--border);color:var(--text-muted);margin-left:.3rem;padding:.15rem .4rem;font-size:.7rem" onclick="copyToken('${esc(t.token)}')">Copy</button>
+      </td>
+      <td>${esc(t.user_id)}</td>
+      <td style="font-size:.78rem">${expStr}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="showConfigView('${esc(t.user_id)}','invitation','${esc(t.token)}')">Config</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteInvToken('${esc(t.token)}')">Remove</button>
+      </td>`;
+    tbody.appendChild(tr);
   }
-  tbody.innerHTML = entries.map(([uid, aid]) =>
-    `<tr><td>${esc(uid)}</td><td style="font-family:monospace">${esc(aid)}</td>
-     <td><button class="btn btn-danger btn-sm" onclick="removeCoreAgent('${esc(uid)}')">Reset</button></td></tr>`
-  ).join('');
+  if (!tbody.children.length) tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim)">No active invitation tokens</td></tr>';
 }
 
-async function setCoreAgent() {
-  const uid = document.getElementById('ca-uid').value.trim();
-  const agent = document.getElementById('ca-agent').value.trim();
-  if (!uid || !agent) { showMsg('ca-msg', 'Both fields required', false); return; }
-  const r = await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agent_id: agent }),
+async function createInvitationToken() {
+  const uid = document.getElementById('inv-uid').value.trim();
+  const ttl = parseInt(document.getElementById('inv-ttl').value) || 86400;
+  if (!uid) { showMsg('inv-msg', 'User ID required', false); return; }
+  const r = await apiFetch('/ui/invitation-tokens', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: uid, ttl }),
   });
   if (!r) return;
-  if (r.ok) { showMsg('ca-msg', 'Core agent set for ' + uid, true); loadCoreAgentMap(); }
-  else showMsg('ca-msg', 'Error: ' + (await r.text()), false);
-}
-
-async function removeCoreAgent(uid) {
-  if (!confirm('Reset ' + uid + ' to default core agent?')) return;
-  const r = await apiFetch('/ui/core-agent-map/' + encodeURIComponent(uid), { method: 'DELETE' });
-  if (r && r.ok) loadCoreAgentMap();
-}
-
-// --- Verbose Mode ---
-async function loadVerboseUsers() {
-  const r = await apiFetch('/ui/verbose-users');
-  if (!r) return;
-  const d = await r.json();
-  const tbody = document.getElementById('verbose-tbody');
-  const users = d.verbose_users || [];
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td style="color:var(--text-dim)">No users in verbose mode</td></tr>';
-    return;
+  if (r.ok) {
+    const d = await r.json();
+    showMsg('inv-msg', 'Token created. Opening config…', true);
+    loadInvitationTokens();
+    // Open config view for pre-configuration
+    showConfigView(uid, 'invitation', d.token);
+  } else {
+    showMsg('inv-msg', 'Error: ' + (await r.text()), false);
   }
-  tbody.innerHTML = users.map(u =>
-    `<tr><td>${esc(u)} <button class="btn btn-danger btn-sm" style="margin-left:.5rem" onclick="unsetVerboseUser('${esc(u)}')">Disable</button></td></tr>`
-  ).join('');
 }
 
-async function setVerbose() {
-  const uid = document.getElementById('verbose-uid').value.trim();
-  if (!uid) { showMsg('verbose-msg', 'Enter a user ID', false); return; }
-  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'PUT' });
-  if (r && r.ok) { showMsg('verbose-msg', 'Verbose enabled for ' + uid, true); loadVerboseUsers(); }
-  else showMsg('verbose-msg', 'Error', false);
+async function deleteInvToken(token) {
+  if (!confirm('Remove this invitation token?')) return;
+  const r = await apiFetch('/ui/invitation-tokens/' + encodeURIComponent(token), { method: 'DELETE' });
+  if (r && r.ok) loadInvitationTokens();
 }
 
-async function unsetVerbose() {
-  const uid = document.getElementById('verbose-uid').value.trim();
-  if (!uid) { showMsg('verbose-msg', 'Enter a user ID', false); return; }
-  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'DELETE' });
-  if (r && r.ok) { showMsg('verbose-msg', 'Verbose disabled for ' + uid, true); loadVerboseUsers(); }
-  else showMsg('verbose-msg', 'Error', false);
-}
-
-async function unsetVerboseUser(uid) {
-  const r = await apiFetch('/ui/verbose-users/' + encodeURIComponent(uid), { method: 'DELETE' });
-  if (r && r.ok) loadVerboseUsers();
+function copyToken(token) {
+  navigator.clipboard.writeText(token).then(() => {
+    // Brief visual feedback
+    const btns = document.querySelectorAll('button');
+    btns.forEach(b => { if (b.textContent === 'Copy' && b.onclick.toString().includes(token.substring(0, 10))) b.textContent = 'Copied!'; });
+    setTimeout(() => btns.forEach(b => { if (b.textContent === 'Copied!') b.textContent = 'Copy'; }), 1500);
+  }).catch(() => {
+    prompt('Copy this token:', token);
+  });
 }
 
 // --- Sessions ---
@@ -540,7 +674,6 @@ async function sendDirectChat() {
   if (!r || !r.ok) { spinner.style.display = 'none'; return; }
   const { dc_id } = await r.json();
 
-  // Long-poll for result
   const poll = await apiFetch(`/ui/direct-chat-result/${dc_id}?timeout=90`);
   spinner.style.display = 'none';
   result_box.style.display = 'block';
@@ -553,72 +686,6 @@ async function sendDirectChat() {
     result_box.className = 'chat-box chat-error';
     result_box.textContent = '(No response or timeout)';
   }
-}
-
-// --- User Config ---
-async function loadTemplate() {
-  const uid = document.getElementById('cfg-uid').value.trim();
-  if (!uid) { alert('Enter a user ID first'); return; }
-  const r = await apiFetch('/ui/user-config/' + encodeURIComponent(uid));
-  if (!r) return;
-  const d = await r.json();
-  document.getElementById('cfg-content').value = d.template;
-  document.getElementById('cfg-fields').style.display = 'block';
-}
-
-async function loadUserJsonConfig() {
-  const uid = document.getElementById('cfg-uid').value.trim();
-  if (!uid) { alert('Enter a user ID first'); return; }
-  showMsg('cfg-msg', 'Loading config…', true);
-  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid));
-  if (!r || !r.ok) { showMsg('cfg-msg', 'Failed to load config', false); return; }
-  const d = await r.json();
-  if (d.status === 'timeout') { showMsg('cfg-msg', 'Timeout — core agent may not be running', false); return; }
-  const c = d.config || {};
-  document.getElementById('cfg-model-id').value = c.model_id || '';
-  document.getElementById('cfg-summarization-model-id').value = c.summarization_model_id || '';
-  document.getElementById('cfg-history-limit').value = c.history_token_limit ?? '';
-  document.getElementById('cfg-memory-agent').value = c.memory_agent_id || '';
-  document.getElementById('cfg-timezone').value = c.timezone || '';
-  document.getElementById('cfg-system-prompt').value = c.system_prompt || '';
-  document.getElementById('cfg-content').value = c.user_config_md || '';
-  document.getElementById('cfg-fields').style.display = 'block';
-  showMsg('cfg-msg', 'Config loaded', true);
-}
-
-async function saveUserJsonConfig() {
-  const uid = document.getElementById('cfg-uid').value.trim();
-  if (!uid) { showMsg('cfg-msg', 'Enter a user ID first', false); return; }
-  const config = {
-    model_id: document.getElementById('cfg-model-id').value.trim() || null,
-    summarization_model_id: document.getElementById('cfg-summarization-model-id').value.trim() || null,
-    history_token_limit: (() => { const v = parseInt(document.getElementById('cfg-history-limit').value); return Number.isFinite(v) ? v : null; })(),
-    memory_agent_id: document.getElementById('cfg-memory-agent').value.trim() || null,
-    timezone: document.getElementById('cfg-timezone').value.trim() || null,
-    system_prompt: document.getElementById('cfg-system-prompt').value.trim() || null,
-    user_config_md: document.getElementById('cfg-content').value.trim() || '',
-  };
-  showMsg('cfg-msg', 'Saving…', true);
-  const r = await apiFetch('/ui/user-json-config/' + encodeURIComponent(uid), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config }),
-  });
-  if (!r || !r.ok) { showMsg('cfg-msg', 'Save failed', false); return; }
-  const d = await r.json();
-  showMsg('cfg-msg', d.status === 'ok' ? 'Config saved' : (d.status || 'Error'), d.status === 'ok');
-}
-
-async function saveUserConfig() {
-  const uid = document.getElementById('cfg-uid').value.trim();
-  const content = document.getElementById('cfg-content').value.trim();
-  if (!uid || !content) { showMsg('cfg-msg', 'User ID and content required', false); return; }
-  const r = await apiFetch('/ui/user-config', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: uid, content }),
-  });
-  if (!r) return;
-  const d = await r.json();
-  showMsg('cfg-msg', d.status === 'ok' ? 'Markdown config sent to core agent.' : 'Error', d.status === 'ok');
 }
 
 // --- Logs ---
