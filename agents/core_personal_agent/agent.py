@@ -432,6 +432,7 @@ def _resolve_session(session_id: str) -> tuple[str, Optional[str]]:
 
 _DEFAULT_USER_JSON_CONFIG: dict[str, Any] = {
     "model_id": None,
+    "summarization_model_id": None,
     "history_token_limit": None,
     "memory_agent_id": None,
     "system_prompt": None,
@@ -462,6 +463,15 @@ def _save_user_json_config(user_id: str, cfg: dict[str, Any]) -> None:
     Path(USER_CONFIG_DIR).mkdir(parents=True, exist_ok=True)
     p = _user_json_config_path(user_id)
     p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _resolve_summarization_model(user_id: str) -> Optional[str]:
+    """Resolve the model to use for summarization tasks (briefs, context consolidation).
+
+    Falls back: summarization_model_id → model_id → LLM_MODEL_ID.
+    """
+    cfg = _load_user_json_config(user_id)
+    return cfg.get("summarization_model_id") or cfg.get("model_id") or LLM_MODEL_ID
 
 
 # ---------------------------------------------------------------------------
@@ -1421,6 +1431,9 @@ change the "system prompt" itself. Setting to null resets to the built-in defaul
 
 Other fields:
 - model_id (string or null): LLM model identifier
+- summarization_model_id (string or null): Model used for summarization tasks \
+(context consolidation, link/unlink briefs). Typically a faster/cheaper model. \
+Falls back to model_id if null.
 - history_token_limit (integer or null): max tokens kept in session history
 - timezone (string or null): IANA timezone, e.g. "Asia/Seoul", "America/New_York"
 
@@ -1442,6 +1455,7 @@ _CONFIG_MODIFY_TOOL: dict[str, Any] = {
             "type": "object",
             "properties": {
                 "model_id": {"type": ["string", "null"], "description": "LLM model identifier"},
+                "summarization_model_id": {"type": ["string", "null"], "description": "Model for summarization tasks (context consolidation, link/unlink briefs). Falls back to model_id if null."},
                 "history_token_limit": {"type": ["integer", "null"], "description": "Max tokens in session history"},
                 "timezone": {"type": ["string", "null"], "description": "IANA timezone"},
                 "system_prompt": {"type": ["string", "null"], "description": "Raw LLM system instruction (only modify if explicitly requested)"},
@@ -1663,6 +1677,7 @@ async def _llm_brief(
     text: str,
     loop_state: _LoopState,
     system_prompt: str = _BRIEF_SYSTEM_PROMPT,
+    model_id: Optional[str] = None,
 ) -> str:
     """One-shot LLM call to produce a brief summary. Returns the summary text."""
     messages = [
@@ -1670,7 +1685,7 @@ async def _llm_brief(
         {"role": "user", "content": text},
     ]
     try:
-        resp = await _llm_call(messages, [], loop_state)
+        resp = await _llm_call(messages, [], loop_state, model_id=model_id)
         return resp.content or ""
     except Exception as exc:
         logger.warning("Brief generation failed: %s", exc)
@@ -1716,7 +1731,10 @@ async def _handle_link_agent(
     brief = ""
     if history:
         transcript = _history_to_transcript(history)
-        brief = await _llm_brief(transcript, loop_state)
+        brief = await _llm_brief(
+            transcript, loop_state,
+            model_id=_resolve_summarization_model(user_id),
+        )
 
     # Create link state
     state: dict[str, Any] = {
@@ -1743,6 +1761,7 @@ async def _handle_link_agent(
 async def _handle_unlink_agent(
     session_id: str,
     loop_state: Optional[_LoopState] = None,
+    user_id: Optional[str] = None,
 ) -> str:
     """Deactivate direct-link mode. Briefs linked conversation and appends summary to main history."""
     state = _load_link_state(session_id)
@@ -1753,6 +1772,9 @@ async def _handle_unlink_agent(
     post_link = state.get("history_since_link", [])
     brief = state.get("brief", "")
 
+    # Resolve summarization model for brief generation
+    summ_model = _resolve_summarization_model(user_id) if user_id else None
+
     # Brief the linked conversation (combine existing brief with post-link history)
     link_summary = ""
     if post_link and loop_state:
@@ -1760,7 +1782,7 @@ async def _handle_unlink_agent(
         if brief:
             parts.append(f"Context before link:\n{brief}")
         parts.append(f"Conversation with {agent_id}:\n{_history_to_transcript(post_link)}")
-        link_summary = await _llm_brief("\n\n".join(parts), loop_state)
+        link_summary = await _llm_brief("\n\n".join(parts), loop_state, model_id=summ_model)
     elif post_link:
         # No loop_state (called from /new or /discard) — use raw transcript as fallback
         link_summary = _history_to_transcript(post_link)
@@ -1799,6 +1821,7 @@ async def _truncate_link_history(
     state: dict[str, Any],
     user_history_limit: int,
     loop_state: _LoopState,
+    user_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     If post-link history exceeds the linked-mode token limit, use LLM to
@@ -1828,6 +1851,7 @@ async def _truncate_link_history(
     kept_portion = post_link[cut:]
 
     # Update brief with old portion via LLM
+    summ_model = _resolve_summarization_model(user_id) if user_id else None
     if old_portion:
         old_transcript = _history_to_transcript(old_portion)
         current_brief = state.get("brief", "")
@@ -1838,6 +1862,7 @@ async def _truncate_link_history(
         updated_brief = await _llm_brief(
             update_input, loop_state,
             system_prompt=_BRIEF_UPDATE_SYSTEM_PROMPT,
+            model_id=summ_model,
         )
         state["brief"] = updated_brief
 
@@ -1861,7 +1886,7 @@ async def _handle_linked_message(
     user_history_limit = int(user_json_cfg.get("history_token_limit") or HISTORY_TOKEN_LIMIT)
 
     # Truncate link history if needed (updates brief in place)
-    state = await _truncate_link_history(session_id, state, user_history_limit, loop_state)
+    state = await _truncate_link_history(session_id, state, user_history_limit, loop_state, user_id=user_id)
 
     # Build context from brief + post-link history
     context_parts: list[str] = []
@@ -1968,7 +1993,7 @@ async def _dispatch(
         new_sid = parts[1] if len(parts) > 1 else None
         # Unlink if active (briefs linked conversation into main history)
         if _load_link_state(session_id):
-            await _handle_unlink_agent(session_id, loop_state)
+            await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
         history = _load_history(session_id)
         memory_ok = True
         if history:
@@ -1984,7 +2009,7 @@ async def _dispatch(
         new_sid = parts[1] if len(parts) > 1 else None
         # Unlink if active (briefs linked conversation into main history before discard)
         if _load_link_state(session_id):
-            await _handle_unlink_agent(session_id, loop_state)
+            await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
         _archive_and_clear(session_id)
         if new_sid:
             _record_sequel(session_id, new_sid)
@@ -2034,6 +2059,8 @@ async def _dispatch(
         cfg = _load_user_json_config(user_id)
         lines = [f"**Configuration for {user_id}**", ""]
         lines.append(f"Model: {cfg.get('model_id') or LLM_MODEL_ID or 'default'}")
+        summ_mid = cfg.get("summarization_model_id")
+        lines.append(f"Summarization model: {summ_mid or '(uses main model)'}")
         lines.append(f"History token limit: {cfg.get('history_token_limit') or HISTORY_TOKEN_LIMIT}")
         lines.append(f"Timezone: {cfg.get('timezone') or 'UTC'}")
         sp = cfg.get("system_prompt")
@@ -2083,7 +2110,7 @@ async def _dispatch(
 
     # --- /unlink → deactivate direct link ---
     if message == "<unlink_agent>":
-        return await _handle_unlink_agent(session_id, loop_state)
+        return await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
 
     # --- Linked-mode intercept: bypass agent loop, route to linked agent ---
     link_state = _load_link_state(session_id)
