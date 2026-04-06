@@ -2342,14 +2342,16 @@ async def list_agents(
 
     result: list[dict[str, Any]] = []
     for row in rows:
+        agent_id = row["agent_id"]
         result.append(
             {
-                "agent_id": row["agent_id"],
+                "agent_id": agent_id,
                 "endpoint_url": row["endpoint_url"],
                 "agent_path": row["agent_path"],
                 "inbound_groups": json.loads(row["inbound_groups"] or "[]"),
                 "outbound_groups": json.loads(row["outbound_groups"] or "[]"),
                 "is_embedded": bool(row["is_embedded"]),
+                "is_alive": agent_id in _alive_agents,
                 "agent_info": json.loads(row["agent_info"] or "{}"),
                 "documentation_path": row["documentation_path"],
                 "registered_at": row["registered_at"],

@@ -124,7 +124,9 @@ async function loadAgents() {
       const outG = (a.outbound_groups || []).join(', ') || '—';
       const typeB = a.is_embedded
         ? '<span class="badge badge-embedded">embedded</span>'
-        : '<span class="badge badge-external">external</span>';
+        : a.is_alive === false
+          ? '<span class="badge badge-danger">unavailable</span>'
+          : '<span class="badge badge-external">external</span>';
       const disconnectBtn = a.is_embedded
         ? ''
         : `<button class="btn btn-secondary btn-sm" style="color:var(--danger,#e05)" onclick="disconnectAgent('${esc(a.agent_id)}')">Disconnect</button>`;
