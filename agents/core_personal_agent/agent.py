@@ -835,12 +835,28 @@ def _handle_read_file_text(arguments: dict[str, Any], session_id: str) -> str:
 
 
 def _extract_thinking_summary(thinking_blocks: Optional[list[dict[str, Any]]]) -> Optional[str]:
-    """Extract a brief summary from thinking_blocks for verbose progress events."""
+    """Extract a brief summary from thinking_blocks for verbose progress events.
+
+    Handles multiple provider formats:
+    - Anthropic: {"type": "thinking", "thinking": "...", "text": "..."}
+    - Generic:   {"type": "thinking", "text": "..."}
+    - Gemini:    {"provider": "gemini", "raw_content": {"parts": [{"text": "...", "thought": true}, ...]}}
+    """
     if not thinking_blocks:
         return None
-    # Concatenate all thinking text from the blocks
-    parts = [b.get("text") or b.get("thinking") or "" for b in thinking_blocks]
-    thinking = "\n".join(p.strip() for p in parts if p.strip())
+    texts: list[str] = []
+    for b in thinking_blocks:
+        # Gemini format: extract text from thought-marked parts
+        if b.get("provider") == "gemini" and b.get("raw_content"):
+            for part in b["raw_content"].get("parts", []):
+                if part.get("thought") and part.get("text"):
+                    texts.append(part["text"].strip())
+        else:
+            # Anthropic / generic format
+            t = b.get("text") or b.get("thinking") or ""
+            if t.strip():
+                texts.append(t.strip())
+    thinking = "\n".join(texts)
     if not thinking:
         return None
     # Get the last non-empty line (most relevant decision)
