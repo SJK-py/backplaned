@@ -26,8 +26,6 @@ services:
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
     env_file:
       - ../start.config
-    environment:
-      - QDRANT_HOST=qdrant
     restart: unless-stopped
 
   # ── Coding Agent (isolated sandbox) ─────────────────────────────────
@@ -55,13 +53,14 @@ services:
           cpus: "4"
           memory: 8G
 
-  # ── Qdrant (vector database for memory_agent and kb_agent) ──────────
-  qdrant:
-    image: qdrant/qdrant:v1.13.6
-    ports:
-      - "${QDRANT_PORT:-6333}:6333"
-    volumes:
-      - "${DATA_ROOT:-./data}/qdrant:/qdrant/storage"
-    environment:
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
-    restart: unless-stopped
+  # ── Qdrant (no longer required — memory_agent now uses local LanceDB.
+  #    Kept commented out for reference / other use cases) ─────────────
+  # qdrant:
+  #   image: qdrant/qdrant:v1.13.6
+  #   ports:
+  #     - "${QDRANT_PORT:-6333}:6333"
+  #   volumes:
+  #     - "${DATA_ROOT:-./data}/qdrant:/qdrant/storage"
+  #   environment:
+  #     - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
+  #   restart: unless-stopped

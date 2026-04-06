@@ -58,9 +58,8 @@ MEM0_LLM_MODEL=""                 # Override LLM model (default: LLM_MODEL)
 MEM0_EMBED_BASE_URL=""            # Embedding API endpoint (REQUIRED for memory_agent)
 MEM0_EMBED_API_KEY=""             # Embedding API key (default: LLM_API_KEY)
 MEM0_EMBED_MODEL=""               # Embedding model name (REQUIRED for memory_agent)
-MEM0_EMBEDDING_DIMS=""            # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for auto-creating Qdrant collection
-QDRANT_HOST="localhost"           # Qdrant vector DB host
-QDRANT_PORT=6333                  # Qdrant vector DB port
+MEM0_EMBEDDING_DIMS=""            # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for table creation
+MEM0_COLLECTION_NAME=""           # LanceDB table name (default: memories)
 
 # ═══════════════════════════════════════════════════════════════════════
 # MD Converter OCR (optional — direct LLM call for scanned documents)
@@ -140,5 +139,4 @@ REMINDER_PORT=8101
 # ═══════════════════════════════════════════════════════════════════════
 
 # DATA_ROOT="./data"              # Host directory for all persistent data volumes
-# QDRANT_API_KEY=""               # API key for Qdrant authentication (recommended in production)
 # EXCLUDE_AGENTS="coding_agent"   # coding_agent runs in its own container; exclude from router
