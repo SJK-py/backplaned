@@ -44,6 +44,9 @@ dependencies = [
     "python-dateutil>=2.9",
     "croniter>=6.0",
 
+    # Web search (web_agent — DuckDuckGo)
+    "ddgs>=7.0",
+
     # SSE streaming
     "sse-starlette>=3.3",
 ]
