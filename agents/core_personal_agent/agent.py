@@ -865,7 +865,7 @@ def _extract_thinking_summary(thinking_blocks: Optional[list[dict[str, Any]]]) -
         return None
     summary = lines[-1]
     if len(summary) > 200:
-        summary = summary[:200] + "…"
+        summary = "… " + summary[-200:]
     return summary
 
 
