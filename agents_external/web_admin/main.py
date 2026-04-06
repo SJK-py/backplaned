@@ -238,12 +238,17 @@ _static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
-@app.middleware("http")
-async def no_cache_static(request: Request, call_next):
-    response = await call_next(request)
-    if request.url.path.startswith("/static/"):
-        response.headers["Cache-Control"] = "no-cache, must-revalidate"
-    return response
+def _static_version() -> str:
+    """Compute a short cache-busting version from static file mtimes."""
+    import hashlib
+    h = hashlib.md5(usedforsecurity=False)
+    for f in sorted(_static_dir.iterdir()):
+        if f.is_file():
+            h.update(str(f.stat().st_mtime_ns).encode())
+    return h.hexdigest()[:8]
+
+
+_STATIC_VER: str = _static_version()
 
 
 # ---------------------------------------------------------------------------
@@ -762,8 +767,12 @@ async def agent_health() -> dict:
 
 
 @app.get("/")
-async def root() -> FileResponse:
-    return FileResponse(str(_static_dir / "index.html"))
+async def root() -> HTMLResponse:
+    html = (_static_dir / "index.html").read_text(encoding="utf-8")
+    # Inject cache-busting version into static asset URLs
+    html = html.replace("/static/style.css", f"/static/style.css?v={_STATIC_VER}")
+    html = html.replace("/static/app.js", f"/static/app.js?v={_STATIC_VER}")
+    return HTMLResponse(html)
 
 
 # ---------------------------------------------------------------------------
