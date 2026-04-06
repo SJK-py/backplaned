@@ -132,6 +132,7 @@ MEM_CFG="$ROOT/agents/memory_agent/config.json"
 [ -n "$MEM0_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_BASE_URL" "$MEM0_EMBED_BASE_URL"
 [ -n "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_API_KEY" "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}"
 [ -n "$MEM0_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_MODEL" "$MEM0_EMBED_MODEL"
+[ -n "$MEM0_EMBEDDING_DIMS" ] && set_json_key "$MEM_CFG" "MEM0_EMBEDDING_DIMS" "$MEM0_EMBEDDING_DIMS"
 [ -n "$QDRANT_HOST" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_HOST" "$QDRANT_HOST"
 [ -n "$QDRANT_PORT" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_PORT" "$QDRANT_PORT"
 
@@ -149,6 +150,7 @@ KB_ENV="$ROOT/agents_external/kb_agent/.env"
 [ -n "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}" ] && set_env_var "$KB_ENV" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}"
 [ -n "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$KB_ENV" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}"
 [ -n "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}" ] && set_env_var "$KB_ENV" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}"
+[ -n "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}" ] && set_env_var "$KB_ENV" "VECTOR_DIM" "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}"
 
 # Propagate Telegram/Discord settings
 CHAN_ENV="$ROOT/agents_external/channel_agent/.env"

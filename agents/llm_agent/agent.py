@@ -548,28 +548,35 @@ async def _call_gemini(
                 parts=[types.Part.from_text(text=content)],
             ))
         elif role == "assistant":
-            parts: list[types.Part] = []
-            # Round-trip thinking blocks from previous response.
+            # Check for stored raw Gemini Content (preserves thought_signatures).
+            raw_gemini = None
             for tb in m.get("thinking_blocks") or []:
-                parts.append(types.Part(thought=True, text=tb.get("text", "")))
-            text = m.get("content")
-            if text:
-                parts.append(types.Part.from_text(text=text))
-            # Convert tool_calls to FunctionCall parts.
-            for tc in m.get("tool_calls") or []:
-                fn = tc.get("function", tc)
-                tc_args = fn.get("arguments", {})
-                if isinstance(tc_args, str):
-                    try:
-                        tc_args = json.loads(tc_args)
-                    except (json.JSONDecodeError, TypeError):
-                        tc_args = {}
-                parts.append(types.Part.from_function_call(
-                    name=fn.get("name", tc.get("name", "")),
-                    args=tc_args,
-                ))
-            if parts:
-                gem_contents.append(types.Content(role="model", parts=parts))
+                if tb.get("provider") == "gemini" and tb.get("raw_content"):
+                    raw_gemini = tb["raw_content"]
+                    break
+            if raw_gemini:
+                # Use the original model Content directly — includes thought_signatures.
+                gem_contents.append(types.Content.model_validate(raw_gemini))
+            else:
+                parts: list[types.Part] = []
+                text = m.get("content")
+                if text:
+                    parts.append(types.Part.from_text(text=text))
+                # Convert tool_calls to FunctionCall parts.
+                for tc in m.get("tool_calls") or []:
+                    fn = tc.get("function", tc)
+                    tc_args = fn.get("arguments", {})
+                    if isinstance(tc_args, str):
+                        try:
+                            tc_args = json.loads(tc_args)
+                        except (json.JSONDecodeError, TypeError):
+                            tc_args = {}
+                    parts.append(types.Part.from_function_call(
+                        name=fn.get("name", tc.get("name", "")),
+                        args=tc_args,
+                    ))
+                if parts:
+                    gem_contents.append(types.Content(role="model", parts=parts))
         elif role == "tool":
             # Convert OpenAI tool result to Gemini FunctionResponse.
             tc_name = m.get("name", "")
@@ -644,21 +651,29 @@ async def _call_gemini(
     reasoning: Optional[str] = None
     tc_counter = 0
 
-    for candidate in resp.candidates:
-        for part in candidate.content.parts:
-            if getattr(part, "thought", False):
-                thinking_blocks.append({"type": "thinking", "text": part.text or ""})
-                reasoning = part.text
-            elif part.function_call:
-                fc = part.function_call
-                tool_calls.append({
-                    "id": f"call_{tc_counter}",
-                    "name": fc.name,
-                    "arguments": dict(fc.args) if fc.args else {},
-                })
-                tc_counter += 1
-            elif part.text:
-                text_parts.append(part.text)
+    model_content = resp.candidates[0].content
+    for part in model_content.parts:
+        if getattr(part, "thought", False):
+            reasoning = part.text
+        elif part.function_call:
+            fc = part.function_call
+            tool_calls.append({
+                "id": f"call_{tc_counter}",
+                "name": fc.name,
+                "arguments": dict(fc.args) if fc.args else {},
+            })
+            tc_counter += 1
+        elif part.text:
+            text_parts.append(part.text)
+
+    # If there are tool_calls, store the full serialized model Content for
+    # round-tripping.  This preserves thought_signature bytes on function_call
+    # parts, which the Gemini API requires on subsequent turns.
+    if tool_calls:
+        thinking_blocks = [{
+            "provider": "gemini",
+            "raw_content": model_content.model_dump(mode="json"),
+        }]
 
     content = "\n\n".join(text_parts) if text_parts else None
 
