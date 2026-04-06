@@ -27,6 +27,23 @@ if [ -f "$ROOT/start.config" ]; then
     set +a
 fi
 
+# ── Parse EXCLUDE_AGENTS list ─────────────────────────────────────────
+# Comma-separated list of external agent directory names to skip during
+# bootstrap and startup.  E.g. EXCLUDE_AGENTS="coding_agent,kb_agent"
+IFS=',' read -ra _EXCLUDED_AGENTS <<< "${EXCLUDE_AGENTS:-}"
+is_excluded() {
+    local agent="$1"
+    for ex in "${_EXCLUDED_AGENTS[@]}"; do
+        # Trim whitespace
+        ex="$(echo "$ex" | tr -d '[:space:]')"
+        [ "$ex" = "$agent" ] && return 0
+    done
+    return 1
+}
+if [ -n "$EXCLUDE_AGENTS" ]; then
+    echo "[start] Excluded agents: $EXCLUDE_AGENTS"
+fi
+
 # ── Propagate start.config values into agent configs ────────────────────
 
 # Helper: set a key=value in an .env file (create key if missing)
@@ -83,35 +100,21 @@ done
 
 # Propagate ADMIN_TOKEN to root .env and web_admin
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/.env" "ADMIN_TOKEN" "$ADMIN_TOKEN"
-[ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/agents_external/web_admin/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
+[ -n "$ADMIN_TOKEN" ] && ! is_excluded "web_admin" && set_env_var "$ROOT/agents_external/web_admin/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
 
 # Propagate ADMIN_PASSWORD to all agent .env files
 if [ -n "$ADMIN_PASSWORD" ]; then
-    for agent_env in \
-        "$ROOT/agents_external/channel_agent/.env" \
-        "$ROOT/agents_external/coding_agent/.env" \
-        "$ROOT/agents_external/cron_agent/.env" \
-        "$ROOT/agents_external/kb_agent/.env" \
-        "$ROOT/agents_external/mcp_agent/.env" \
-        "$ROOT/agents_external/mcp_server/.env" \
-        "$ROOT/agents_external/reminder_agent/.env" \
-        "$ROOT/agents_external/web_admin/.env"; do
-        set_env_var "$agent_env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
+    for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin; do
+        is_excluded "$_agent_name" && continue
+        set_env_var "$ROOT/agents_external/$_agent_name/.env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
     done
 fi
 
 # Generate and propagate SESSION_SECRET (shared across all agents)
 SESSION_SECRET="${SESSION_SECRET:-$("$VENV_BIN/python3" -c 'import secrets; print(secrets.token_hex(32))')}"
-for agent_env in \
-    "$ROOT/agents_external/channel_agent/.env" \
-    "$ROOT/agents_external/coding_agent/.env" \
-    "$ROOT/agents_external/cron_agent/.env" \
-    "$ROOT/agents_external/kb_agent/.env" \
-    "$ROOT/agents_external/mcp_agent/.env" \
-    "$ROOT/agents_external/mcp_server/.env" \
-    "$ROOT/agents_external/reminder_agent/.env" \
-    "$ROOT/agents_external/web_admin/.env"; do
-    set_env_var "$agent_env" "SESSION_SECRET" "$SESSION_SECRET"
+for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin; do
+    is_excluded "$_agent_name" && continue
+    set_env_var "$ROOT/agents_external/$_agent_name/.env" "SESSION_SECRET" "$SESSION_SECRET"
 done
 
 # Propagate LLM Gateway settings to llm_agent config.json
@@ -146,18 +149,22 @@ if [ "$OCR_ENABLED" = "true" ]; then
 fi
 
 # Propagate kb_agent embedding settings
-KB_ENV="$ROOT/agents_external/kb_agent/.env"
-[ -n "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}" ] && set_env_var "$KB_ENV" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}"
-[ -n "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$KB_ENV" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}"
-[ -n "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}" ] && set_env_var "$KB_ENV" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}"
-[ -n "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}" ] && set_env_var "$KB_ENV" "VECTOR_DIM" "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}"
+if ! is_excluded "kb_agent"; then
+    KB_ENV="$ROOT/agents_external/kb_agent/.env"
+    [ -n "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}" ] && set_env_var "$KB_ENV" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}"
+    [ -n "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$KB_ENV" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}"
+    [ -n "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}" ] && set_env_var "$KB_ENV" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}"
+    [ -n "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}" ] && set_env_var "$KB_ENV" "VECTOR_DIM" "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}"
+fi
 
 # Propagate Telegram/Discord settings
-CHAN_ENV="$ROOT/agents_external/channel_agent/.env"
-[ -n "$TELEGRAM_TOKEN" ] && set_env_var "$CHAN_ENV" "TELEGRAM_TOKEN" "$TELEGRAM_TOKEN"
-[ -n "$TELEGRAM_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "TELEGRAM_ALLOWED_IDS" "$TELEGRAM_ALLOWED_IDS"
-[ -n "$DISCORD_TOKEN" ] && set_env_var "$CHAN_ENV" "DISCORD_TOKEN" "$DISCORD_TOKEN"
-[ -n "$DISCORD_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "DISCORD_ALLOWED_IDS" "$DISCORD_ALLOWED_IDS"
+if ! is_excluded "channel_agent"; then
+    CHAN_ENV="$ROOT/agents_external/channel_agent/.env"
+    [ -n "$TELEGRAM_TOKEN" ] && set_env_var "$CHAN_ENV" "TELEGRAM_TOKEN" "$TELEGRAM_TOKEN"
+    [ -n "$TELEGRAM_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "TELEGRAM_ALLOWED_IDS" "$TELEGRAM_ALLOWED_IDS"
+    [ -n "$DISCORD_TOKEN" ] && set_env_var "$CHAN_ENV" "DISCORD_TOKEN" "$DISCORD_TOKEN"
+    [ -n "$DISCORD_ALLOWED_IDS" ] && set_env_var "$CHAN_ENV" "DISCORD_ALLOWED_IDS" "$DISCORD_ALLOWED_IDS"
+fi
 
 # ── Ports (propagate to agent .env files) ────────────────────────────────
 ROUTER_PORT="${ROUTER_PORT:-8000}"
@@ -170,14 +177,14 @@ KB_PORT="${KB_PORT:-8086}"
 CODING_PORT="${CODING_PORT:-8100}"
 REMINDER_PORT="${REMINDER_PORT:-8101}"
 
-set_env_var "$ROOT/agents_external/web_admin/.env" "AGENT_PORT" "$WEB_ADMIN_PORT"
-set_env_var "$ROOT/agents_external/channel_agent/.env" "AGENT_PORT" "$CHANNEL_PORT"
-set_env_var "$ROOT/agents_external/mcp_agent/.env" "AGENT_PORT" "$MCP_AGENT_PORT"
-set_env_var "$ROOT/agents_external/mcp_server/.env" "AGENT_PORT" "$MCP_SERVER_PORT"
-set_env_var "$ROOT/agents_external/cron_agent/.env" "AGENT_PORT" "$CRON_PORT"
-set_env_var "$ROOT/agents_external/kb_agent/.env" "AGENT_PORT" "$KB_PORT"
-set_env_var "$ROOT/agents_external/coding_agent/.env" "AGENT_PORT" "$CODING_PORT"
-set_env_var "$ROOT/agents_external/reminder_agent/.env" "AGENT_PORT" "$REMINDER_PORT"
+is_excluded "web_admin"     || set_env_var "$ROOT/agents_external/web_admin/.env" "AGENT_PORT" "$WEB_ADMIN_PORT"
+is_excluded "channel_agent" || set_env_var "$ROOT/agents_external/channel_agent/.env" "AGENT_PORT" "$CHANNEL_PORT"
+is_excluded "mcp_agent"     || set_env_var "$ROOT/agents_external/mcp_agent/.env" "AGENT_PORT" "$MCP_AGENT_PORT"
+is_excluded "mcp_server"    || set_env_var "$ROOT/agents_external/mcp_server/.env" "AGENT_PORT" "$MCP_SERVER_PORT"
+is_excluded "cron_agent"    || set_env_var "$ROOT/agents_external/cron_agent/.env" "AGENT_PORT" "$CRON_PORT"
+is_excluded "kb_agent"      || set_env_var "$ROOT/agents_external/kb_agent/.env" "AGENT_PORT" "$KB_PORT"
+is_excluded "coding_agent"  || set_env_var "$ROOT/agents_external/coding_agent/.env" "AGENT_PORT" "$CODING_PORT"
+is_excluded "reminder_agent" || set_env_var "$ROOT/agents_external/reminder_agent/.env" "AGENT_PORT" "$REMINDER_PORT"
 
 # ── Re-source root .env (may have been updated above) ───────────────────
 set -a
@@ -259,139 +266,87 @@ PYEOF
 
 seed_acl
 
-# ── Web Admin ────────────────────────────────────────────────────────────
-WEB_ADMIN_ENV="$ROOT/agents_external/web_admin/.env"
-WEB_ADMIN_CREDS="$ROOT/agents_external/web_admin/data/credentials.json"
+# ── Helper: start an external agent (skips if excluded) ────────────────
+# Usage: start_agent <dir_name> <label> <inbound_groups> <outbound_groups> <port> <start_cmd...>
+#   dir_name:        directory name under agents_external/
+#   label:           display name for log messages
+#   inbound_groups:  JSON array string for invitation, e.g. '["tool"]'
+#   outbound_groups: JSON array string for invitation
+#   port:            port number to bind on
+#   start_cmd...:    command and args to launch the agent
+#
+# Appends to RUNNING_PIDS and RUNNING_SERVICES for shutdown tracking.
 
-if [ ! -f "$WEB_ADMIN_CREDS" ]; then
-    echo "[web-admin] No saved credentials — creating invitation token ..."
-    create_invitation "web-admin" "$WEB_ADMIN_ENV" '["admin"]' '["admin"]' >/dev/null
-fi
+RUNNING_PIDS="$ROUTER_PID"
+RUNNING_SERVICES="Router:$ROUTER_PID"
 
-echo "[web-admin] Starting on http://0.0.0.0:${WEB_ADMIN_PORT} ..."
-cd "$ROOT/agents_external/web_admin"
-"$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$WEB_ADMIN_PORT" &
-WEB_ADMIN_PID=$!
-cd "$ROOT"
+start_agent() {
+    local dir_name="$1" label="$2" inbound="$3" outbound="$4" port="$5"
+    shift 5  # remaining args are the start command
 
-# ── Channel Agent ────────────────────────────────────────────────────────
-CHAN_ENV="$ROOT/agents_external/channel_agent/.env"
-CHAN_CREDS="$ROOT/agents_external/channel_agent/data/credentials.json"
+    if is_excluded "$dir_name"; then
+        echo "[$label] Skipped (excluded via EXCLUDE_AGENTS)"
+        return 0
+    fi
 
-if [ ! -f "$CHAN_CREDS" ]; then
-    echo "[channel] No saved credentials — creating invitation token ..."
-    create_invitation "channel" "$CHAN_ENV" '["channel"]' '["channel"]' >/dev/null
-fi
+    local agent_env="$ROOT/agents_external/$dir_name/.env"
+    local agent_creds="$ROOT/agents_external/$dir_name/data/credentials.json"
 
-echo "[channel] Starting on http://0.0.0.0:${CHANNEL_PORT} ..."
-cd "$ROOT/agents_external/channel_agent"
-"$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$CHANNEL_PORT" &
-CHANNEL_PID=$!
-cd "$ROOT"
+    if [ ! -f "$agent_creds" ]; then
+        echo "[$label] No saved credentials — creating invitation token ..."
+        create_invitation "$label" "$agent_env" "$inbound" "$outbound" >/dev/null
+    fi
 
-# ── MCP Server ───────────────────────────────────────────────────────────
-MCP_SERVER_ENV="$ROOT/agents_external/mcp_server/.env"
-MCP_SERVER_CREDS="$ROOT/agents_external/mcp_server/data/credentials.json"
+    echo "[$label] Starting on http://0.0.0.0:${port} ..."
+    cd "$ROOT/agents_external/$dir_name"
+    "$@" &
+    local pid=$!
+    cd "$ROOT"
 
-if [ ! -f "$MCP_SERVER_CREDS" ]; then
-    echo "[mcp-server] No saved credentials — creating invitation token ..."
-    create_invitation "mcp-server" "$MCP_SERVER_ENV" '["bridge"]' '["bridge"]' >/dev/null
-fi
+    RUNNING_PIDS="$RUNNING_PIDS $pid"
+    RUNNING_SERVICES="$RUNNING_SERVICES $label:$pid"
+}
 
-echo "[mcp-server] Starting on http://0.0.0.0:${MCP_SERVER_PORT} ..."
-cd "$ROOT/agents_external/mcp_server"
-"$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$MCP_SERVER_PORT" &
-MCP_SERVER_PID=$!
-cd "$ROOT"
+# ── External Agents ────────────────────────────────────────────────────
 
-# ── MCP Agent ────────────────────────────────────────────────────────────
-MCP_AGENT_ENV="$ROOT/agents_external/mcp_agent/.env"
-MCP_AGENT_CREDS="$ROOT/agents_external/mcp_agent/data/credentials.json"
+start_agent "web_admin" "Web-Admin" '["admin"]' '["admin"]' "$WEB_ADMIN_PORT" \
+    "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$WEB_ADMIN_PORT"
 
-if [ ! -f "$MCP_AGENT_CREDS" ]; then
-    echo "[mcp-agent] No saved credentials — creating invitation token ..."
-    create_invitation "mcp-agent" "$MCP_AGENT_ENV" '["tool"]' '["tool"]' >/dev/null
-fi
+start_agent "channel_agent" "Channel" '["channel"]' '["channel"]' "$CHANNEL_PORT" \
+    "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$CHANNEL_PORT"
 
-echo "[mcp-agent] Starting on http://0.0.0.0:${MCP_AGENT_PORT} ..."
-cd "$ROOT/agents_external/mcp_agent"
-"$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$MCP_AGENT_PORT" &
-MCP_AGENT_PID=$!
-cd "$ROOT"
+start_agent "mcp_server" "MCP-Server" '["bridge"]' '["bridge"]' "$MCP_SERVER_PORT" \
+    "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$MCP_SERVER_PORT"
 
-# ── Coding Agent ─────────────────────────────────────────────────────────
-CODING_ENV="$ROOT/agents_external/coding_agent/.env"
-CODING_CREDS="$ROOT/agents_external/coding_agent/data/credentials.json"
+start_agent "mcp_agent" "MCP-Agent" '["tool"]' '["tool"]' "$MCP_AGENT_PORT" \
+    "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$MCP_AGENT_PORT"
 
-if [ ! -f "$CODING_CREDS" ]; then
-    echo "[coding] No saved credentials — creating invitation token ..."
-    create_invitation "coding" "$CODING_ENV" '["usertool"]' '["usertool"]' >/dev/null
-fi
+PYTHONPATH="$ROOT:${PYTHONPATH:-}"
+export PYTHONPATH
 
-echo "[coding] Starting on http://0.0.0.0:${CODING_PORT} ..."
-cd "$ROOT/agents_external/coding_agent"
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$VENV_BIN/python3" agent.py &
-CODING_PID=$!
-cd "$ROOT"
+start_agent "coding_agent" "Coding" '["usertool"]' '["usertool"]' "$CODING_PORT" \
+    "$VENV_BIN/python3" agent.py
 
-# ── Reminder Agent ───────────────────────────────────────────────────────
-REMINDER_ENV="$ROOT/agents_external/reminder_agent/.env"
-REMINDER_CREDS="$ROOT/agents_external/reminder_agent/data/credentials.json"
+start_agent "reminder_agent" "Reminder" '["usertool"]' '["usertool","notify"]' "$REMINDER_PORT" \
+    "$VENV_BIN/python3" agent.py
 
-if [ ! -f "$REMINDER_CREDS" ]; then
-    echo "[reminder] No saved credentials — creating invitation token ..."
-    create_invitation "reminder" "$REMINDER_ENV" '["usertool"]' '["usertool","notify"]' >/dev/null
-fi
+start_agent "cron_agent" "Cron" '["usertool"]' '["usertool","notify"]' "$CRON_PORT" \
+    "$VENV_BIN/python3" agent.py
 
-echo "[reminder] Starting on http://0.0.0.0:${REMINDER_PORT} ..."
-cd "$ROOT/agents_external/reminder_agent"
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$VENV_BIN/python3" agent.py &
-REMINDER_PID=$!
-cd "$ROOT"
-
-# ── Cron Agent ───────────────────────────────────────────────────────────
-CRON_ENV="$ROOT/agents_external/cron_agent/.env"
-CRON_CREDS="$ROOT/agents_external/cron_agent/data/credentials.json"
-
-if [ ! -f "$CRON_CREDS" ]; then
-    echo "[cron] No saved credentials — creating invitation token ..."
-    create_invitation "cron" "$CRON_ENV" '["usertool"]' '["usertool","notify"]' >/dev/null
-fi
-
-echo "[cron] Starting on http://0.0.0.0:${CRON_PORT} ..."
-cd "$ROOT/agents_external/cron_agent"
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$VENV_BIN/python3" agent.py &
-CRON_PID=$!
-cd "$ROOT"
-
-# ── KB Agent ─────────────────────────────────────────────────────────────
-KB_ENV="$ROOT/agents_external/kb_agent/.env"
-KB_CREDS="$ROOT/agents_external/kb_agent/data/credentials.json"
-
-if [ ! -f "$KB_CREDS" ]; then
-    echo "[kb] No saved credentials — creating invitation token ..."
-    create_invitation "kb" "$KB_ENV" '["usertool"]' '["usertool"]' >/dev/null
-fi
-
-echo "[kb] Starting on http://0.0.0.0:${KB_PORT} ..."
-cd "$ROOT/agents_external/kb_agent"
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$VENV_BIN/python3" agent.py &
-KB_PID=$!
-cd "$ROOT"
+start_agent "kb_agent" "KB" '["usertool"]' '["usertool"]' "$KB_PORT" \
+    "$VENV_BIN/python3" agent.py
 
 # ── Shutdown trap ────────────────────────────────────────────────────────
-ALL_PIDS="$ROUTER_PID $WEB_ADMIN_PID $CHANNEL_PID $MCP_SERVER_PID $MCP_AGENT_PID $CODING_PID $REMINDER_PID $CRON_PID $KB_PID"
+ALL_PIDS="$RUNNING_PIDS"
 echo ""
 echo "[start] ─── All services running ───"
 echo "[start]   Router          PID=$ROUTER_PID      http://localhost:${ROUTER_PORT}"
-echo "[start]   Web Admin       PID=$WEB_ADMIN_PID   http://localhost:${WEB_ADMIN_PORT}"
-echo "[start]   Channel Agent   PID=$CHANNEL_PID     http://localhost:${CHANNEL_PORT}"
-echo "[start]   MCP Server      PID=$MCP_SERVER_PID  http://localhost:${MCP_SERVER_PORT}"
-echo "[start]   MCP Agent       PID=$MCP_AGENT_PID   http://localhost:${MCP_AGENT_PORT}"
-echo "[start]   Coding Agent    PID=$CODING_PID      http://localhost:${CODING_PORT}"
-echo "[start]   Reminder Agent  PID=$REMINDER_PID    http://localhost:${REMINDER_PORT}"
-echo "[start]   Cron Agent      PID=$CRON_PID        http://localhost:${CRON_PORT}"
-echo "[start]   KB Agent        PID=$KB_PID          http://localhost:${KB_PORT}"
+for entry in $RUNNING_SERVICES; do
+    svc="${entry%%:*}"
+    pid="${entry##*:}"
+    [ "$svc" = "Router" ] && continue
+    printf "[start]   %-16s PID=%s\n" "$svc" "$pid"
+done
 echo "[start] Press Ctrl+C to stop all."
 echo ""
 
@@ -409,12 +364,9 @@ while true; do
     wait -n -p EXITED_PID $ALL_PIDS 2>/dev/null
     EXIT_CODE=$?
     # Identify which service exited
-    for name_pid in \
-        "Router:$ROUTER_PID" "Web Admin:$WEB_ADMIN_PID" "Channel Agent:$CHANNEL_PID" \
-        "MCP Server:$MCP_SERVER_PID" "MCP Agent:$MCP_AGENT_PID" "Coding Agent:$CODING_PID" \
-        "Reminder Agent:$REMINDER_PID" "Cron Agent:$CRON_PID" "KB Agent:$KB_PID"; do
-        svc="${name_pid%%:*}"
-        pid="${name_pid##*:}"
+    for entry in $RUNNING_SERVICES; do
+        svc="${entry%%:*}"
+        pid="${entry##*:}"
         if ! kill -0 "$pid" 2>/dev/null; then
             echo "[start] WARNING: $svc (PID=$pid) exited with code $EXIT_CODE"
         fi
