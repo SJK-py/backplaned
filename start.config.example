@@ -53,8 +53,10 @@ LLM_MAX_TOKENS=16384              # Max output tokens per completion
 # and must be configured if memory_agent is used.
 
 MEM0_LLM_BASE_URL=""              # Override LLM endpoint (default: LLM_BASE_URL)
+MEM0_LLM_API_KEY=""               # Override LLM API key (default: LLM_API_KEY)
 MEM0_LLM_MODEL=""                 # Override LLM model (default: LLM_MODEL)
 MEM0_EMBED_BASE_URL=""            # Embedding API endpoint (REQUIRED for memory_agent)
+MEM0_EMBED_API_KEY=""             # Embedding API key (default: LLM_API_KEY)
 MEM0_EMBED_MODEL=""               # Embedding model name (REQUIRED for memory_agent)
 QDRANT_HOST="localhost"           # Qdrant vector DB host
 QDRANT_PORT=6333                  # Qdrant vector DB port
@@ -68,6 +70,7 @@ QDRANT_PORT=6333                  # Qdrant vector DB port
 
 OCR_ENABLED="false"               # Set to "true" to enable LLM-based OCR
 OCR_BASE_URL=""                   # Override LLM endpoint for OCR (default: LLM_BASE_URL)
+OCR_API_KEY=""                    # Override API key for OCR (default: LLM_API_KEY)
 OCR_MODEL=""                      # Override model for OCR (default: LLM_MODEL)
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -78,6 +81,7 @@ OCR_MODEL=""                      # Override model for OCR (default: LLM_MODEL)
 # falls back to MEM0_EMBED_* values above.
 
 KB_EMBED_BASE_URL=""              # Override embedding endpoint (default: MEM0_EMBED_BASE_URL)
+KB_EMBED_API_KEY=""               # Override embedding API key (default: MEM0_EMBED_API_KEY)
 KB_EMBED_MODEL=""                 # Override embedding model (default: MEM0_EMBED_MODEL)
 
 # ═══════════════════════════════════════════════════════════════════════

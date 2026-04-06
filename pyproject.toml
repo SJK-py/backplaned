@@ -39,8 +39,9 @@ dependencies = [
     # Discord (channel_agent — uses raw websockets)
     "websockets>=16.0",
 
-    # Reminder/cron (rrule parsing)
+    # Reminder/cron (rrule parsing, cron scheduling)
     "python-dateutil>=2.9",
+    "croniter>=6.0",
 
     # SSE streaming
     "sse-starlette>=3.3",
