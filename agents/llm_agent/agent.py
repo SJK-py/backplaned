@@ -465,6 +465,45 @@ async def _call_anthropic(
                                thinking_blocks=thinking_blocks or None)
 
 
+def _sanitize_schema_for_gemini(schema: dict[str, Any]) -> dict[str, Any]:
+    """Convert OpenAI JSON Schema to Gemini-compatible format.
+
+    Gemini's FunctionDeclaration does not support ``oneOf``, ``anyOf``,
+    ``allOf``, or ``$ref``.  The most common case is nullable types
+    represented as ``{"oneOf": [{"type": "X"}, {"type": "null"}]}``.
+    Convert these to ``{"type": "X"}`` (drop the null variant).
+    Recursively process nested properties and array items.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    result = {}
+    for key, value in schema.items():
+        if key == "oneOf" and isinstance(value, list):
+            # Extract the non-null type from oneOf nullable pattern
+            non_null = [v for v in value if not (isinstance(v, dict) and v.get("type") == "null")]
+            if len(non_null) == 1:
+                return _sanitize_schema_for_gemini(non_null[0])
+            # Multiple non-null types — fall back to first
+            if non_null:
+                return _sanitize_schema_for_gemini(non_null[0])
+            continue
+        elif key in ("anyOf", "allOf") and isinstance(value, list):
+            # Take the first option
+            if value:
+                return _sanitize_schema_for_gemini(value[0])
+            continue
+        elif key == "$ref":
+            continue
+        elif key == "properties" and isinstance(value, dict):
+            result[key] = {k: _sanitize_schema_for_gemini(v) for k, v in value.items()}
+        elif key == "items" and isinstance(value, dict):
+            result[key] = _sanitize_schema_for_gemini(value)
+        else:
+            result[key] = value
+    return result
+
+
 async def _call_gemini(
     model_cfg: dict[str, Any],
     messages: list[dict[str, Any]],
@@ -485,6 +524,8 @@ async def _call_gemini(
         for t in tools:
             fn = t.get("function", t)
             params = fn.get("parameters", {})
+            if params:
+                params = _sanitize_schema_for_gemini(params)
             func_decls.append(types.FunctionDeclaration(
                 name=fn.get("name", t.get("name", "")),
                 description=fn.get("description", ""),
