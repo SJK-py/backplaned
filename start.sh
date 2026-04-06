@@ -13,6 +13,15 @@ if [ -f "$ROOT/start.config" ]; then
 fi
 
 # ── Load root .env (router defaults) ────────────────────────────────────
+if [ ! -f "$ROOT/.env" ]; then
+    if [ -f "$ROOT/.env.example" ]; then
+        cp "$ROOT/.env.example" "$ROOT/.env"
+        echo "[start] Created .env from .env.example"
+    else
+        echo "[start] ERROR: $ROOT/.env not found and no .env.example to copy from." >&2
+        exit 1
+    fi
+fi
 set -a
 # shellcheck disable=SC1091
 source "$ROOT/.env"
@@ -382,6 +391,35 @@ echo "[start]   KB Agent        PID=$KB_PID          http://localhost:${KB_PORT}
 echo "[start] Press Ctrl+C to stop all."
 echo ""
 
-trap "echo '[stop] Shutting down...'; kill $ALL_PIDS 2>/dev/null; wait" SIGINT SIGTERM
+_shutdown() {
+    echo "[stop] Shutting down..."
+    kill $ALL_PIDS 2>/dev/null
+    wait
+    exit 0
+}
+trap _shutdown SIGINT SIGTERM
 
-wait
+# Monitor child processes — log which service died instead of silently exiting
+set +e
+while true; do
+    wait -n -p EXITED_PID $ALL_PIDS 2>/dev/null
+    EXIT_CODE=$?
+    # Identify which service exited
+    for name_pid in \
+        "Router:$ROUTER_PID" "Web Admin:$WEB_ADMIN_PID" "Channel Agent:$CHANNEL_PID" \
+        "MCP Server:$MCP_SERVER_PID" "MCP Agent:$MCP_AGENT_PID" "Coding Agent:$CODING_PID" \
+        "Reminder Agent:$REMINDER_PID" "Cron Agent:$CRON_PID" "KB Agent:$KB_PID"; do
+        svc="${name_pid%%:*}"
+        pid="${name_pid##*:}"
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "[start] WARNING: $svc (PID=$pid) exited with code $EXIT_CODE"
+        fi
+    done
+    # If the router itself died, shut everything down
+    if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
+        echo "[start] ERROR: Router has exited — shutting down all services."
+        kill $ALL_PIDS 2>/dev/null
+        wait
+        exit 1
+    fi
+done
