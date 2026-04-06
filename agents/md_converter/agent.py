@@ -50,8 +50,13 @@ def _load_config() -> dict[str, Any]:
 
 
 def _cfg(key: str, default: str = "") -> str:
-    """Get a config value as string, with fallback default."""
-    return str(_load_config().get(key, default))
+    """Get a config value as string, with fallback default.
+
+    Empty-string values in config.json are treated as unset so that code
+    defaults take effect.
+    """
+    val = str(_load_config().get(key, default))
+    return val if val else default
 
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000")
