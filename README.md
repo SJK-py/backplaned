@@ -74,7 +74,7 @@ Agents are organized into groups with directional routing rules:
 ### Setup
 
 ```bash
-git clone <repo-url> agora
+git clone https://github.com/SJK-py/agora.git agora
 cd agora
 
 # Create virtual environment and install dependencies
@@ -106,7 +106,7 @@ For full configuration options (memory, embeddings, OCR, Telegram, Discord, port
 ## Quick Start (Docker)
 
 ```bash
-git clone <repo-url> agora
+git clone https://github.com/SJK-py/agora.git agora
 cd agora
 
 # Configure
