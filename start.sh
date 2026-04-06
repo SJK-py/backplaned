@@ -63,6 +63,15 @@ f.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="ut
 PYEOF
 }
 
+# ── Bootstrap config.json from defaults if missing ─────────────────────
+for default_cfg in "$ROOT"/agents/*/config.default.json; do
+    agent_dir="$(dirname "$default_cfg")"
+    cfg="$agent_dir/config.json"
+    if [ ! -f "$cfg" ]; then
+        cp "$default_cfg" "$cfg"
+    fi
+done
+
 # Propagate ADMIN_TOKEN to root .env and web_admin
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/.env" "ADMIN_TOKEN" "$ADMIN_TOKEN"
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/agents_external/web_admin/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
@@ -81,6 +90,20 @@ if [ -n "$ADMIN_PASSWORD" ]; then
         set_env_var "$agent_env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
     done
 fi
+
+# Generate and propagate SESSION_SECRET (shared across all agents)
+SESSION_SECRET="${SESSION_SECRET:-$("$VENV_BIN/python3" -c 'import secrets; print(secrets.token_hex(32))')}"
+for agent_env in \
+    "$ROOT/agents_external/channel_agent/.env" \
+    "$ROOT/agents_external/coding_agent/.env" \
+    "$ROOT/agents_external/cron_agent/.env" \
+    "$ROOT/agents_external/kb_agent/.env" \
+    "$ROOT/agents_external/mcp_agent/.env" \
+    "$ROOT/agents_external/mcp_server/.env" \
+    "$ROOT/agents_external/reminder_agent/.env" \
+    "$ROOT/agents_external/web_admin/.env"; do
+    set_env_var "$agent_env" "SESSION_SECRET" "$SESSION_SECRET"
+done
 
 # Propagate LLM Gateway settings to llm_agent config.json
 if [ -n "$LLM_BASE_URL" ]; then

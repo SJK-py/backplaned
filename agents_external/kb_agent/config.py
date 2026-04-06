@@ -18,7 +18,7 @@ class AgentConfig(BaseModel):
     agent_id: str = "kb_agent"
     agent_auth_token: str = ""
     agent_endpoint_url: str = ""
-    admin_password: str = "changeme"
+    admin_password: str = ""
     session_secret: str = ""
 
     # Embedding
@@ -47,6 +47,9 @@ class AgentConfig(BaseModel):
     @classmethod
     def from_env(cls) -> AgentConfig:
         import secrets as _s
+        if not os.environ.get("ADMIN_PASSWORD"):
+            import warnings as _w
+            _w.warn("ADMIN_PASSWORD is not set — web UI login will be unavailable until configured", stacklevel=2)
         return cls(
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
             invitation_token=os.environ.get("INVITATION_TOKEN", ""),
