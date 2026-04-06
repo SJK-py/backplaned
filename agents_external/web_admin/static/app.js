@@ -124,7 +124,7 @@ async function loadAgents() {
       const outG = (a.outbound_groups || []).join(', ') || '—';
       const typeB = a.is_embedded
         ? '<span class="badge badge-embedded">embedded</span>'
-        : a.is_alive === false
+        : (a.is_alive === false)
           ? '<span class="badge badge-danger">unavailable</span>'
           : '<span class="badge badge-external">external</span>';
       const disconnectBtn = a.is_embedded
@@ -357,7 +357,9 @@ async function loadGroupsTab() {
   tbody.innerHTML = agents.map(a => {
     const typeB = a.is_embedded
       ? '<span class="badge badge-embedded">embedded</span>'
-      : '<span class="badge badge-external">external</span>';
+      : (a.is_alive === false)
+        ? '<span class="badge badge-danger">unavailable</span>'
+        : '<span class="badge badge-external">external</span>';
     const inG = (a.inbound_groups || []).join(', ');
     const outG = (a.outbound_groups || []).join(', ');
     return `<tr>
