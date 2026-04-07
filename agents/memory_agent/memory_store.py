@@ -277,7 +277,12 @@ class MemoryStore:
     def _find_similar(
         self, text: str, table: lancedb.table.Table, limit: int = 5
     ) -> list[dict[str, Any]]:
-        """Vector search for existing memories similar to text."""
+        """Hybrid search (vector + BM25) for existing memories similar to text.
+
+        BM25 catches exact keyword matches (names, places, technologies) that
+        vector similarity alone might miss — important for deduplication.
+        Falls back to vector-only if FTS index is unavailable.
+        """
         try:
             if table.count_rows() == 0:
                 return []
@@ -286,10 +291,20 @@ class MemoryStore:
 
         vec = self._embed_one(text)
         try:
-            return table.search(vec).limit(limit).to_list()
-        except Exception as exc:
-            logger.warning("Vector search failed: %s", exc)
-            return []
+            return (
+                table.search(query_type="hybrid")
+                .vector(vec)
+                .text(text)
+                .limit(limit)
+                .to_list()
+            )
+        except Exception:
+            logger.debug("Hybrid candidate search unavailable, falling back to vector")
+            try:
+                return table.search(vec).limit(limit).to_list()
+            except Exception as exc:
+                logger.warning("Candidate search failed: %s", exc)
+                return []
 
     def _consolidate(
         self, facts: list[str], table: lancedb.table.Table
