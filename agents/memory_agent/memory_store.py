@@ -107,23 +107,23 @@ If a new fact is already covered by existing memory, skip it — do not output a
 Examples:
 
 Existing memory:
-[{"id": "0", "text": "Alice works at Acme Corp as a backend engineer"}]
+[{{"id": "0", "text": "Alice works at Acme Corp as a backend engineer"}}]
 New facts: ["Alice got promoted to senior engineer at Acme Corp"]
-Output: {"memory": [{"id": "0", "text": "Alice works at Acme Corp as a senior backend engineer", "event": "UPDATE"}]}
+Output: {{"memory": [{{"id": "0", "text": "Alice works at Acme Corp as a senior backend engineer", "event": "UPDATE"}}]}}
 
 Existing memory:
-[{"id": "0", "text": "bob99 prefers dark mode in all applications"}]
+[{{"id": "0", "text": "bob99 prefers dark mode in all applications"}}]
 New facts: ["bob99 switched to light mode after getting new monitor"]
-Output: {"memory": [{"id": "0", "text": "bob99 switched to light mode after getting a new monitor", "event": "DELETE"}, {"id": "1", "text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}]}
+Output: {{"memory": [{{"id": "0", "text": "bob99 switched to light mode after getting a new monitor", "event": "DELETE"}}, {{"id": "1", "text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}}]}}
 
 Existing memory:
-[{"id": "0", "text": "Charlie is learning Rust for systems programming"}]
+[{{"id": "0", "text": "Charlie is learning Rust for systems programming"}}]
 New facts: ["Charlie is learning Rust for systems programming"]
-Output: {"memory": []}
+Output: {{"memory": []}}
 
 Existing memory is empty.
 New facts: ["Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer"]
-Output: {"memory": [{"id": "0", "text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}]}
+Output: {{"memory": [{{"id": "0", "text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}}]}}
 
 ---
 
