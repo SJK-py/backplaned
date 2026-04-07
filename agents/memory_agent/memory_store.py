@@ -314,8 +314,8 @@ class MemoryStore:
         candidates: dict[str, dict[str, Any]] = {}  # id -> record
         for fact in facts:
             for row in self._find_similar(fact, table, limit=5):
-                rid = row["id"]
-                if rid not in candidates:
+                rid = row.get("id")
+                if rid and rid not in candidates:
                     candidates[rid] = row
 
         # Build old memory list with sequential integer IDs

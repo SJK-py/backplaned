@@ -1326,7 +1326,11 @@ async def _process_route_internal(data: dict[str, Any]) -> dict[str, Any]:
             "payload": payload,
         }
 
-        asyncio.create_task(deliver_to_agent(origin_agent_id, result_payload))
+        # Fire-and-forget tasks use a "_noreply_" identifier prefix to signal
+        # that the origin agent does not expect a result delivery.  The task
+        # is still recorded in the DB, but we skip the ASGI/HTTP roundtrip.
+        if not (stored_identifier and stored_identifier.startswith("_noreply_")):
+            asyncio.create_task(deliver_to_agent(origin_agent_id, result_payload))
 
         # Notify progress subscribers that the task is done.
         done_event = {

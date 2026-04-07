@@ -945,54 +945,23 @@ async def _spawn_via_http(
 
 
 # ---------------------------------------------------------------------------
-# Memory-add helper (internal use only; not exposed as LLM tool)
+# Memory-add helper (fire-and-forget; not exposed as LLM tool)
 # ---------------------------------------------------------------------------
-
-async def _memory_add(
-    content: str,
-    user_id: str,
-    loop_state: _LoopState,
-    user_timezone: str = "UTC",
-) -> bool:
-    """Spawn a memory_add task and wait for it to complete. Returns True on success."""
-    identifier = f"madd_{uuid.uuid4().hex[:10]}"
-    loop = asyncio.get_running_loop()
-    fut: asyncio.Future[dict[str, Any]] = loop.create_future()
-    loop_state.pending[identifier] = fut
-    payload: dict[str, Any] = {
-        "operation": "add", "content": content, "user_id": user_id,
-    }
-    if user_timezone and user_timezone != "UTC":
-        payload["timezone"] = user_timezone
-    try:
-        await _spawn_via_http(
-            identifier=identifier,
-            parent_task_id=loop_state.task_id,
-            dest=MEMORY_AGENT_ID,
-            payload=payload,
-            pending=loop_state.pending,
-        )
-        # Shield so outer timeout cancellation does not prevent cleanup.
-        result = await asyncio.wait_for(asyncio.shield(fut), timeout=TOOL_TIMEOUT)
-        return int(result.get("status_code", 500)) < 400
-    except Exception:
-        return False
-    finally:
-        loop_state.pending.pop(identifier, None)
-
 
 def _bg_memory_add(
     user_message: str,
     assistant_reply: str,
     user_id: str,
-    loop_state: "_LoopState",
+    parent_task_id: str,
     user_timezone: str = "UTC",
 ) -> None:
     """Fire-and-forget per-turn memory ingestion.
 
     Builds a small transcript of only the current exchange (user message +
     assistant reply) with a timezone-resolved timestamp, then spawns
-    memory_add in a background task so the response is not delayed.
+    memory_add as a fire-and-forget task.  Uses the ``_noreply_`` identifier
+    prefix so the router records the result but does not attempt to deliver
+    it back (the origin agent has already finished).
     """
     try:
         from zoneinfo import ZoneInfo
@@ -1008,11 +977,22 @@ def _bg_memory_add(
         f"[AI agent] {assistant_reply}"
     )
 
+    payload: dict[str, Any] = {
+        "operation": "add", "content": transcript, "user_id": user_id,
+    }
+    if user_timezone and user_timezone != "UTC":
+        payload["timezone"] = user_timezone
+
     async def _fire() -> None:
         try:
-            await _memory_add(transcript, user_id, loop_state, user_timezone=user_timezone)
+            await _spawn_via_http(
+                identifier=f"_noreply_madd_{uuid.uuid4().hex[:8]}",
+                parent_task_id=parent_task_id,
+                dest=MEMORY_AGENT_ID,
+                payload=payload,
+            )
         except Exception as exc:
-            logger.debug("Background memory_add failed: %s", exc)
+            logger.debug("Background memory_add spawn failed: %s", exc)
 
     asyncio.ensure_future(_fire())
 
@@ -1283,7 +1263,7 @@ async def _agent_loop(
 
             # Per-turn memory ingestion: only the current exchange, not the
             # entire history.  Fire-and-forget — don't block the response.
-            _bg_memory_add(user_message, history_reply, user_id, loop_state, user_timezone=user_timezone)
+            _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
 
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
