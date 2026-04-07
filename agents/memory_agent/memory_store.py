@@ -98,9 +98,9 @@ Output: {"facts": ["Charlie switched from Python to TypeScript for web developme
 MEMORY_UPDATE_PROMPT = """You manage a user's long-term memory. Compare new facts against existing memory and decide what changed.
 
 Operations (only output entries for actual changes):
-- ADD: New information not in memory. Use a new ID (next sequential integer).
-- UPDATE: Same topic but newer or more detailed info. Keep the same ID, rewrite the text.
-- DELETE: New fact directly contradicts an existing memory.
+- ADD: New information not in memory. No id needed.
+- UPDATE: Same topic but newer or more detailed info. Include the existing id.
+- DELETE: New fact directly contradicts an existing memory. Include the existing id.
 
 If a new fact is already covered by existing memory, skip it — do not output anything for it.
 
@@ -114,7 +114,7 @@ Output: {{"memory": [{{"id": "0", "text": "Alice works at Acme Corp as a senior 
 Existing memory:
 [{{"id": "0", "text": "bob99 prefers dark mode in all applications"}}]
 New facts: ["bob99 switched to light mode after getting new monitor"]
-Output: {{"memory": [{{"id": "0", "text": "bob99 switched to light mode after getting a new monitor", "event": "DELETE"}}, {{"id": "1", "text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}}]}}
+Output: {{"memory": [{{"id": "0", "event": "DELETE"}}, {{"text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}}]}}
 
 Existing memory:
 [{{"id": "0", "text": "Charlie is learning Rust for systems programming"}}]
@@ -123,7 +123,7 @@ Output: {{"memory": []}}
 
 Existing memory is empty.
 New facts: ["Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer"]
-Output: {{"memory": [{{"id": "0", "text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}}]}}
+Output: {{"memory": [{{"text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}}]}}
 
 ---
 
@@ -135,7 +135,9 @@ New facts:
 ```
 
 Return ONLY valid JSON: {{"memory": [...]}}
-Each entry: {{"id": "<ID>", "text": "<content>", "event": "ADD|UPDATE|DELETE"}}
+ADD: {{"text": "<content>", "event": "ADD"}}
+UPDATE: {{"id": "<existing ID>", "text": "<new content>", "event": "UPDATE"}}
+DELETE: {{"id": "<existing ID>", "event": "DELETE"}}
 Empty list if nothing changed."""
 
 _TABLE_NAME = "memories"
