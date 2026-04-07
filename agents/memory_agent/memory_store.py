@@ -95,57 +95,48 @@ Output: {"facts": ["Dana has a meeting with David from marketing about Q3 budget
 Output: {"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}
 """
 
-MEMORY_UPDATE_PROMPT = """You are a smart memory manager which controls the memory of a system.
-You can perform four operations: (1) ADD into memory, (2) UPDATE memory, (3) DELETE from memory, and (4) NONE (no change).
+MEMORY_UPDATE_PROMPT = """You manage a user's long-term memory. Compare new facts against existing memory and decide what changed.
 
-Guidelines:
+Operations (only output entries for actual changes):
+- ADD: New information not in memory. Use a new ID (next sequential integer).
+- UPDATE: Same topic but newer or more detailed info. Keep the same ID, rewrite the text.
+- DELETE: New fact directly contradicts an existing memory.
 
-1. **ADD**: New information not present in memory. Use a new sequential ID.
-2. **UPDATE**: Same topic but different/more detailed info — rewrite the text, keep the same ID. If two facts convey the same thing, keep the one with more information.
-3. **DELETE**: New fact contradicts an existing memory.
-4. **NONE**: Information already present, no change needed.
+If a new fact is already covered by existing memory, skip it — do not output anything for it.
 
-Example — ADD:
-  Old Memory: [{{"id": "0", "text": "User is a software engineer"}}]
-  New facts: ["Name is John"]
-  Result: [{{"id": "0", "text": "User is a software engineer", "event": "NONE"}}, {{"id": "1", "text": "Name is John", "event": "ADD"}}]
+Examples:
 
-Example — UPDATE:
-  Old Memory: [{{"id": "0", "text": "Likes to play cricket"}}]
-  New facts: ["Loves to play cricket with friends"]
-  Result: [{{"id": "0", "text": "Loves to play cricket with friends", "event": "UPDATE", "old_memory": "Likes to play cricket"}}]
+Existing memory:
+[{"id": "0", "text": "Alice works at Acme Corp as a backend engineer"}]
+New facts: ["Alice got promoted to senior engineer at Acme Corp"]
+Output: {"memory": [{"id": "0", "text": "Alice works at Acme Corp as a senior backend engineer", "event": "UPDATE"}]}
 
-Example — DELETE:
-  Old Memory: [{{"id": "0", "text": "Loves cheese pizza"}}]
-  New facts: ["Dislikes cheese pizza"]
-  Result: [{{"id": "0", "text": "Loves cheese pizza", "event": "DELETE"}}]
+Existing memory:
+[{"id": "0", "text": "bob99 prefers dark mode in all applications"}]
+New facts: ["bob99 switched to light mode after getting new monitor"]
+Output: {"memory": [{"id": "0", "text": "bob99 switched to light mode after getting a new monitor", "event": "DELETE"}, {"id": "1", "text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}]}
 
-Example — NONE:
-  Old Memory: [{{"id": "0", "text": "Name is John"}}]
-  New facts: ["Name is John"]
-  Result: [{{"id": "0", "text": "Name is John", "event": "NONE"}}]
+Existing memory:
+[{"id": "0", "text": "Charlie is learning Rust for systems programming"}]
+New facts: ["Charlie is learning Rust for systems programming"]
+Output: {"memory": []}
+
+Existing memory is empty.
+New facts: ["Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer"]
+Output: {"memory": [{"id": "0", "text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}]}
 
 ---
 
 {memory_section}
 
-The new retrieved facts are:
+New facts:
 ```
 {new_facts}
 ```
 
-Return ONLY valid JSON in this exact structure:
-{{
-    "memory": [
-        {{
-            "id": "<ID>",
-            "text": "<Content>",
-            "event": "ADD|UPDATE|DELETE|NONE",
-            "old_memory": "<old text, only if UPDATE>"
-        }}
-    ]
-}}
-"""
+Return ONLY valid JSON: {{"memory": [...]}}
+Each entry: {{"id": "<ID>", "text": "<content>", "event": "ADD|UPDATE|DELETE"}}
+Empty list if nothing changed."""
 
 _TABLE_NAME = "memories"
 
@@ -286,7 +277,12 @@ class MemoryStore:
     def _find_similar(
         self, text: str, table: lancedb.table.Table, limit: int = 5
     ) -> list[dict[str, Any]]:
-        """Vector search for existing memories similar to text."""
+        """Hybrid search (vector + BM25) for existing memories similar to text.
+
+        BM25 catches exact keyword matches (names, places, technologies) that
+        vector similarity alone might miss — important for deduplication.
+        Falls back to vector-only if FTS index is unavailable.
+        """
         try:
             if table.count_rows() == 0:
                 return []
@@ -295,10 +291,20 @@ class MemoryStore:
 
         vec = self._embed_one(text)
         try:
-            return table.search(vec).limit(limit).to_list()
-        except Exception as exc:
-            logger.warning("Vector search failed: %s", exc)
-            return []
+            return (
+                table.search(query_type="hybrid")
+                .vector(vec)
+                .text(text)
+                .limit(limit)
+                .to_list()
+            )
+        except Exception:
+            logger.debug("Hybrid candidate search unavailable, falling back to vector")
+            try:
+                return table.search(vec).limit(limit).to_list()
+            except Exception as exc:
+                logger.warning("Candidate search failed: %s", exc)
+                return []
 
     def _consolidate(
         self, facts: list[str], table: lancedb.table.Table
@@ -355,13 +361,13 @@ class MemoryStore:
     def _execute_operations(
         self, operations: list[dict[str, Any]], table: lancedb.table.Table
     ) -> dict[str, int]:
-        """Apply ADD/UPDATE/DELETE/NONE operations to the user's table."""
-        stats = {"add": 0, "update": 0, "delete": 0, "none": 0}
+        """Apply ADD/UPDATE/DELETE operations to the user's table."""
+        stats = {"add": 0, "update": 0, "delete": 0}
         now = time.time()
         mutated = False
 
         for op in operations:
-            event = str(op.get("event", "NONE")).upper()
+            event = str(op.get("event", "")).upper()
             text = str(op.get("text", "")).strip()
             existing_uuid = op.get("_uuid")
 
@@ -396,12 +402,7 @@ class MemoryStore:
                     )
                     stats["update"] += 1
                     mutated = True
-                    logger.debug(
-                        "UPDATE memory %s: %s -> %s",
-                        existing_uuid,
-                        op.get("old_memory", "?")[:40],
-                        text[:40],
-                    )
+                    logger.debug("UPDATE memory %s -> %s", existing_uuid, text[:80])
                 except Exception as exc:
                     logger.warning("UPDATE failed for %s: %s", existing_uuid, exc)
 
@@ -413,9 +414,6 @@ class MemoryStore:
                     logger.debug("DELETE memory %s", existing_uuid)
                 except Exception as exc:
                     logger.warning("DELETE failed for %s: %s", existing_uuid, exc)
-
-            else:
-                stats["none"] += 1
 
         # Rebuild FTS index when data changed
         if mutated:
@@ -435,7 +433,7 @@ class MemoryStore:
         facts = self._extract_facts(content)
         if not facts:
             logger.info("No facts extracted from content for user %s", user_id)
-            return {"facts_extracted": 0, "operations": {"add": 0, "update": 0, "delete": 0, "none": 0}}
+            return {"facts_extracted": 0, "operations": {"add": 0, "update": 0, "delete": 0}}
 
         logger.info("Extracted %d facts for user %s: %s", len(facts), user_id, facts)
         table = self._get_table(user_id)
