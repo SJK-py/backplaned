@@ -82,11 +82,11 @@ Output: {"facts": ["bob99 works at Acme Corp in a 4-person engineering team that
 [user42] Thanks!
 Output: {"facts": []}
 
-[Current time: 2026-03-15 09:00 UTC]
+[Current time: 2026-03-15 09:00 Asia/Seoul]
 [dana] Meeting with David from marketing tomorrow at 2pm about Q3 budget.
 [AI agent] Need help preparing?
 [dana] No thanks. BTW I've been on keto for 3 months, lost 5kg so far.
-Output: {"facts": ["Dana has a meeting with David from marketing about Q3 budget on 2026-03-16", "Dana has been on a keto diet for about 3 months and has lost 5kg"]}
+Output: {"facts": ["Dana has a meeting with David from marketing about Q3 budget on 2026-03-16 14:00 KST", "Dana has been on a keto diet for about 3 months and has lost 5kg"]}
 
 [Current time: ...]
 [charlie] I used to love Python but TypeScript won me over for web dev.

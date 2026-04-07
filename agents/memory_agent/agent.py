@@ -95,7 +95,7 @@ AGENT_INFO = AgentInfo(
         "operation='search': retrieve relevant memories (returns JSON array). "
         "count sets max results for search (default 5)."
     ),
-    input_schema="operation: str, content: str, user_id: str, count: Optional[int]",
+    input_schema="operation: str, content: str, user_id: str, count: Optional[int], timezone: Optional[str]",
     output_schema="content: str",
     required_input=["operation", "content", "user_id"],
 )

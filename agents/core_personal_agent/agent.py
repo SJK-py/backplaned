@@ -950,18 +950,28 @@ async def _spawn_via_http(
 # Memory-add helper (internal use only; not exposed as LLM tool)
 # ---------------------------------------------------------------------------
 
-async def _memory_add(content: str, user_id: str, loop_state: _LoopState) -> bool:
+async def _memory_add(
+    content: str,
+    user_id: str,
+    loop_state: _LoopState,
+    user_timezone: str = "UTC",
+) -> bool:
     """Spawn a memory_add task and wait for it to complete. Returns True on success."""
     identifier = f"madd_{uuid.uuid4().hex[:10]}"
     loop = asyncio.get_running_loop()
     fut: asyncio.Future[dict[str, Any]] = loop.create_future()
     loop_state.pending[identifier] = fut
+    payload: dict[str, Any] = {
+        "operation": "add", "content": content, "user_id": user_id,
+    }
+    if user_timezone and user_timezone != "UTC":
+        payload["timezone"] = user_timezone
     try:
         await _spawn_via_http(
             identifier=identifier,
             parent_task_id=loop_state.task_id,
             dest=MEMORY_AGENT_ID,
-            payload={"operation": "add", "content": content, "user_id": user_id},
+            payload=payload,
             pending=loop_state.pending,
         )
         # Shield so outer timeout cancellation does not prevent cleanup.
@@ -978,23 +988,31 @@ def _bg_memory_add(
     assistant_reply: str,
     user_id: str,
     loop_state: "_LoopState",
+    user_timezone: str = "UTC",
 ) -> None:
     """Fire-and-forget per-turn memory ingestion.
 
     Builds a small transcript of only the current exchange (user message +
-    assistant reply) with a UTC timestamp, then spawns memory_add in a
-    background task so the response is not delayed.
+    assistant reply) with a timezone-resolved timestamp, then spawns
+    memory_add in a background task so the response is not delayed.
     """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo(user_timezone))
+        tz_label = user_timezone
+    except Exception:
+        now = datetime.now(timezone.utc)
+        tz_label = "UTC"
+    timestamp = now.strftime(f"%Y-%m-%d %H:%M {tz_label}")
     transcript = (
-        f"[Current time: {now}]\n"
+        f"[Current time: {timestamp}]\n"
         f"[{user_id}] {user_message}\n"
         f"[AI agent] {assistant_reply}"
     )
 
     async def _fire() -> None:
         try:
-            await _memory_add(transcript, user_id, loop_state)
+            await _memory_add(transcript, user_id, loop_state, user_timezone=user_timezone)
         except Exception as exc:
             logger.debug("Background memory_add failed: %s", exc)
 
@@ -1267,7 +1285,7 @@ async def _agent_loop(
 
             # Per-turn memory ingestion: only the current exchange, not the
             # entire history.  Fire-and-forget — don't block the response.
-            _bg_memory_add(user_message, history_reply, user_id, loop_state)
+            _bg_memory_add(user_message, history_reply, user_id, loop_state, user_timezone=user_timezone)
 
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
