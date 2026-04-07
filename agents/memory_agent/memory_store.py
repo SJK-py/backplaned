@@ -46,46 +46,53 @@ LLMCallable = Callable[[str, str], str]
 # LLM prompt templates
 # ---------------------------------------------------------------------------
 
-FACT_EXTRACTION_PROMPT = """You are a Personal Information Organizer, specialized in accurately storing facts, user memories, and preferences.
-Your primary role is to extract relevant pieces of information from conversations and organize them into distinct, manageable facts.
-
-Types of Information to Remember:
-1. Personal Preferences: likes, dislikes, and specific preferences (food, products, activities, entertainment, etc.)
-2. Important Personal Details: names, relationships, important dates.
-3. Plans and Intentions: upcoming events, trips, goals, plans.
-4. Activity and Service Preferences: dining, travel, hobbies, services.
-5. Health and Wellness: dietary restrictions, fitness routines, wellness info.
-6. Professional Details: job titles, work habits, career goals, professional info.
-7. Ongoing Projects: current work projects, side projects, technical stacks, progress.
-8. Miscellaneous: favorite books, movies, brands, and other details.
-
-Few-shot examples:
-
-Input: Hi.
-Output: {{"facts": []}}
-
-Input: There are branches in trees.
-Output: {{"facts": []}}
-
-Input: Hi, I am looking for a restaurant in San Francisco.
-Output: {{"facts": ["Looking for a restaurant in San Francisco"]}}
-
-Input: Yesterday, I had a meeting with John at 3pm. We discussed the new project.
-Output: {{"facts": ["Had a meeting with John at 3pm", "Discussed the new project with John"]}}
-
-Input: Hi, my name is John. I am a software engineer.
-Output: {{"facts": ["Name is John", "Is a software engineer"]}}
-
-Input: I switched from Python to Rust for my backend project.
-Output: {{"facts": ["Switched from Python to Rust for backend project"]}}
+FACT_EXTRACTION_PROMPT = """You extract facts about a user from their conversation with an AI agent.
+The user's identifier is "{user_id}".
 
 Rules:
-- Today's date is {today}.
-- Extract facts from user messages only. Ignore assistant/system messages.
-- Return ONLY valid JSON with key "facts" and a list of strings.
-- Detect the language of the user input and record facts in the same language.
-- If nothing relevant is found, return {{"facts": []}}.
-- Each fact should be atomic — one piece of information per fact.
+1. Every fact MUST be a self-contained sentence with a clear subject.
+2. Merge related details into one fact. Do not split them.
+3. Read both user and AI agent messages for context, but only record facts about the user.
+4. Preserve names, places, technologies, and relationships.
+5. Capture changes explicitly (e.g. "switched from X to Y", "no longer does X").
+6. If the user's real name is mentioned, lead with it. Otherwise use their identifier.
+7. Drop relative time references ("yesterday", "tomorrow", "next week", "last month") entirely. Only keep dates if an absolute date is explicitly stated.
+8. If nothing worth remembering is found, return an empty list.
+9. Detect the language of the user's messages and record facts in the same language.
+
+Return ONLY: {{"facts": ["...", "..."]}}
+
+Examples:
+
+Conversation:
+[alice] I just moved to Tokyo from Seoul where I lived 5 years.
+[AI agent] How are you finding it?
+[alice] Loving the food. I started a new job at LINE as a frontend engineer.
+Output: {{"facts": ["Alice moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}}
+
+Conversation:
+[bob99] We're rewriting our backend in Rust, was using Go before.
+[AI agent] What framework are you using?
+[bob99] Axum. Our team is 4 engineers at Acme Corp.
+Output: {{"facts": ["bob99 works at Acme Corp in a 4-person engineering team that is rewriting their backend from Go to Rust using Axum"]}}
+
+Conversation:
+[charlie] I used to love Python but TypeScript won me over for web dev.
+[AI agent] What changed your mind?
+[charlie] Next.js productivity. I still use Python for ML projects though.
+Output: {{"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}}
+
+Conversation:
+[user42] What's the capital of France?
+[AI agent] The capital of France is Paris. Paris is located in northern France on the Seine River. It has a population of about 2.1 million in the city proper and over 12 million in the metropolitan area. Paris is known for landmarks like the Eiffel Tower, the Louvre Museum, and Notre-Dame Cathedral. It has been the capital since the 10th century and serves as the country's political, economic, and cultural center.
+[user42] Thanks!
+Output: {{"facts": []}}
+
+Conversation:
+[dana] I have a recurring meeting with David from marketing about Q3 budget.
+[AI agent] Need help preparing?
+[dana] No thanks. BTW I've been on keto for a while now, lost 5kg so far.
+Output: {{"facts": ["Dana has a recurring meeting with David from marketing about Q3 budget", "Dana is on a keto diet and has lost 5kg"]}}
 """
 
 MEMORY_UPDATE_PROMPT = """You are a smart memory manager which controls the memory of a system.
@@ -254,10 +261,9 @@ class MemoryStore:
     # Pass 1 — Fact extraction
     # ------------------------------------------------------------------
 
-    def _extract_facts(self, content: str) -> list[str]:
+    def _extract_facts(self, content: str, user_id: str) -> list[str]:
         """Use the LLM to extract atomic facts from conversation text."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        system = FACT_EXTRACTION_PROMPT.format(today=today)
+        system = FACT_EXTRACTION_PROMPT.format(user_id=user_id)
         raw = self._llm_call(system, content)
         parsed = self._parse_json(raw)
 
@@ -423,7 +429,7 @@ class MemoryStore:
 
         Returns a summary dict with operation counts.
         """
-        facts = self._extract_facts(content)
+        facts = self._extract_facts(content, user_id)
         if not facts:
             logger.info("No facts extracted from content for user %s", user_id)
             return {"facts_extracted": 0, "operations": {"add": 0, "update": 0, "delete": 0, "none": 0}}

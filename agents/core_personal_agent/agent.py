@@ -288,10 +288,16 @@ def _history_tokens(history: list[dict]) -> int:
     return len(json.dumps(history)) // 4
 
 
-def _history_to_transcript(history: list[dict]) -> str:
+def _history_to_transcript(history: list[dict], user_id: str | None = None) -> str:
     lines = []
     for e in history:
         role = e.get("role", "user")
+        if user_id and role == "user":
+            label = user_id
+        elif role == "assistant":
+            label = "AI agent"
+        else:
+            label = role
         content = e.get("content", "")
         if isinstance(content, list):
             # Extract text parts from multimodal content blocks.
@@ -299,7 +305,7 @@ def _history_to_transcript(history: list[dict]) -> str:
                 b.get("text", "") for b in content
                 if isinstance(b, dict) and b.get("type") == "text"
             )
-        lines.append(f"[{role}] {content or ''}")
+        lines.append(f"[{label}] {content or ''}")
     return "\n".join(lines)
 
 
@@ -1130,7 +1136,7 @@ async def _agent_loop(
         if cut > 0:
             truncated, history = history[:cut], history[cut:]
             _save_history(session_id, history)
-            await _memory_add(_history_to_transcript(truncated), user_id, loop_state)
+            await _memory_add(_history_to_transcript(truncated, user_id=user_id), user_id, loop_state)
 
     # ProxyFileManager handles file path ↔ ProxyFile translation.
     # Files arrive as router-proxy; pfm.fetch() downloads to per-session inbox
@@ -2023,7 +2029,7 @@ async def _dispatch(
         history = _load_history(session_id)
         memory_ok = True
         if history:
-            memory_ok = await _memory_add(_history_to_transcript(history), user_id, loop_state)
+            memory_ok = await _memory_add(_history_to_transcript(history, user_id=user_id), user_id, loop_state)
         _archive_and_clear(session_id)
         if new_sid:
             _record_sequel(session_id, new_sid)
