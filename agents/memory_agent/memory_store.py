@@ -1,9 +1,11 @@
 """
 agents/memory_agent/memory_store.py — Self-contained memory store.
 
-Replaces mem0 + Qdrant with a local LanceDB vector store and LLM-driven
-fact extraction / memory consolidation.  The two-pass algorithm mirrors
-mem0's core logic:
+Each user gets an isolated LanceDB database at ``{db_base}/{user_id}/``
+with a single ``memories`` table inside.  This mirrors kb_agent's per-user
+isolation pattern and avoids cross-user data leakage.
+
+The two-pass algorithm mirrors mem0's core logic:
 
   Pass 1 (Fact Extraction):
     Send conversation text to the LLM to extract discrete, atomic facts.
@@ -11,7 +13,7 @@ mem0's core logic:
   Pass 2 (Memory Consolidation):
     For each new fact, vector-search for similar existing memories, then ask
     the LLM to classify each as ADD / UPDATE / DELETE / NONE.  Execute the
-    resulting operations against the local LanceDB table.
+    resulting operations against the user's LanceDB table.
 
 Search uses LanceDB hybrid mode (vector + BM25 full-text) for best recall.
 
@@ -29,7 +31,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import lancedb
 import pyarrow as pa
@@ -138,27 +140,31 @@ Return ONLY valid JSON in this exact structure:
 }}
 """
 
+_TABLE_NAME = "memories"
+
 
 # ---------------------------------------------------------------------------
 # MemoryStore
 # ---------------------------------------------------------------------------
 
 class MemoryStore:
-    """Self-contained memory store backed by LanceDB with hybrid search."""
+    """Per-user memory store backed by LanceDB with hybrid search.
+
+    Each user gets an isolated LanceDB database at ``{db_base}/{user_id}/``.
+    """
 
     def __init__(
         self,
         *,
-        db_path: str | Path,
-        table_name: str = "memories",
+        db_base: str | Path,
         llm_fn: LLMCallable,
         embed_base_url: str,
         embed_api_key: str,
         embed_model: str,
         embedding_dims: int = 768,
     ) -> None:
-        self._db_path = str(db_path)
-        self._table_name = table_name
+        self._db_base = Path(db_base).resolve()
+        self._db_base.mkdir(parents=True, exist_ok=True)
         self._embedding_dims = embedding_dims
 
         # Injectable LLM callable (routed through llm_agent)
@@ -168,28 +174,30 @@ class MemoryStore:
         self._embedder = OpenAI(base_url=embed_base_url, api_key=embed_api_key)
         self._embed_model = embed_model
 
-        # LanceDB
-        self._db = lancedb.connect(self._db_path)
-        self._table = self._ensure_table()
-
     # ------------------------------------------------------------------
-    # LanceDB helpers
+    # Per-user LanceDB helpers
     # ------------------------------------------------------------------
 
-    def _ensure_table(self) -> lancedb.table.Table:
-        """Open or create the memories table."""
-        if self._table_name in self._db.table_names():
-            return self._db.open_table(self._table_name)
-        return self._db.create_table(
-            self._table_name,
-            schema=self._make_schema(),
-        )
+    def _user_db_path(self, user_id: str) -> str:
+        """Return the resolved path for a user's LanceDB database."""
+        p = (self._db_base / user_id).resolve()
+        if not str(p).startswith(str(self._db_base) + "/"):
+            raise ValueError("Invalid user_id: path traversal blocked")
+        p.mkdir(parents=True, exist_ok=True)
+        return str(p)
+
+    def _get_table(self, user_id: str) -> lancedb.table.Table:
+        """Get or create the user's memories table."""
+        db = lancedb.connect(self._user_db_path(user_id))
+        try:
+            return db.open_table(_TABLE_NAME)
+        except Exception:
+            return db.create_table(_TABLE_NAME, schema=self._make_schema())
 
     def _make_schema(self) -> pa.Schema:
         return pa.schema(
             [
                 pa.field("id", pa.string()),
-                pa.field("user_id", pa.string()),
                 pa.field("text", pa.string()),
                 pa.field("created_at", pa.float64()),
                 pa.field("updated_at", pa.float64()),
@@ -197,10 +205,11 @@ class MemoryStore:
             ]
         )
 
-    def _rebuild_fts_index(self) -> None:
+    @staticmethod
+    def _rebuild_fts_index(table: lancedb.table.Table) -> None:
         """Rebuild the BM25 full-text search index on the text column."""
         try:
-            self._table.create_fts_index("text", replace=True)
+            table.create_fts_index("text", replace=True)
         except Exception as exc:
             logger.warning("FTS index rebuild: %s", exc)
 
@@ -265,48 +274,41 @@ class MemoryStore:
     # Pass 2 — Memory consolidation (dedup / update / delete)
     # ------------------------------------------------------------------
 
-    def _find_similar(self, text: str, user_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    def _find_similar(
+        self, text: str, table: lancedb.table.Table, limit: int = 5
+    ) -> list[dict[str, Any]]:
         """Vector search for existing memories similar to text."""
         try:
-            count = self._table.count_rows(f"user_id = '{user_id}'")
+            if table.count_rows() == 0:
+                return []
         except Exception:
-            count = 0
-        if count == 0:
             return []
 
         vec = self._embed_one(text)
         try:
-            results = (
-                self._table.search(vec)
-                .where(f"user_id = '{user_id}'")
-                .limit(limit)
-                .to_list()
-            )
+            return table.search(vec).limit(limit).to_list()
         except Exception as exc:
             logger.warning("Vector search failed: %s", exc)
             return []
-        return results
 
     def _consolidate(
-        self, facts: list[str], user_id: str
+        self, facts: list[str], table: lancedb.table.Table
     ) -> list[dict[str, Any]]:
         """Compare new facts against existing memories via LLM."""
         # Gather candidate existing memories for all facts
         candidates: dict[str, dict[str, Any]] = {}  # id -> record
         for fact in facts:
-            for row in self._find_similar(fact, user_id, limit=5):
+            for row in self._find_similar(fact, table, limit=5):
                 rid = row["id"]
                 if rid not in candidates:
                     candidates[rid] = row
 
         # Build old memory list with sequential integer IDs
         # (prevents LLM from hallucinating UUIDs)
-        uuid_to_idx: dict[str, str] = {}
         idx_to_uuid: dict[str, str] = {}
         old_memory_list: list[dict[str, str]] = []
         for i, (uid, row) in enumerate(candidates.items()):
             idx = str(i)
-            uuid_to_idx[uid] = idx
             idx_to_uuid[idx] = uid
             old_memory_list.append({"id": idx, "text": row["text"]})
 
@@ -342,9 +344,9 @@ class MemoryStore:
     # ------------------------------------------------------------------
 
     def _execute_operations(
-        self, operations: list[dict[str, Any]], user_id: str
+        self, operations: list[dict[str, Any]], table: lancedb.table.Table
     ) -> dict[str, int]:
-        """Apply ADD/UPDATE/DELETE/NONE operations to the store."""
+        """Apply ADD/UPDATE/DELETE/NONE operations to the user's table."""
         stats = {"add": 0, "update": 0, "delete": 0, "none": 0}
         now = time.time()
         mutated = False
@@ -357,11 +359,10 @@ class MemoryStore:
             if event == "ADD" and text:
                 vec = self._embed_one(text)
                 new_id = uuid.uuid4().hex
-                self._table.add(
+                table.add(
                     [
                         {
                             "id": new_id,
-                            "user_id": user_id,
                             "text": text,
                             "created_at": now,
                             "updated_at": now,
@@ -376,7 +377,7 @@ class MemoryStore:
             elif event == "UPDATE" and text and existing_uuid:
                 vec = self._embed_one(text)
                 try:
-                    self._table.update(
+                    table.update(
                         where=f"id = '{existing_uuid}'",
                         values={
                             "text": text,
@@ -397,7 +398,7 @@ class MemoryStore:
 
             elif event == "DELETE" and existing_uuid:
                 try:
-                    self._table.delete(f"id = '{existing_uuid}'")
+                    table.delete(f"id = '{existing_uuid}'")
                     stats["delete"] += 1
                     mutated = True
                     logger.debug("DELETE memory %s", existing_uuid)
@@ -409,7 +410,7 @@ class MemoryStore:
 
         # Rebuild FTS index when data changed
         if mutated:
-            self._rebuild_fts_index()
+            self._rebuild_fts_index(table)
 
         return stats
 
@@ -428,8 +429,9 @@ class MemoryStore:
             return {"facts_extracted": 0, "operations": {"add": 0, "update": 0, "delete": 0, "none": 0}}
 
         logger.info("Extracted %d facts for user %s: %s", len(facts), user_id, facts)
-        operations = self._consolidate(facts, user_id)
-        stats = self._execute_operations(operations, user_id)
+        table = self._get_table(user_id)
+        operations = self._consolidate(facts, table)
+        stats = self._execute_operations(operations, table)
         logger.info("Memory consolidation for user %s: %s", user_id, stats)
         return {"facts_extracted": len(facts), "operations": stats}
 
@@ -439,20 +441,19 @@ class MemoryStore:
         Returns a list of dicts with 'id', 'memory', 'created_at',
         'updated_at', and 'score'.
         """
+        table = self._get_table(user_id)
         try:
-            count = self._table.count_rows(f"user_id = '{user_id}'")
+            if table.count_rows() == 0:
+                return []
         except Exception:
-            count = 0
-        if count == 0:
             return []
 
         vec = self._embed_one(query)
         try:
             results = (
-                self._table.search(query_type="hybrid")
+                table.search(query_type="hybrid")
                 .vector(vec)
                 .text(query)
-                .where(f"user_id = '{user_id}'")
                 .limit(limit)
                 .to_list()
             )
@@ -460,12 +461,7 @@ class MemoryStore:
             # FTS index may not exist yet — fall back to vector-only search
             logger.debug("Hybrid search unavailable, falling back to vector search")
             try:
-                results = (
-                    self._table.search(vec)
-                    .where(f"user_id = '{user_id}'")
-                    .limit(limit)
-                    .to_list()
-                )
+                results = table.search(vec).limit(limit).to_list()
             except Exception as exc:
                 logger.error("Search failed: %s", exc)
                 return []

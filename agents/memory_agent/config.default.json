@@ -4,7 +4,6 @@
     "EMBED_BASE_URL": "",
     "EMBED_API_KEY": "",
     "EMBED_MODEL": "",
-    "COLLECTION_NAME": "memories",
     "EMBEDDING_DIMS": "768",
     "DEFAULT_SEARCH_COUNT": "5"
 }

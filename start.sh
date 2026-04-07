@@ -134,7 +134,6 @@ MEM_CFG="$ROOT/agents/memory_agent/config.json"
 [ -n "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "EMBED_API_KEY" "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}"
 [ -n "$MEMORY_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "EMBED_MODEL" "$MEMORY_EMBED_MODEL"
 [ -n "$MEMORY_EMBEDDING_DIMS" ] && set_json_key "$MEM_CFG" "EMBEDDING_DIMS" "$MEMORY_EMBEDDING_DIMS"
-[ -n "$MEMORY_COLLECTION_NAME" ] && set_json_key "$MEM_CFG" "COLLECTION_NAME" "$MEMORY_COLLECTION_NAME"
 
 # Propagate md_converter OCR settings
 if [ "$OCR_ENABLED" = "true" ]; then

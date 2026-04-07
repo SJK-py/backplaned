@@ -4,7 +4,6 @@
   "EMBED_BASE_URL": "Base URL for OpenAI-compatible embedding endpoint (direct call, not routed through llm_agent)",
   "EMBED_API_KEY": "API key for the embedding provider",
   "EMBED_MODEL": "Embedding model identifier (e.g. Qwen3-Embedding-4B-GGUF)",
-  "COLLECTION_NAME": "LanceDB table name for storing memories (default: memories)",
-  "EMBEDDING_DIMS": "Output dimension of the embedding model (e.g. 768). Required for table creation",
+  "EMBEDDING_DIMS": "Output dimension of the embedding model (e.g. 768). Required for per-user table creation",
   "DEFAULT_SEARCH_COUNT": "Default number of results returned by memory search"
 }

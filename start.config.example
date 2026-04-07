@@ -56,7 +56,6 @@ MEMORY_EMBED_BASE_URL=""          # Embedding API endpoint (REQUIRED for memory_
 MEMORY_EMBED_API_KEY=""           # Embedding API key (default: LLM_API_KEY)
 MEMORY_EMBED_MODEL=""             # Embedding model name (REQUIRED for memory_agent)
 MEMORY_EMBEDDING_DIMS=""          # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for table creation
-MEMORY_COLLECTION_NAME=""         # LanceDB table name (default: memories)
 
 # ═══════════════════════════════════════════════════════════════════════
 # MD Converter OCR (optional — direct LLM call for scanned documents)

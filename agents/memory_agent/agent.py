@@ -68,7 +68,6 @@ EMBED_API_KEY: str = _cfg("EMBED_API_KEY", "placeholder")
 EMBED_MODEL: str = _cfg("EMBED_MODEL", "Qwen3-Embedding-4B-GGUF")
 
 EMBEDDING_DIMS: int = int(_cfg("EMBEDDING_DIMS", "768") or "768")
-COLLECTION_NAME: str = _cfg("COLLECTION_NAME", "memories")
 
 DEFAULT_SEARCH_COUNT: int = int(_cfg("DEFAULT_SEARCH_COUNT", "5"))
 
@@ -256,8 +255,7 @@ def _get_store(llm_fn: Any) -> Any:
             MemoryStore = _ms_mod.MemoryStore
 
             _store = MemoryStore(
-                db_path=_AGENT_DATA_DIR / "lancedb",
-                table_name=COLLECTION_NAME,
+                db_base=_AGENT_DATA_DIR / "lancedb",
                 llm_fn=llm_fn,
                 embed_base_url=EMBED_BASE_URL,
                 embed_api_key=EMBED_API_KEY,
@@ -266,9 +264,8 @@ def _get_store(llm_fn: Any) -> Any:
             )
             _store_init_done = True
             logger.info(
-                "MemoryStore initialised (db=%s, table=%s, dims=%d)",
+                "MemoryStore initialised (db_base=%s, dims=%d)",
                 _AGENT_DATA_DIR / "lancedb",
-                COLLECTION_NAME,
                 EMBEDDING_DIMS,
             )
     _store._llm_fn = llm_fn
