@@ -64,25 +64,19 @@ Return ONLY: {"facts": ["...", "..."]}
 
 Examples:
 
-[Current time: 2026-03-15 09:00 UTC]
+[Current time: ...]
 [alice] I just moved to Tokyo from Seoul where I lived 5 years.
 [AI agent] How are you finding it?
 [alice] Loving the food. I started a new job at LINE as a frontend engineer.
 Output: {"facts": ["Alice moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}
 
-[Current time: 2026-03-15 09:00 UTC]
+[Current time: ...]
 [bob99] We're rewriting our backend in Rust, was using Go before.
 [AI agent] What framework are you using?
 [bob99] Axum. Our team is 4 engineers at Acme Corp.
 Output: {"facts": ["bob99 works at Acme Corp in a 4-person engineering team that is rewriting their backend from Go to Rust using Axum"]}
 
-[Current time: 2026-03-15 09:00 UTC]
-[charlie] I used to love Python but TypeScript won me over for web dev.
-[AI agent] What changed your mind?
-[charlie] Next.js productivity. I still use Python for ML projects though.
-Output: {"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}
-
-[Current time: 2026-03-15 09:00 UTC]
+[Current time: ...]
 [user42] What's the capital of France?
 [AI agent] The capital of France is Paris. Paris is located in northern France on the Seine River. It has a population of about 2.1 million in the city proper and over 12 million in the metropolitan area. Paris is known for landmarks like the Eiffel Tower, the Louvre Museum, and Notre-Dame Cathedral. It has been the capital since the 10th century and serves as the country's political, economic, and cultural center.
 [user42] Thanks!
@@ -93,6 +87,12 @@ Output: {"facts": []}
 [AI agent] Need help preparing?
 [dana] No thanks. BTW I've been on keto for 3 months, lost 5kg so far.
 Output: {"facts": ["Dana has a meeting with David from marketing about Q3 budget on 2026-03-16", "Dana has been on a keto diet for about 3 months and has lost 5kg"]}
+
+[Current time: ...]
+[charlie] I used to love Python but TypeScript won me over for web dev.
+[AI agent] What changed your mind?
+[charlie] Next.js productivity. I still use Python for ML projects though.
+Output: {"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}
 """
 
 MEMORY_UPDATE_PROMPT = """You are a smart memory manager which controls the memory of a system.
