@@ -125,7 +125,7 @@ _dc_events: dict[str, asyncio.Event] = {}
 _dc_results: dict[str, str] = {}
 
 # Pending removal: session_ids that should be cleaned up after result delivery
-# (set after /new or /discard so the old session is purged once its result arrives)
+# (set after /new so the old session is purged once its result arrives)
 _pending_removal: set[str] = set()
 
 # Telegram Application (set during startup)
@@ -1184,13 +1184,11 @@ async def _route_result(data: dict[str, Any]) -> None:
     result_files = payload.get("files")
     await _send_to_chat(details["platform"], details["chat_id"], content, files=result_files)
 
-    # Remove old session if this was a /new or /discard result
+    # Remove old session if this was a /new result
     if identifier in _pending_removal:
         _pending_removal.discard(identifier)
         await _remove_session_details(identifier)
-        logger.info("Session %s removed after %s", identifier,
-                    "new/discard" if "new" in content.lower() or "archived" in content.lower()
-                    else "result")
+        logger.info("Session %s removed after /new", identifier)
 
 
 async def _handle_direct_message(data: dict[str, Any], payload: dict[str, Any]) -> None:

@@ -11,9 +11,7 @@ Input payload schema:
     message:    str  — user message or system control token
 
 Control tokens (message field):
-    <new_session> [sid]     Archive history, ingest to memory, reset session.
-                            Optional sid records sequel session mapping.
-    <discard_session> [sid] Archive history without memory update.
+    <new_session> [sid]     Archive history and reset session.
                             Optional sid records sequel session mapping.
     <token_info>            Return estimated token usage for this session.
     <agents_info>           Return descriptions of available agents.
@@ -1866,7 +1864,7 @@ async def _handle_unlink_agent(
         parts.append(f"Conversation with {agent_id}:\n{_history_to_transcript(post_link)}")
         link_summary = await _llm_brief("\n\n".join(parts), loop_state, model_id=summ_model)
     elif post_link:
-        # No loop_state (called from /new or /discard) — use raw transcript as fallback
+        # No loop_state (called from /new) — use raw transcript as fallback
         link_summary = _history_to_transcript(post_link)
 
     # Replace raw linked exchanges in main history with a brief summary
@@ -2266,9 +2264,9 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
         )
 
     # Resolve session sequel chain for non-control-token messages.
-    # Control tokens (<new_session>, <discard_session>, etc.) operate on the
-    # session_id as-given and must NOT be redirected or prefixed.
-    _CONTROL_PREFIXES = ("<new_session>", "<discard_session>", "<stop_session>",
+    # Control tokens (<new_session>, etc.) operate on the session_id as-given
+    # and must NOT be redirected or prefixed.
+    _CONTROL_PREFIXES = ("<new_session>", "<stop_session>",
                          "<token_info>", "<agents_info>",
                          "<user_config>", "<fetch_user_config>", "<update_user_config>",
                          "<show_config>", "<config_instruct>",
