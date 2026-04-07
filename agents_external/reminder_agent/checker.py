@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime, timedelta, time as dt_time, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -265,7 +266,7 @@ async def _send_notification(
     }
     try:
         await router_client.spawn(
-            identifier="SYSTEM",
+            identifier=f"_noreply_notify_{uuid.uuid4().hex[:8]}",
             parent_task_id=None,
             destination_agent_id=core_agent_id,
             payload=payload,

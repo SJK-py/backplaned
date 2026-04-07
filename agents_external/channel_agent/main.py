@@ -939,7 +939,7 @@ async def _handle_incoming(
             data = _load_data()
             core_agent_id = _get_core_agent(data, new_user_id)
             await _spawn_to_core(
-                identifier="SYSTEM",
+                identifier=f"_noreply_regcfg_{uuid.uuid4().hex[:8]}",
                 user_id=new_user_id,
                 session_id="SYSTEM",
                 message=f"<update_user_config> {config_json}",
@@ -1134,9 +1134,8 @@ async def _route_result(data: dict[str, Any]) -> None:
        Response to a task this agent spawned.  Already secured by the
        router's task tree and ACL — no extra verification needed.
        ``identifier`` encodes the routing intent:
-         - "SYSTEM"     → log only (user config results, etc.)
-         - "dc_*"       → direct-chat from WebUI, signal event
-         - <session_id> → route to platform chat
+         - "dc_*"/"cfg_*" → direct-chat / config from WebUI, signal event
+         - <session_id>   → route to platform chat
 
     2. **Direct invocation** (destination_agent_id is set):
        Another agent proactively sends a message to a user (e.g. reminder).
@@ -1155,10 +1154,6 @@ async def _route_result(data: dict[str, Any]) -> None:
     identifier: str = data.get("identifier") or ""
     content: str = payload.get("content") or payload.get("error") or ""
     status_code: int = data.get("status_code") or 200
-
-    if identifier == "SYSTEM":
-        logger.info("SYSTEM result [%d]: %s", status_code, content[:200])
-        return
 
     if identifier.startswith("dc_") or identifier.startswith("cfg_"):
         ev = _dc_events.get(identifier)
@@ -2018,12 +2013,12 @@ async def ui_save_user_config(
 
     message = f"<user_config> {content}"
     await _spawn_to_core(
-        identifier="SYSTEM",
+        identifier=f"_noreply_ucfg_{uuid.uuid4().hex[:8]}",
         user_id=user_id,
         session_id="SYSTEM",
         message=message,
     )
-    logger.info("User config sent for %s (SYSTEM session)", user_id)
+    logger.info("User config sent for %s", user_id)
     return {"status": "ok", "note": "Config sent to core agent. Result logged only."}
 
 

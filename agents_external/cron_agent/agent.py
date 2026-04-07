@@ -643,7 +643,7 @@ async def _deliver_report(
         payload["files"] = [file_pf]
     try:
         await router_client.spawn(
-            identifier=f"cron_report_{uuid.uuid4().hex[:12]}",
+            identifier=f"_noreply_cron_{uuid.uuid4().hex[:8]}",
             parent_task_id=None,
             destination_agent_id=reporting_agent,
             payload=payload,
