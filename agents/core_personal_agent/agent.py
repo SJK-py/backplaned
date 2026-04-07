@@ -11,9 +11,7 @@ Input payload schema:
     message:    str  — user message or system control token
 
 Control tokens (message field):
-    <new_session> [sid]     Archive history, ingest to memory, reset session.
-                            Optional sid records sequel session mapping.
-    <discard_session> [sid] Archive history without memory update.
+    <new_session> [sid]     Archive history and reset session.
                             Optional sid records sequel session mapping.
     <token_info>            Return estimated token usage for this session.
     <agents_info>           Return descriptions of available agents.
@@ -1866,7 +1864,7 @@ async def _handle_unlink_agent(
         parts.append(f"Conversation with {agent_id}:\n{_history_to_transcript(post_link)}")
         link_summary = await _llm_brief("\n\n".join(parts), loop_state, model_id=summ_model)
     elif post_link:
-        # No loop_state (called from /new or /discard) — use raw transcript as fallback
+        # No loop_state (called from /new) — use raw transcript as fallback
         link_summary = _history_to_transcript(post_link)
 
     # Replace raw linked exchanges in main history with a brief summary
@@ -2081,18 +2079,6 @@ async def _dispatch(
             _record_sequel(session_id, new_sid)
         return "Session archived."
 
-    if message.startswith("<discard_session>"):
-        # Format: "<discard_session>" or "<discard_session> {new_session_id}"
-        parts = message.split(None, 1)
-        new_sid = parts[1] if len(parts) > 1 else None
-        # Unlink if active (briefs linked conversation into main history before discard)
-        if _load_link_state(session_id):
-            await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
-        _archive_and_clear(session_id)
-        if new_sid:
-            _record_sequel(session_id, new_sid)
-        return "Session archived without updating memory."
-
     if message == "<token_info>":
         history = _load_history(session_id)
         tokens = _history_tokens(history)
@@ -2278,9 +2264,9 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
         )
 
     # Resolve session sequel chain for non-control-token messages.
-    # Control tokens (<new_session>, <discard_session>, etc.) operate on the
-    # session_id as-given and must NOT be redirected or prefixed.
-    _CONTROL_PREFIXES = ("<new_session>", "<discard_session>", "<stop_session>",
+    # Control tokens (<new_session>, etc.) operate on the session_id as-given
+    # and must NOT be redirected or prefixed.
+    _CONTROL_PREFIXES = ("<new_session>", "<stop_session>",
                          "<token_info>", "<agents_info>",
                          "<user_config>", "<fetch_user_config>", "<update_user_config>",
                          "<show_config>", "<config_instruct>",

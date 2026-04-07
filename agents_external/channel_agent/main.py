@@ -125,7 +125,7 @@ _dc_events: dict[str, asyncio.Event] = {}
 _dc_results: dict[str, str] = {}
 
 # Pending removal: session_ids that should be cleaned up after result delivery
-# (set after /new or /discard so the old session is purged once its result arrives)
+# (set after /new so the old session is purged once its result arrives)
 _pending_removal: set[str] = set()
 
 # Telegram Application (set during startup)
@@ -976,6 +976,8 @@ async def _handle_incoming(
         old_sid, new_sid = await _rotate_session(platform, chat_id, platform_user_id, user_id)
         if old_sid:
             _pending_removal.add(old_sid)
+            typing_task = asyncio.create_task(_send_typing_loop(platform, chat_id))
+            _typing_tasks[old_sid] = typing_task
             await _spawn_to_core(
                 identifier=old_sid,
                 user_id=user_id,
@@ -987,23 +989,9 @@ async def _handle_incoming(
             await _send_to_chat(platform, chat_id, "New session started.")
         return
 
-    if cmd == "discard":
-        old_sid, new_sid = await _rotate_session(platform, chat_id, platform_user_id, user_id)
-        if old_sid:
-            _pending_removal.add(old_sid)
-            await _spawn_to_core(
-                identifier=old_sid,
-                user_id=user_id,
-                session_id=old_sid,
-                message=f"<discard_session> {new_sid}",
-                core_agent_id=user_core_agent,
-            )
-        else:
-            await _send_to_chat(platform, chat_id, "Session discarded.")
-        return
-
     if cmd == "tokens":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<token_info>",
@@ -1013,6 +1001,7 @@ async def _handle_incoming(
 
     if cmd == "agents":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<agents_info>",
@@ -1022,9 +1011,9 @@ async def _handle_incoming(
 
     if cmd == "config":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
-            # Natural language config instruction
             await _spawn_to_core(
                 identifier=session_id, user_id=user_id,
                 session_id=session_id,
@@ -1032,7 +1021,6 @@ async def _handle_incoming(
                 core_agent_id=user_core_agent,
             )
         else:
-            # Show current config
             await _spawn_to_core(
                 identifier=session_id, user_id=user_id,
                 session_id=session_id, message="<show_config>",
@@ -1042,6 +1030,7 @@ async def _handle_incoming(
 
     if cmd == "model":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
             await _spawn_to_core(
@@ -1060,6 +1049,7 @@ async def _handle_incoming(
 
     if cmd == "link":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
             await _spawn_to_core(
@@ -1078,6 +1068,7 @@ async def _handle_incoming(
 
     if cmd == "unlink":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<unlink_agent>",
@@ -1087,6 +1078,7 @@ async def _handle_incoming(
 
     if cmd == "stop":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<stop_session>",
@@ -1097,7 +1089,7 @@ async def _handle_incoming(
     if cmd in ("start", "help"):
         await _send_to_chat(
             platform, chat_id,
-            "Commands: /new · /discard · /stop · /tokens · /agents\n"
+            "Commands: /new · /stop · /tokens · /agents\n"
             "/config — show config · /config <instruction> — modify config\n"
             "/model — list models · /model <id> — switch model\n"
             "/link — list linkable agents · /link <id> — direct talk\n"
@@ -1192,13 +1184,11 @@ async def _route_result(data: dict[str, Any]) -> None:
     result_files = payload.get("files")
     await _send_to_chat(details["platform"], details["chat_id"], content, files=result_files)
 
-    # Remove old session if this was a /new or /discard result
+    # Remove old session if this was a /new result
     if identifier in _pending_removal:
         _pending_removal.discard(identifier)
         await _remove_session_details(identifier)
-        logger.info("Session %s removed after %s", identifier,
-                    "new/discard" if "new" in content.lower() or "archived" in content.lower()
-                    else "result")
+        logger.info("Session %s removed after /new", identifier)
 
 
 async def _handle_direct_message(data: dict[str, Any], payload: dict[str, Any]) -> None:
