@@ -29,7 +29,6 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,7 +46,8 @@ LLMCallable = Callable[[str, str], str]
 # ---------------------------------------------------------------------------
 
 FACT_EXTRACTION_PROMPT = """You extract facts about a user from their conversation with an AI agent.
-The user's identifier is "{user_id}".
+The conversation is prefixed with a [Current time: ...] line and uses [identifier] labels.
+The non-"AI agent" label is the user's identifier.
 
 Rules:
 1. Every fact MUST be a self-contained sentence with a clear subject.
@@ -56,43 +56,43 @@ Rules:
 4. Preserve names, places, technologies, and relationships.
 5. Capture changes explicitly (e.g. "switched from X to Y", "no longer does X").
 6. If the user's real name is mentioned, lead with it. Otherwise use their identifier.
-7. Drop relative time references ("yesterday", "tomorrow", "next week", "last month") entirely. Only keep dates if an absolute date is explicitly stated.
+7. Resolve relative time references ("yesterday", "tomorrow", "next Monday") to absolute dates using the provided current time.
 8. If nothing worth remembering is found, return an empty list.
 9. Detect the language of the user's messages and record facts in the same language.
 
-Return ONLY: {{"facts": ["...", "..."]}}
+Return ONLY: {"facts": ["...", "..."]}
 
 Examples:
 
-Conversation:
+[Current time: 2026-03-15 09:00 UTC]
 [alice] I just moved to Tokyo from Seoul where I lived 5 years.
 [AI agent] How are you finding it?
 [alice] Loving the food. I started a new job at LINE as a frontend engineer.
-Output: {{"facts": ["Alice moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}}
+Output: {"facts": ["Alice moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}
 
-Conversation:
+[Current time: 2026-03-15 09:00 UTC]
 [bob99] We're rewriting our backend in Rust, was using Go before.
 [AI agent] What framework are you using?
 [bob99] Axum. Our team is 4 engineers at Acme Corp.
-Output: {{"facts": ["bob99 works at Acme Corp in a 4-person engineering team that is rewriting their backend from Go to Rust using Axum"]}}
+Output: {"facts": ["bob99 works at Acme Corp in a 4-person engineering team that is rewriting their backend from Go to Rust using Axum"]}
 
-Conversation:
+[Current time: 2026-03-15 09:00 UTC]
 [charlie] I used to love Python but TypeScript won me over for web dev.
 [AI agent] What changed your mind?
 [charlie] Next.js productivity. I still use Python for ML projects though.
-Output: {{"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}}
+Output: {"facts": ["Charlie switched from Python to TypeScript for web development, favoring Next.js, but still uses Python for ML"]}
 
-Conversation:
+[Current time: 2026-03-15 09:00 UTC]
 [user42] What's the capital of France?
 [AI agent] The capital of France is Paris. Paris is located in northern France on the Seine River. It has a population of about 2.1 million in the city proper and over 12 million in the metropolitan area. Paris is known for landmarks like the Eiffel Tower, the Louvre Museum, and Notre-Dame Cathedral. It has been the capital since the 10th century and serves as the country's political, economic, and cultural center.
 [user42] Thanks!
-Output: {{"facts": []}}
+Output: {"facts": []}
 
-Conversation:
-[dana] I have a recurring meeting with David from marketing about Q3 budget.
+[Current time: 2026-03-15 09:00 UTC]
+[dana] Meeting with David from marketing tomorrow at 2pm about Q3 budget.
 [AI agent] Need help preparing?
-[dana] No thanks. BTW I've been on keto for a while now, lost 5kg so far.
-Output: {{"facts": ["Dana has a recurring meeting with David from marketing about Q3 budget", "Dana is on a keto diet and has lost 5kg"]}}
+[dana] No thanks. BTW I've been on keto for 3 months, lost 5kg so far.
+Output: {"facts": ["Dana has a meeting with David from marketing about Q3 budget on 2026-03-16", "Dana has been on a keto diet for about 3 months and has lost 5kg"]}
 """
 
 MEMORY_UPDATE_PROMPT = """You are a smart memory manager which controls the memory of a system.
@@ -261,10 +261,13 @@ class MemoryStore:
     # Pass 1 — Fact extraction
     # ------------------------------------------------------------------
 
-    def _extract_facts(self, content: str, user_id: str) -> list[str]:
-        """Use the LLM to extract atomic facts from conversation text."""
-        system = FACT_EXTRACTION_PROMPT.format(user_id=user_id)
-        raw = self._llm_call(system, content)
+    def _extract_facts(self, content: str) -> list[str]:
+        """Use the LLM to extract atomic facts from conversation text.
+
+        The content already contains [Current time: ...] and [{user_id}]
+        labels, so the system prompt is fully static (cacheable).
+        """
+        raw = self._llm_call(FACT_EXTRACTION_PROMPT, content)
         parsed = self._parse_json(raw)
 
         facts = parsed.get("facts", [])
@@ -429,7 +432,7 @@ class MemoryStore:
 
         Returns a summary dict with operation counts.
         """
-        facts = self._extract_facts(content, user_id)
+        facts = self._extract_facts(content)
         if not facts:
             logger.info("No facts extracted from content for user %s", user_id)
             return {"facts_extracted": 0, "operations": {"add": 0, "update": 0, "delete": 0, "none": 0}}

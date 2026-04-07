@@ -973,6 +973,34 @@ async def _memory_add(content: str, user_id: str, loop_state: _LoopState) -> boo
         loop_state.pending.pop(identifier, None)
 
 
+def _bg_memory_add(
+    user_message: str,
+    assistant_reply: str,
+    user_id: str,
+    loop_state: "_LoopState",
+) -> None:
+    """Fire-and-forget per-turn memory ingestion.
+
+    Builds a small transcript of only the current exchange (user message +
+    assistant reply) with a UTC timestamp, then spawns memory_add in a
+    background task so the response is not delayed.
+    """
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    transcript = (
+        f"[Current time: {now}]\n"
+        f"[{user_id}] {user_message}\n"
+        f"[AI agent] {assistant_reply}"
+    )
+
+    async def _fire() -> None:
+        try:
+            await _memory_add(transcript, user_id, loop_state)
+        except Exception as exc:
+            logger.debug("Background memory_add failed: %s", exc)
+
+    asyncio.ensure_future(_fire())
+
+
 # ---------------------------------------------------------------------------
 # Append tool-turn messages to the LLM context (backend-aware)
 # ---------------------------------------------------------------------------
@@ -1136,7 +1164,6 @@ async def _agent_loop(
         if cut > 0:
             truncated, history = history[:cut], history[cut:]
             _save_history(session_id, history)
-            await _memory_add(_history_to_transcript(truncated, user_id=user_id), user_id, loop_state)
 
     # ProxyFileManager handles file path ↔ ProxyFile translation.
     # Files arrive as router-proxy; pfm.fetch() downloads to per-session inbox
@@ -1237,6 +1264,11 @@ async def _agent_loop(
             history.append({"role": "user", "content": user_message})
             history.append({"role": "assistant", "content": history_reply})
             _save_history(session_id, history)
+
+            # Per-turn memory ingestion: only the current exchange, not the
+            # entire history.  Fire-and-forget — don't block the response.
+            _bg_memory_add(user_message, history_reply, user_id, loop_state)
+
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
 
@@ -2026,14 +2058,10 @@ async def _dispatch(
         # Unlink if active (briefs linked conversation into main history)
         if _load_link_state(session_id):
             await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
-        history = _load_history(session_id)
-        memory_ok = True
-        if history:
-            memory_ok = await _memory_add(_history_to_transcript(history, user_id=user_id), user_id, loop_state)
         _archive_and_clear(session_id)
         if new_sid:
             _record_sequel(session_id, new_sid)
-        return "Session archived and memory updated." if memory_ok else "Session archived (memory update failed)."
+        return "Session archived."
 
     if message.startswith("<discard_session>"):
         # Format: "<discard_session>" or "<discard_session> {new_session_id}"
