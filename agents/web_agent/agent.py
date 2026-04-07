@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -119,8 +120,8 @@ AGENT_INFO = AgentInfo(
         "Web research agent. Searches the web and reads pages to produce a "
         "sourced report. Provide your research question in llmdata.prompt, "
         "and background context in llmdata.context if available. "
-        "Note: this agent has no awareness of the current date or time — "
-        "include explicit dates in your query when temporal context matters."
+        "This agent is time-aware in UTC. Include user's timezone in "
+        "llmdata.context if local time relevance matters."
     ),
     input_schema="llmdata: LLMData",
     output_schema="content: str",
@@ -322,8 +323,15 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
     system_parts = [_build_system_prompt()]
     if llmdata.agent_instruction:
         system_parts.append(f"## Additional Instructions\n{llmdata.agent_instruction}")
+
+    # Inject current UTC time into context so the LLM can handle
+    # time-sensitive queries (e.g. "latest news", "this week's results").
+    now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    time_line = f"Current time: {now_utc}"
     if llmdata.context:
-        system_parts.append(f"## Context\n{llmdata.context}")
+        system_parts.append(f"## Context\n{time_line}\n{llmdata.context}")
+    else:
+        system_parts.append(f"## Context\n{time_line}")
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": "\n\n".join(system_parts)},
