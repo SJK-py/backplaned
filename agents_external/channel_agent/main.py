@@ -989,24 +989,6 @@ async def _handle_incoming(
             await _send_to_chat(platform, chat_id, "New session started.")
         return
 
-    if cmd == "discard":
-        # /discard is now equivalent to /new (memory is captured per-turn).
-        old_sid, new_sid = await _rotate_session(platform, chat_id, platform_user_id, user_id)
-        if old_sid:
-            _pending_removal.add(old_sid)
-            typing_task = asyncio.create_task(_send_typing_loop(platform, chat_id))
-            _typing_tasks[old_sid] = typing_task
-            await _spawn_to_core(
-                identifier=old_sid,
-                user_id=user_id,
-                session_id=old_sid,
-                message=f"<new_session> {new_sid}",
-                core_agent_id=user_core_agent,
-            )
-        else:
-            await _send_to_chat(platform, chat_id, "Session discarded.")
-        return
-
     if cmd == "tokens":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
         _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
