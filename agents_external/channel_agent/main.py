@@ -976,6 +976,8 @@ async def _handle_incoming(
         old_sid, new_sid = await _rotate_session(platform, chat_id, platform_user_id, user_id)
         if old_sid:
             _pending_removal.add(old_sid)
+            typing_task = asyncio.create_task(_send_typing_loop(platform, chat_id))
+            _typing_tasks[old_sid] = typing_task
             await _spawn_to_core(
                 identifier=old_sid,
                 user_id=user_id,
@@ -988,14 +990,17 @@ async def _handle_incoming(
         return
 
     if cmd == "discard":
+        # /discard is now equivalent to /new (memory is captured per-turn).
         old_sid, new_sid = await _rotate_session(platform, chat_id, platform_user_id, user_id)
         if old_sid:
             _pending_removal.add(old_sid)
+            typing_task = asyncio.create_task(_send_typing_loop(platform, chat_id))
+            _typing_tasks[old_sid] = typing_task
             await _spawn_to_core(
                 identifier=old_sid,
                 user_id=user_id,
                 session_id=old_sid,
-                message=f"<discard_session> {new_sid}",
+                message=f"<new_session> {new_sid}",
                 core_agent_id=user_core_agent,
             )
         else:
@@ -1004,6 +1009,7 @@ async def _handle_incoming(
 
     if cmd == "tokens":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<token_info>",
@@ -1013,6 +1019,7 @@ async def _handle_incoming(
 
     if cmd == "agents":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<agents_info>",
@@ -1022,9 +1029,9 @@ async def _handle_incoming(
 
     if cmd == "config":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
-            # Natural language config instruction
             await _spawn_to_core(
                 identifier=session_id, user_id=user_id,
                 session_id=session_id,
@@ -1032,7 +1039,6 @@ async def _handle_incoming(
                 core_agent_id=user_core_agent,
             )
         else:
-            # Show current config
             await _spawn_to_core(
                 identifier=session_id, user_id=user_id,
                 session_id=session_id, message="<show_config>",
@@ -1042,6 +1048,7 @@ async def _handle_incoming(
 
     if cmd == "model":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
             await _spawn_to_core(
@@ -1060,6 +1067,7 @@ async def _handle_incoming(
 
     if cmd == "link":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         arg = parts[1].strip() if len(parts) > 1 else ""
         if arg:
             await _spawn_to_core(
@@ -1078,6 +1086,7 @@ async def _handle_incoming(
 
     if cmd == "unlink":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<unlink_agent>",
@@ -1087,6 +1096,7 @@ async def _handle_incoming(
 
     if cmd == "stop":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
         await _spawn_to_core(
             identifier=session_id, user_id=user_id,
             session_id=session_id, message="<stop_session>",
@@ -1097,7 +1107,7 @@ async def _handle_incoming(
     if cmd in ("start", "help"):
         await _send_to_chat(
             platform, chat_id,
-            "Commands: /new · /discard · /stop · /tokens · /agents\n"
+            "Commands: /new · /stop · /tokens · /agents\n"
             "/config — show config · /config <instruction> — modify config\n"
             "/model — list models · /model <id> — switch model\n"
             "/link — list linkable agents · /link <id> — direct talk\n"

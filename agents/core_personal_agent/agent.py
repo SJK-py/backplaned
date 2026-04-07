@@ -2091,7 +2091,7 @@ async def _dispatch(
         _archive_and_clear(session_id)
         if new_sid:
             _record_sequel(session_id, new_sid)
-        return "Session archived without updating memory."
+        return "Session discarded."
 
     if message == "<token_info>":
         history = _load_history(session_id)
