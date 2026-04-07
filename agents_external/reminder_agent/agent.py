@@ -219,9 +219,10 @@ async def run_agent_loop(
 ) -> tuple[int, AgentOutput]:
     """Run the multi-turn LLM tool-calling loop. Returns (status_code, AgentOutput)."""
 
-    # Load user settings for timezone.
+    # Load user settings for timezone and model.
     settings = await reminder_db.get_settings(user_id)
     user_tz = settings.get("timezone", "UTC")
+    user_model_id = settings.get("model_id") or DEFAULT_MODEL_ID or None
 
     # Build system prompt.
     system_prompt = _build_system_prompt(llmdata, user_tz)
@@ -266,7 +267,7 @@ async def run_agent_loop(
                 llm_result = await _llm_call(
                     messages, all_tools if all_tools else [],
                     timeout=agent_config.llm_timeout,
-                    model_id=DEFAULT_MODEL_ID or None,
+                    model_id=user_model_id,
                     user_id=user_id,
                 )
             except RuntimeError as exc:

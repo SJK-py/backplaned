@@ -296,6 +296,8 @@ async def _check_user(
     """
     settings = await db.get_settings(user_id)
     tz_str = settings.get("timezone", "UTC")
+    # Per-user model_id override from settings, falling back to global default
+    user_model_id = settings.get("model_id") or model_id
     try:
         tz = ZoneInfo(tz_str)
     except Exception:
@@ -333,7 +335,7 @@ async def _check_user(
 
     # LLM decides which to notify.
     notifications = await _llm_select_notifications(
-        llm_call_fn, candidates, now, tz_str, model_id=model_id,
+        llm_call_fn, candidates, now, tz_str, model_id=user_model_id,
     )
 
     if not notifications:

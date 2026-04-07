@@ -82,6 +82,13 @@ def _refresh_config() -> None:
     DEFAULT_SEARCH_COUNT = int(cfg.get("DEFAULT_SEARCH_COUNT", 5))
 
 
+def _resolve_model_id(user_id: str) -> Optional[str]:
+    """Resolve model_id for a user: per-user mapping > global default > None."""
+    cfg = _load_config()
+    user_models = cfg.get("USER_MODEL_IDS") or {}
+    return user_models.get(user_id) or LLM_MODEL_ID or None
+
+
 # ---------------------------------------------------------------------------
 # AgentInfo — published to the router on registration
 # ---------------------------------------------------------------------------
@@ -166,6 +173,7 @@ async def _llm_call_async(
     fut: asyncio.Future[dict[str, Any]] = loop.create_future()
     _pending[identifier] = fut
 
+    resolved_model = _resolve_model_id(user_id or "")
     llmcall: dict[str, Any] = {
         "messages": [
             {"role": "system", "content": system},
@@ -173,8 +181,8 @@ async def _llm_call_async(
         ],
         "tools": [],
     }
-    if LLM_MODEL_ID:
-        llmcall["model_id"] = LLM_MODEL_ID
+    if resolved_model:
+        llmcall["model_id"] = resolved_model
 
     payload: dict[str, Any] = {"llmcall": llmcall}
     if user_id:

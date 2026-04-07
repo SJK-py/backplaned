@@ -87,6 +87,7 @@ BRIEF_CACHE_FILE: Path = DATA_DIR / "brief_cache.json"
 LOG_CAPACITY: int = int(os.environ.get("LOG_CAPACITY", "500"))
 RECONNECT_INTERVAL: int = int(os.environ.get("RECONNECT_INTERVAL", "60"))
 LLM_AGENT_ID: str = os.environ.get("LLM_AGENT_ID", "llm_agent")
+LLM_MODEL_ID: str = os.environ.get("LLM_MODEL_ID", "") or ""
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -245,6 +246,19 @@ async def _do_register(invitation_token: str) -> bool:
 _brief_cache = ToolStore(BRIEF_CACHE_FILE)
 
 
+def _extract_llm_text(data: dict) -> str:
+    """Extract the text content from an llm_agent result delivery."""
+    payload = data.get("payload", {})
+    raw = payload.get("content", "") if isinstance(payload, dict) else ""
+    if not raw:
+        return ""
+    try:
+        parsed = json.loads(raw)
+        return parsed.get("content", raw) if isinstance(parsed, dict) else raw
+    except (json.JSONDecodeError, TypeError):
+        return raw
+
+
 # Pending brief-generation futures: identifier -> asyncio.Future
 _brief_futures: dict[str, asyncio.Future] = {}
 # Pending doc-generation futures: identifier -> asyncio.Future
@@ -276,13 +290,17 @@ async def _generate_briefs(tools: list) -> None:
             parent_task_id=None,
             destination_agent_id=LLM_AGENT_ID,
             payload={
-                "llmdata": {
-                    "agent_instruction": (
-                        "You are a concise technical writer. Output ONLY the single "
-                        "formatted line requested. No preamble, no explanation."
-                    ),
-                    "prompt": prompt,
-                }
+                "llmcall": {
+                    "messages": [
+                        {"role": "system", "content": (
+                            "You are a concise technical writer. Output ONLY the single "
+                            "formatted line requested. No preamble, no explanation."
+                        )},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "tools": [],
+                    **({"model_id": LLM_MODEL_ID} if LLM_MODEL_ID else {}),
+                },
             },
         )
         try:
@@ -353,13 +371,17 @@ async def _generate_docs(tools: list) -> None:
             parent_task_id=None,
             destination_agent_id=LLM_AGENT_ID,
             payload={
-                "llmdata": {
-                    "agent_instruction": (
-                        "You are a technical writer. Write clear, comprehensive "
-                        "Markdown documentation as requested. No preamble."
-                    ),
-                    "prompt": prompt,
-                }
+                "llmcall": {
+                    "messages": [
+                        {"role": "system", "content": (
+                            "You are a technical writer. Write clear, comprehensive "
+                            "Markdown documentation as requested. No preamble."
+                        )},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "tools": [],
+                    **({"model_id": LLM_MODEL_ID} if LLM_MODEL_ID else {}),
+                },
             },
         )
         try:
@@ -696,16 +718,14 @@ async def receive(request: Request) -> JSONResponse:
     # Check if this is a result callback for a brief/doc generation request.
     identifier = data.get("identifier", "")
     if identifier and identifier.startswith("brief:") and identifier in _brief_futures:
-        payload = data.get("payload", {})
-        content = payload.get("content", "") if isinstance(payload, dict) else ""
+        content = _extract_llm_text(data)
         fut = _brief_futures.get(identifier)
         if fut and not fut.done():
             fut.set_result(content)
         return JSONResponse(status_code=202, content={"status": "accepted"})
 
     if identifier and identifier.startswith("doc:") and identifier in _doc_futures:
-        payload = data.get("payload", {})
-        content = payload.get("content", "") if isinstance(payload, dict) else ""
+        content = _extract_llm_text(data)
         fut = _doc_futures.get(identifier)
         if fut and not fut.done():
             fut.set_result(content)
