@@ -24,11 +24,7 @@ dependencies = [
     "markitdown>=0.1.5",
     "markitdown-ocr>=0.1.0",
 
-    # Memory (memory_agent)
-    "mem0ai>=1.0.9",
-    "qdrant-client>=1.17",
-
-    # Knowledge base (kb_agent)
+    # Memory (memory_agent) + Knowledge base (kb_agent)
     "lancedb>=0.30",
 
     # MCP protocol (mcp_agent, mcp_server)

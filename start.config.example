@@ -44,23 +44,18 @@ LLM_MODEL=""                      # e.g. gpt-4o, claude-sonnet-4-20250514, llama
 LLM_MAX_TOKENS=16384              # Max output tokens per completion
 
 # ═══════════════════════════════════════════════════════════════════════
-# Memory Agent (mem0 — calls LLM and embedding APIs directly)
+# Memory Agent (LLM via llm_agent, embeddings direct)
 # ═══════════════════════════════════════════════════════════════════════
 #
-# memory_agent uses the mem0 library, which maintains its own LLM and
-# embedding clients separate from llm_agent. If left empty, LLM values
-# fall back to the LLM Gateway settings above. Embedding has no fallback
-# and must be configured if memory_agent is used.
+# memory_agent routes LLM calls through llm_agent (per-user model ACL).
+# Embedding is called directly for latency. If embedding values are left
+# empty, memory_agent will not function.
 
-MEM0_LLM_BASE_URL=""              # Override LLM endpoint (default: LLM_BASE_URL)
-MEM0_LLM_API_KEY=""               # Override LLM API key (default: LLM_API_KEY)
-MEM0_LLM_MODEL=""                 # Override LLM model (default: LLM_MODEL)
-MEM0_EMBED_BASE_URL=""            # Embedding API endpoint (REQUIRED for memory_agent)
-MEM0_EMBED_API_KEY=""             # Embedding API key (default: LLM_API_KEY)
-MEM0_EMBED_MODEL=""               # Embedding model name (REQUIRED for memory_agent)
-MEM0_EMBEDDING_DIMS=""            # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for auto-creating Qdrant collection
-QDRANT_HOST="localhost"           # Qdrant vector DB host
-QDRANT_PORT=6333                  # Qdrant vector DB port
+MEMORY_LLM_MODEL_ID=""            # llm_agent model ID for memory operations (default: llm_agent default)
+MEMORY_EMBED_BASE_URL=""          # Embedding API endpoint (REQUIRED for memory_agent)
+MEMORY_EMBED_API_KEY=""           # Embedding API key (default: LLM_API_KEY)
+MEMORY_EMBED_MODEL=""             # Embedding model name (REQUIRED for memory_agent)
+MEMORY_EMBEDDING_DIMS=""          # Embedding output dimension (e.g. 768, 1024, 2560). REQUIRED for table creation
 
 # ═══════════════════════════════════════════════════════════════════════
 # MD Converter OCR (optional — direct LLM call for scanned documents)
@@ -140,5 +135,4 @@ REMINDER_PORT=8101
 # ═══════════════════════════════════════════════════════════════════════
 
 # DATA_ROOT="./data"              # Host directory for all persistent data volumes
-# QDRANT_API_KEY=""               # API key for Qdrant authentication (recommended in production)
 # EXCLUDE_AGENTS="coding_agent"   # coding_agent runs in its own container; exclude from router

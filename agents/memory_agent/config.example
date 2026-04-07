@@ -1,13 +1,9 @@
 {
-  "MEM0_LLM_BASE_URL": "Base URL for OpenAI-compatible LLM endpoint (used by mem0 for memory operations)",
-  "MEM0_LLM_API_KEY": "API key for the LLM provider",
-  "MEM0_LLM_MODEL": "LLM model identifier for memory operations",
-  "MEM0_EMBED_BASE_URL": "Base URL for OpenAI-compatible embedding endpoint",
-  "MEM0_EMBED_API_KEY": "API key for the embedding provider",
-  "MEM0_EMBED_MODEL": "Embedding model identifier (e.g. Qwen3-Embedding-4B-GGUF)",
-  "MEM0_QDRANT_HOST": "Qdrant vector database hostname or IP",
-  "MEM0_QDRANT_PORT": "Qdrant port number",
-  "MEM0_COLLECTION_NAME": "Qdrant collection name for storing memory vectors",
-  "MEM0_EMBEDDING_DIMS": "Output dimension of the embedding model (e.g. 2560 for Qwen3-Embedding-4B). Required for auto-creating the Qdrant collection",
-  "MEM0_DEFAULT_SEARCH_COUNT": "Default number of results returned by memory search"
+  "LLM_AGENT_ID": "Agent ID for LLM calls (default: llm_agent). Routes fact extraction and consolidation through the router",
+  "LLM_MODEL_ID": "Model ID within llm_agent config (e.g. 'default'). Per-user model ACL applies. Leave empty for llm_agent default",
+  "EMBED_BASE_URL": "Base URL for OpenAI-compatible embedding endpoint (direct call, not routed through llm_agent)",
+  "EMBED_API_KEY": "API key for the embedding provider",
+  "EMBED_MODEL": "Embedding model identifier (e.g. Qwen3-Embedding-4B-GGUF)",
+  "EMBEDDING_DIMS": "Output dimension of the embedding model (e.g. 768). Required for per-user table creation",
+  "DEFAULT_SEARCH_COUNT": "Default number of results returned by memory search"
 }

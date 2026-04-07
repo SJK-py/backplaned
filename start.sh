@@ -129,15 +129,11 @@ fi
 
 # Propagate memory_agent settings
 MEM_CFG="$ROOT/agents/memory_agent/config.json"
-[ -n "${MEM0_LLM_BASE_URL:-$LLM_BASE_URL}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_BASE_URL" "${MEM0_LLM_BASE_URL:-$LLM_BASE_URL}"
-[ -n "${MEM0_LLM_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_API_KEY" "${MEM0_LLM_API_KEY:-$LLM_API_KEY}"
-[ -n "${MEM0_LLM_MODEL:-$LLM_MODEL}" ] && set_json_key "$MEM_CFG" "MEM0_LLM_MODEL" "${MEM0_LLM_MODEL:-$LLM_MODEL}"
-[ -n "$MEM0_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_BASE_URL" "$MEM0_EMBED_BASE_URL"
-[ -n "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_API_KEY" "${MEM0_EMBED_API_KEY:-$LLM_API_KEY}"
-[ -n "$MEM0_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "MEM0_EMBED_MODEL" "$MEM0_EMBED_MODEL"
-[ -n "$MEM0_EMBEDDING_DIMS" ] && set_json_key "$MEM_CFG" "MEM0_EMBEDDING_DIMS" "$MEM0_EMBEDDING_DIMS"
-[ -n "$QDRANT_HOST" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_HOST" "$QDRANT_HOST"
-[ -n "$QDRANT_PORT" ] && set_json_key "$MEM_CFG" "MEM0_QDRANT_PORT" "$QDRANT_PORT"
+[ -n "$MEMORY_LLM_MODEL_ID" ] && set_json_key "$MEM_CFG" "LLM_MODEL_ID" "$MEMORY_LLM_MODEL_ID"
+[ -n "$MEMORY_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "EMBED_BASE_URL" "$MEMORY_EMBED_BASE_URL"
+[ -n "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "EMBED_API_KEY" "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}"
+[ -n "$MEMORY_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "EMBED_MODEL" "$MEMORY_EMBED_MODEL"
+[ -n "$MEMORY_EMBEDDING_DIMS" ] && set_json_key "$MEM_CFG" "EMBEDDING_DIMS" "$MEMORY_EMBEDDING_DIMS"
 
 # Propagate md_converter OCR settings
 if [ "$OCR_ENABLED" = "true" ]; then

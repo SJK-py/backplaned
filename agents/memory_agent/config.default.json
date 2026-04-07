@@ -1,13 +1,9 @@
 {
-    "MEM0_LLM_BASE_URL": "",
-    "MEM0_LLM_API_KEY": "",
-    "MEM0_LLM_MODEL": "",
-    "MEM0_EMBED_BASE_URL": "",
-    "MEM0_EMBED_API_KEY": "",
-    "MEM0_EMBED_MODEL": "",
-    "MEM0_QDRANT_HOST": "localhost",
-    "MEM0_QDRANT_PORT": "6333",
-    "MEM0_COLLECTION_NAME": "agora_memory",
-    "MEM0_EMBEDDING_DIMS": "768",
-    "MEM0_DEFAULT_SEARCH_COUNT": "5"
+    "LLM_AGENT_ID": "llm_agent",
+    "LLM_MODEL_ID": "",
+    "EMBED_BASE_URL": "",
+    "EMBED_API_KEY": "",
+    "EMBED_MODEL": "",
+    "EMBEDDING_DIMS": "768",
+    "DEFAULT_SEARCH_COUNT": "5"
 }

@@ -1,15 +1,15 @@
 """
-agents/memory_agent/agent.py — mem0-backed long-term memory agent (embedded).
+agents/memory_agent/agent.py — LanceDB-backed long-term memory agent (embedded).
 
 Supports two operations dispatched via the 'operation' field in payload:
   - add:    Ingest content into long-term memory for a user.
   - search: Retrieve the most relevant memories for a user given a query.
 
-Loaded in-process by the router via ASGI transport.  Configuration is read
-from agents/memory_agent/.env before this module is imported.
+Loaded in-process by the router via ASGI transport.
 
-mem0 calls are synchronous; they are dispatched to a thread-pool executor to
-avoid blocking the asyncio event loop.
+LLM calls are routed through llm_agent for per-user model control.
+Embedding calls are made directly to the configured endpoint (latency-
+sensitive).  See memory_store.py for the two-pass memory algorithm.
 """
 
 from __future__ import annotations
@@ -17,17 +17,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 import sys
+import uuid
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from mem0 import Memory
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from helper import AgentInfo, AgentOutput, build_result_request
+from helper import AgentInfo, AgentOutput, build_result_request, build_spawn_request
 
 # ---------------------------------------------------------------------------
 # Configuration — read directly from config.json (hot-reloadable)
@@ -54,41 +54,32 @@ def _load_config() -> dict[str, Any]:
 
 
 def _cfg(key: str, default: str = "") -> str:
-    """Get a config value as string, with fallback default.
-
-    Empty-string values in config.json are treated as unset so that code
-    defaults take effect.
-    """
+    """Get a config value as string, with fallback default."""
     val = str(_load_config().get(key, default))
     return val if val else default
 
 
 # Connection params — read once at singleton init (not hot-reloadable).
-LLM_BASE_URL: str = _cfg("MEM0_LLM_BASE_URL", "http://172.23.90.91:8000/api/v1")
-LLM_API_KEY: str = _cfg("MEM0_LLM_API_KEY", "placeholder")
-LLM_MODEL: str = _cfg("MEM0_LLM_MODEL", "extra.gpt-oss-20b-GGUF")
+LLM_AGENT_ID: str = _cfg("LLM_AGENT_ID", "llm_agent")
+LLM_MODEL_ID: str = _cfg("LLM_MODEL_ID", "")
 
-EMBED_BASE_URL: str = _cfg("MEM0_EMBED_BASE_URL", "http://172.23.90.91:8000/api/v1")
-EMBED_API_KEY: str = _cfg("MEM0_EMBED_API_KEY", "placeholder")
-EMBED_MODEL: str = _cfg("MEM0_EMBED_MODEL", "Qwen3-Embedding-4B-GGUF")
+EMBED_BASE_URL: str = _cfg("EMBED_BASE_URL", "http://172.23.90.91:8000/api/v1")
+EMBED_API_KEY: str = _cfg("EMBED_API_KEY", "placeholder")
+EMBED_MODEL: str = _cfg("EMBED_MODEL", "Qwen3-Embedding-4B-GGUF")
 
-QDRANT_HOST: str = _cfg("MEM0_QDRANT_HOST", "172.23.90.92")
-QDRANT_PORT: int = int(_cfg("MEM0_QDRANT_PORT", "6333"))
+EMBEDDING_DIMS: int = int(_cfg("EMBEDDING_DIMS", "768") or "768")
 
-# Detect whether the host value is a full URL (with protocol) or a bare hostname.
-# QdrantClient expects `url=` for URLs and `host=` for bare hostnames.
-_QDRANT_IS_URL: bool = QDRANT_HOST.startswith("http://") or QDRANT_HOST.startswith("https://")
-COLLECTION_NAME: str = _cfg("MEM0_COLLECTION_NAME", "mem0")
-EMBEDDING_DIMS: Optional[int] = int(_cfg("MEM0_EMBEDDING_DIMS") or 0) or None
+DEFAULT_SEARCH_COUNT: int = int(_cfg("DEFAULT_SEARCH_COUNT", "5"))
 
-DEFAULT_SEARCH_COUNT: int = int(_cfg("MEM0_DEFAULT_SEARCH_COUNT", "5"))
+ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000")
+LLM_CALL_TIMEOUT: float = 180.0
 
 
 def _refresh_config() -> None:
     """Re-read config.json and update hot-reloadable variables."""
     global DEFAULT_SEARCH_COUNT
     cfg = _load_config()
-    DEFAULT_SEARCH_COUNT = int(cfg.get("MEM0_DEFAULT_SEARCH_COUNT", 5))
+    DEFAULT_SEARCH_COUNT = int(cfg.get("DEFAULT_SEARCH_COUNT", 5))
 
 
 # ---------------------------------------------------------------------------
@@ -110,89 +101,176 @@ AGENT_INFO = AgentInfo(
 )
 
 # ---------------------------------------------------------------------------
-# Qdrant collection bootstrap
+# Auth token (injected by the router as an environment variable at startup)
 # ---------------------------------------------------------------------------
 
-def _ensure_collection() -> None:
-    """Create the Qdrant collection if it does not already exist."""
-    if not EMBEDDING_DIMS:
-        logger.warning(
-            "MEM0_EMBEDDING_DIMS not set — skipping collection auto-creation. "
-            "Set it to the embedding model's output dimension."
-        )
-        return
-    if _QDRANT_IS_URL:
-        client = QdrantClient(url=QDRANT_HOST)
-    else:
-        client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+_AUTH_TOKEN: str = ""
+
+
+def _get_auth_token() -> str:
+    global _AUTH_TOKEN
+    if not _AUTH_TOKEN:
+        _AUTH_TOKEN = os.environ.get(f"{_OUR_AGENT_ID.upper()}_AUTH_TOKEN", "")
+    return _AUTH_TOKEN
+
+
+# ---------------------------------------------------------------------------
+# LLM call via llm_agent (spawn through router, wait for result)
+# ---------------------------------------------------------------------------
+
+_pending: dict[str, asyncio.Future] = {}
+
+
+async def _spawn_to_llm(
+    identifier: str,
+    payload: dict[str, Any],
+    parent_task_id: Optional[str] = None,
+) -> None:
+    """Send a spawn request to the router targeting llm_agent."""
+    body = build_spawn_request(
+        agent_id=_OUR_AGENT_ID,
+        identifier=identifier,
+        parent_task_id=parent_task_id,
+        destination_agent_id=LLM_AGENT_ID,
+        payload=payload,
+    )
+    token = _get_auth_token()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            r = await client.post(
+                f"{ROUTER_URL.rstrip('/')}/route",
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            r.raise_for_status()
+        except Exception as exc:
+            logger.warning("Failed to spawn to llm_agent: %s", exc)
+            fut = _pending.get(identifier)
+            if fut and not fut.done():
+                fut.set_result({
+                    "status_code": 502,
+                    "payload": {"content": f"Spawn failed: {exc}"},
+                })
+
+
+async def _llm_call_async(
+    system: str,
+    user_msg: str,
+    *,
+    user_id: Optional[str] = None,
+    parent_task_id: Optional[str] = None,
+) -> str:
+    """Call llm_agent with a system+user message pair and return raw text."""
+    identifier = f"mem_llm_{uuid.uuid4().hex[:12]}"
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+    _pending[identifier] = fut
+
+    llmcall: dict[str, Any] = {
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        "tools": [],
+    }
+    if LLM_MODEL_ID:
+        llmcall["model_id"] = LLM_MODEL_ID
+
+    payload: dict[str, Any] = {"llmcall": llmcall}
+    if user_id:
+        payload["user_id"] = user_id
+
+    await _spawn_to_llm(identifier, payload, parent_task_id=parent_task_id)
+
     try:
-        existing = {c.name for c in client.get_collections().collections}
-        if COLLECTION_NAME not in existing:
-            logger.info(
-                "Qdrant collection '%s' not found — creating (dims=%d, distance=Cosine)",
-                COLLECTION_NAME, EMBEDDING_DIMS,
-            )
-            client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(size=EMBEDDING_DIMS, distance=Distance.COSINE),
-            )
-        else:
-            logger.info("Qdrant collection '%s' already exists.", COLLECTION_NAME)
+        result_data = await asyncio.wait_for(fut, timeout=LLM_CALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise RuntimeError("LLM call timed out")
     finally:
-        client.close()
+        _pending.pop(identifier, None)
+
+    raw = result_data.get("payload", {})
+    sc = result_data.get("status_code", 200)
+    content_str = raw.get("content", "")
+
+    if sc and sc >= 400:
+        raise RuntimeError(f"llm_agent error ({sc}): {content_str}")
+
+    # llm_agent returns JSON with "content" key
+    try:
+        parsed = json.loads(content_str)
+        return parsed.get("content", content_str)
+    except (json.JSONDecodeError, TypeError):
+        return content_str
+
+
+def _make_sync_llm_fn(
+    loop: asyncio.AbstractEventLoop,
+    user_id: Optional[str] = None,
+    parent_task_id: Optional[str] = None,
+) -> Any:
+    """Create a synchronous (system, user) -> str callable for MemoryStore.
+
+    Bridges async llm_agent calls from within a thread-pool executor by
+    scheduling coroutines on the main event loop.
+    """
+    def llm_fn(system: str, user_msg: str) -> str:
+        coro = _llm_call_async(
+            system, user_msg,
+            user_id=user_id,
+            parent_task_id=parent_task_id,
+        )
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result(timeout=LLM_CALL_TIMEOUT)
+    return llm_fn
 
 
 # ---------------------------------------------------------------------------
-# mem0 Memory singleton — lazily initialised on first use so that startup
-# does not block (or fail) when Qdrant / the embedding service is unavailable.
+# MemoryStore singleton — lazily initialised on first use
 # ---------------------------------------------------------------------------
 
 _AGENT_DATA_DIR = Path(__file__).resolve().parent / "data"
 _AGENT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-_memory: Optional[Memory] = None
-_memory_init_done: bool = False
-_memory_init_lock = threading.Lock()
+_store = None
+_store_init_done: bool = False
+_store_init_lock = threading.Lock()
 
 
-def _get_memory() -> Memory:
-    """Return the Memory singleton, creating it (and the Qdrant collection) on first call."""
-    global _memory, _memory_init_done
-    if not _memory_init_done:
-        with _memory_init_lock:
-            if not _memory_init_done:
-                _ensure_collection()
-                _memory = Memory.from_config(
-                    {
-                        "llm": {
-                            "provider": "openai",
-                            "config": {
-                                "model": LLM_MODEL,
-                                "openai_base_url": LLM_BASE_URL,
-                                "api_key": LLM_API_KEY,
-                            },
-                        },
-                        "embedder": {
-                            "provider": "openai",
-                            "config": {
-                                "model": EMBED_MODEL,
-                                "openai_base_url": EMBED_BASE_URL,
-                                "api_key": EMBED_API_KEY,
-                            },
-                        },
-                        "vector_store": {
-                            "provider": "qdrant",
-                            "config": {
-                                **({"url": QDRANT_HOST} if _QDRANT_IS_URL else {"host": QDRANT_HOST, "port": QDRANT_PORT}),
-                                "collection_name": COLLECTION_NAME,
-                                **({"embedding_model_dims": EMBEDDING_DIMS} if EMBEDDING_DIMS else {}),
-                            },
-                        },
-                        "history_db_path": str(_AGENT_DATA_DIR / "history.db"),
-                    }
-                )
-                _memory_init_done = True
-    return _memory  # type: ignore[return-value]
+def _get_store(llm_fn: Any) -> Any:
+    """Return the MemoryStore singleton, creating it on first call."""
+    global _store, _store_init_done
+    if _store_init_done:
+        # Swap in the current request's llm_fn (carries correct user_id)
+        _store._llm_fn = llm_fn
+        return _store
+    with _store_init_lock:
+        if not _store_init_done:
+            # Dynamic import (router loads agent.py via importlib)
+            import importlib.util as _ilu
+            _ms_path = str(Path(__file__).resolve().parent / "memory_store.py")
+            _ms_spec = _ilu.spec_from_file_location("memory_store", _ms_path)
+            _ms_mod = _ilu.module_from_spec(_ms_spec)  # type: ignore
+            _ms_spec.loader.exec_module(_ms_mod)  # type: ignore
+            MemoryStore = _ms_mod.MemoryStore
+
+            _store = MemoryStore(
+                db_base=_AGENT_DATA_DIR / "lancedb",
+                llm_fn=llm_fn,
+                embed_base_url=EMBED_BASE_URL,
+                embed_api_key=EMBED_API_KEY,
+                embed_model=EMBED_MODEL,
+                embedding_dims=EMBEDDING_DIMS,
+            )
+            _store_init_done = True
+            logger.info(
+                "MemoryStore initialised (db_base=%s, dims=%d)",
+                _AGENT_DATA_DIR / "lancedb",
+                EMBEDDING_DIMS,
+            )
+    _store._llm_fn = llm_fn
+    return _store
+
 
 # ---------------------------------------------------------------------------
 # Core processing
@@ -232,15 +310,19 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
 
     loop = asyncio.get_running_loop()
 
+    # Build a sync LLM callable that routes through llm_agent with the
+    # correct user_id (for per-user model ACL).
+    llm_fn = _make_sync_llm_fn(loop, user_id=user_id, parent_task_id=parent_task_id)
+    store = _get_store(llm_fn)
+
     # --- Add ---
     if operation == "add":
-        messages = [{"role": "user", "content": content}]
         try:
-            await loop.run_in_executor(
-                None, partial(_get_memory().add, messages, user_id=user_id)
+            result = await loop.run_in_executor(
+                None, partial(store.add, content, user_id=user_id)
             )
         except Exception as exc:
-            logger.error("mem0 add failed for user %s: %s", user_id, exc)
+            logger.error("Memory add failed for user %s: %s", user_id, exc)
             return build_result_request(
                 agent_id=_OUR_AGENT_ID,
                 task_id=task_id,
@@ -258,11 +340,11 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
 
     # --- Search ---
     try:
-        raw = await loop.run_in_executor(
-            None, partial(_get_memory().search, content, user_id=user_id, limit=count)
+        results = await loop.run_in_executor(
+            None, partial(store.search, content, user_id=user_id, limit=count)
         )
     except Exception as exc:
-        logger.error("mem0 search failed for user %s: %s", user_id, exc)
+        logger.error("Memory search failed for user %s: %s", user_id, exc)
         return build_result_request(
             agent_id=_OUR_AGENT_ID,
             task_id=task_id,
@@ -270,8 +352,6 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
             status_code=500,
             output=AgentOutput(content=f"Memory search failed: {exc}"),
         )
-    # mem0 >= 0.1 returns {"results": [...]}; older versions return a list directly.
-    results: list[Any] = raw.get("results", raw) if isinstance(raw, dict) else raw
     return build_result_request(
         agent_id=_OUR_AGENT_ID,
         task_id=task_id,
@@ -293,11 +373,23 @@ async def receive(request: Request) -> JSONResponse:
     """
     Called by the router via in-process ASGI transport.
 
-    Returns 200 with a routing payload dict so the router can process
-    the result delivery.
+    Two cases:
+    1. Result delivery from llm_agent — resolve pending future.
+    2. New task — run the memory operation.
     """
     _refresh_config()
     data = await request.json()
+
+    # Case 1: result delivery from llm_agent
+    identifier: Optional[str] = data.get("identifier")
+    dest: Optional[str] = data.get("destination_agent_id")
+    if identifier and dest is None and "status_code" in data:
+        fut = _pending.get(identifier)
+        if fut is not None and not fut.done():
+            fut.set_result(data)
+        return JSONResponse(status_code=200, content=None)
+
+    # Case 2: new task
     try:
         result = await _run(data)
         return JSONResponse(status_code=200, content=result)

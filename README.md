@@ -37,7 +37,7 @@ All communication flows through the **router**, which acts as an ESB-style messa
 | **core_personal_agent** | Embedded | `core` | Main orchestrator. Maintains per-session chat history, runs LLM agent loop with parallel tool calling, manages long-term memory. |
 | **llm_agent** | Embedded | `infra` | Centralized LLM inference gateway. Supports OpenAI, Anthropic, and OpenAI-compatible providers with fallback chains and per-user model ACL. |
 | **md_converter** | Embedded | `tool` | Converts documents (PDF, DOCX, PPTX, XLSX, HTML, etc.) to Markdown. Optional LLM-based OCR for scanned documents. |
-| **memory_agent** | Embedded | `usertool` | Long-term memory via mem0 + Qdrant. Per-user add/search/delete operations. |
+| **memory_agent** | Embedded | `usertool` | Long-term memory via LanceDB (local). LLM-powered fact extraction and consolidation. Per-user add/search operations. |
 | **web_agent** | Embedded | `tool` | Web research agent. Searches (DuckDuckGo, SearXNG, Brave) and fetches pages with LLM-driven multi-step research loops. |
 | **channel_inbound** | External | `channel` | Bridges Telegram and Discord to the router. Handles slash commands, file uploads, inline progress streaming. |
 | **coding_agent** | External | `usertool` | Sandboxed code execution workspace. Writes, runs, and iterates on code with file I/O. Per-user security policies. |
@@ -68,7 +68,6 @@ Agents are organized into groups with directional routing rules:
 
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- Qdrant (for memory_agent and kb_agent) — `docker run -p 6333:6333 qdrant/qdrant`
 - An OpenAI-compatible LLM endpoint (local or cloud)
 
 ### Setup
@@ -118,10 +117,9 @@ cd docker
 docker compose up -d
 ```
 
-Three containers:
+Two containers:
 - **router** — Router + embedded agents + lightweight external agents
 - **coding** — Isolated coding agent sandbox
-- **qdrant** — Vector database for memory and knowledge base
 
 ## Configuration
 
@@ -137,7 +135,7 @@ Each embedded agent under `agents/` has:
 
 Key configurations:
 - **llm_agent** — Model definitions, provider settings, retry policy, per-user model ACL
-- **memory_agent** — mem0 LLM/embedding endpoints, Qdrant connection, collection settings
+- **memory_agent** — LLM model ID (routed via llm_agent), embedding endpoint, LanceDB table settings
 - **md_converter** — OCR toggle and VLM endpoint for scanned document support
 - **web_agent** — Search provider (DuckDuckGo/SearXNG/Brave), fetch limits
 
