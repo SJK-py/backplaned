@@ -325,7 +325,7 @@ class MemoryStore:
         for i, (uid, row) in enumerate(candidates.items()):
             idx = str(i)
             idx_to_uuid[idx] = uid
-            old_memory_list.append({"id": idx, "text": row["text"]})
+            old_memory_list.append({"id": idx, "text": row.get("text", "")})
 
         # Build prompt
         if old_memory_list:
@@ -344,15 +344,23 @@ class MemoryStore:
         raw = self._llm_call(system, "Analyze and return the memory operations.")
         parsed = self._parse_json(raw)
         operations = parsed.get("memory", [])
+        # Guard: LLM may return a single dict instead of a list
+        if isinstance(operations, dict):
+            operations = [operations]
+        if not isinstance(operations, list):
+            logger.warning("LLM returned unexpected 'memory' type: %s", type(operations))
+            return []
 
         # Map sequential IDs back to UUIDs
         for op in operations:
+            if not isinstance(op, dict):
+                continue
             op_id = str(op.get("id", ""))
             if op_id in idx_to_uuid:
                 op["_uuid"] = idx_to_uuid[op_id]
             else:
                 op["_uuid"] = None  # new memory, will get a UUID on ADD
-        return operations
+        return [op for op in operations if isinstance(op, dict)]
 
     # ------------------------------------------------------------------
     # Execute consolidation operations
@@ -491,8 +499,8 @@ class MemoryStore:
                 score = (1.0 - raw) if score_col == "_distance" else raw
             out.append(
                 {
-                    "id": r["id"],
-                    "memory": r["text"],
+                    "id": r.get("id", ""),
+                    "memory": r.get("text", ""),
                     "created_at": r.get("created_at"),
                     "updated_at": r.get("updated_at"),
                     "score": score,
