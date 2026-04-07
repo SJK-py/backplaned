@@ -2081,18 +2081,6 @@ async def _dispatch(
             _record_sequel(session_id, new_sid)
         return "Session archived."
 
-    if message.startswith("<discard_session>"):
-        # Format: "<discard_session>" or "<discard_session> {new_session_id}"
-        parts = message.split(None, 1)
-        new_sid = parts[1] if len(parts) > 1 else None
-        # Unlink if active (briefs linked conversation into main history before discard)
-        if _load_link_state(session_id):
-            await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
-        _archive_and_clear(session_id)
-        if new_sid:
-            _record_sequel(session_id, new_sid)
-        return "Session discarded."
-
     if message == "<token_info>":
         history = _load_history(session_id)
         tokens = _history_tokens(history)
