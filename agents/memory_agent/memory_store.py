@@ -29,7 +29,7 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -53,10 +53,10 @@ Rules:
 1. Every fact MUST be a self-contained sentence with a clear subject.
 2. Merge related details into one fact. Do not split them.
 3. Read both user and AI agent messages for context, but only record facts about the user.
-4. Preserve names, dates, places, technologies, and relationships.
+4. Preserve names, places, technologies, and relationships.
 5. Capture changes explicitly (e.g. "switched from X to Y", "no longer does X").
 6. If the user's real name is mentioned, lead with it. Otherwise use their identifier.
-7. Today's date is {today}. Convert relative dates (e.g. "yesterday", "next week") to absolute dates.
+7. Drop relative time references ("yesterday", "tomorrow", "next week", "last month") entirely. Only keep dates if an absolute date is explicitly stated.
 8. If nothing worth remembering is found, return an empty list.
 9. Detect the language of the user's messages and record facts in the same language.
 
@@ -65,10 +65,10 @@ Return ONLY: {{"facts": ["...", "..."]}}
 Examples:
 
 Conversation:
-[alice] I just moved to Tokyo last month from Seoul where I lived 5 years.
+[alice] I just moved to Tokyo from Seoul where I lived 5 years.
 [AI agent] How are you finding it?
 [alice] Loving the food. I started a new job at LINE as a frontend engineer.
-Output: {{"facts": ["Alice recently moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}}
+Output: {{"facts": ["Alice moved from Seoul to Tokyo and is enjoying the food scene", "Alice started a new job at LINE as a frontend engineer"]}}
 
 Conversation:
 [bob99] We're rewriting our backend in Rust, was using Go before.
@@ -89,10 +89,10 @@ Conversation:
 Output: {{"facts": []}}
 
 Conversation:
-[dana] Meeting with David from marketing tomorrow at 2pm about Q3 budget.
+[dana] I have a recurring meeting with David from marketing about Q3 budget.
 [AI agent] Need help preparing?
-[dana] No thanks. BTW I've been on keto for 3 months, lost 5kg so far.
-Output: {{"facts": ["Dana has a meeting with David from marketing about Q3 budget on {tomorrow}", "Dana has been on a keto diet for 3 months and has lost 5kg"]}}
+[dana] No thanks. BTW I've been on keto for a while now, lost 5kg so far.
+Output: {{"facts": ["Dana has a recurring meeting with David from marketing about Q3 budget", "Dana is on a keto diet and has lost 5kg"]}}
 """
 
 MEMORY_UPDATE_PROMPT = """You are a smart memory manager which controls the memory of a system.
@@ -263,11 +263,7 @@ class MemoryStore:
 
     def _extract_facts(self, content: str, user_id: str) -> list[str]:
         """Use the LLM to extract atomic facts from conversation text."""
-        today = datetime.now().strftime("%Y-%m-%d")
-        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-        system = FACT_EXTRACTION_PROMPT.format(
-            today=today, tomorrow=tomorrow, user_id=user_id,
-        )
+        system = FACT_EXTRACTION_PROMPT.format(user_id=user_id)
         raw = self._llm_call(system, content)
         parsed = self._parse_json(raw)
 
