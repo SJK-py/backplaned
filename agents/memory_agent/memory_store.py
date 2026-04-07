@@ -107,37 +107,28 @@ If a new fact is already covered by existing memory, skip it — do not output a
 Examples:
 
 Existing memory:
-[{{"id": "0", "text": "Alice works at Acme Corp as a backend engineer"}}]
+[{"id": "0", "text": "Alice works at Acme Corp as a backend engineer"}]
 New facts: ["Alice got promoted to senior engineer at Acme Corp"]
-Output: {{"memory": [{{"id": "0", "text": "Alice works at Acme Corp as a senior backend engineer", "event": "UPDATE"}}]}}
+Output: {"memory": [{"id": "0", "text": "Alice works at Acme Corp as a senior backend engineer", "event": "UPDATE"}]}
 
 Existing memory:
-[{{"id": "0", "text": "bob99 prefers dark mode in all applications"}}]
+[{"id": "0", "text": "bob99 prefers dark mode in all applications"}]
 New facts: ["bob99 switched to light mode after getting new monitor"]
-Output: {{"memory": [{{"id": "0", "event": "DELETE"}}, {{"text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}}]}}
+Output: {"memory": [{"id": "0", "event": "DELETE"}, {"text": "bob99 switched to light mode after getting a new monitor", "event": "ADD"}]}
 
 Existing memory:
-[{{"id": "0", "text": "Charlie is learning Rust for systems programming"}}]
+[{"id": "0", "text": "Charlie is learning Rust for systems programming"}]
 New facts: ["Charlie is learning Rust for systems programming"]
-Output: {{"memory": []}}
+Output: {"memory": []}
 
 Existing memory is empty.
 New facts: ["Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer"]
-Output: {{"memory": [{{"text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}}]}}
+Output: {"memory": [{"text": "Dana moved from Seoul to Tokyo and works at LINE as a frontend engineer", "event": "ADD"}]}
 
----
-
-{memory_section}
-
-New facts:
-```
-{new_facts}
-```
-
-Return ONLY valid JSON: {{"memory": [...]}}
-ADD: {{"text": "<content>", "event": "ADD"}}
-UPDATE: {{"id": "<existing ID>", "text": "<new content>", "event": "UPDATE"}}
-DELETE: {{"id": "<existing ID>", "event": "DELETE"}}
+Return ONLY valid JSON: {"memory": [...]}
+ADD: {"text": "<content>", "event": "ADD"}
+UPDATE: {"id": "<existing ID>", "text": "<new content>", "event": "UPDATE"}
+DELETE: {"id": "<existing ID>", "event": "DELETE"}
 Empty list if nothing changed."""
 
 _TABLE_NAME = "memories"
@@ -329,21 +320,20 @@ class MemoryStore:
             idx_to_uuid[idx] = uid
             old_memory_list.append({"id": idx, "text": row.get("text", "")})
 
-        # Build prompt
+        # Build user message with existing memory and new facts
         if old_memory_list:
             memory_section = (
-                "Below is the current content of memory:\n```\n"
+                "Existing memory:\n"
                 + json.dumps(old_memory_list, ensure_ascii=False)
-                + "\n```"
             )
         else:
-            memory_section = "Current memory is empty."
+            memory_section = "Existing memory is empty."
 
-        system = MEMORY_UPDATE_PROMPT.format(
-            memory_section=memory_section,
-            new_facts=json.dumps(facts, ensure_ascii=False),
+        user_msg = (
+            f"{memory_section}\n\n"
+            f"New facts:\n{json.dumps(facts, ensure_ascii=False)}"
         )
-        raw = self._llm_call(system, "Analyze and return the memory operations.")
+        raw = self._llm_call(MEMORY_UPDATE_PROMPT, user_msg)
         parsed = self._parse_json(raw)
         operations = parsed.get("memory", [])
         # Guard: LLM may return a single dict instead of a list

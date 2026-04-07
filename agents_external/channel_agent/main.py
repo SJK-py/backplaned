@@ -1329,7 +1329,6 @@ async def _run_telegram() -> None:
     try:
         await app.bot.set_my_commands([
             BotCommand("new", "Start a new session"),
-            BotCommand("discard", "Discard current session"),
             BotCommand("stop", "Stop all active tasks"),
             BotCommand("tokens", "Show token usage"),
             BotCommand("agents", "List available agents"),
