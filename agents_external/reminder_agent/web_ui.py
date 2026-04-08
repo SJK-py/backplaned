@@ -24,6 +24,9 @@ if str(_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_ROOT))
 from helper import PasswordFile
 
+# Shared config UI helper
+from config_ui import add_config_routes
+
 
 # ---------------------------------------------------------------------------
 # Session auth
@@ -393,5 +396,7 @@ def create_ui_router() -> APIRouter:
             return {"status": "ok", "agent_id": resp.agent_id}
         except Exception as e:
             return {"status": "error", "detail": str(e)}
+
+    add_config_routes(router, Path(__file__).resolve().parent, _require_auth, cookie_name="reminder_session")
 
     return router

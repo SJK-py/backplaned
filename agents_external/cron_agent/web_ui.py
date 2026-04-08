@@ -14,6 +14,12 @@ from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+import sys as _sys
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_ROOT))
+from config_ui import add_config_routes
+
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_ROOT))
@@ -292,5 +298,7 @@ def build_web_router() -> APIRouter:
     @router.get("/")
     async def root() -> FileResponse:
         return FileResponse(str(Path(__file__).parent / "static" / "index.html"))
+
+    add_config_routes(router, Path(__file__).resolve().parent, _require_auth, cookie_name="cron_session")
 
     return router

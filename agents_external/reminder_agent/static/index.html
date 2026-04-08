@@ -97,6 +97,7 @@
     <div class="tab" onclick="switchTab('reminders')">Reminders</div>
     <div class="tab" onclick="switchTab('logs')">Logs</div>
     <div class="tab" onclick="switchTab('onboarding')">Onboarding</div>
+    <div class="tab" onclick="switchTab('config')">Config</div>
     <div class="tab" onclick="switchTab('password')">Password</div>
   </div>
 
@@ -111,6 +112,26 @@
 
   <!-- Onboarding Panel -->
   <div id="tab-onboarding" class="panel"></div>
+
+  <!-- Config Panel -->
+  <div id="tab-config" class="panel">
+    <div class="card">
+      <h2>Agent Configuration</h2>
+      <p style="color:var(--text-dim);margin-bottom:1rem">Edit runtime settings. Changes take effect immediately.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">config.json</label>
+          <textarea id="cfg-editor" rows="16" style="width:100%;font-family:monospace;font-size:.85rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;resize:vertical"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="saveConfig()" style="margin-top:.5rem">Save</button>
+          <span id="cfg-msg" style="margin-left:.5rem;font-size:.85rem"></span>
+        </div>
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">Field descriptions</label>
+          <pre id="cfg-example" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.82rem;overflow:auto;max-height:400px;margin:0;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Change Password (always visible when authed) -->
   <div id="tab-password" class="panel">
@@ -181,6 +202,24 @@ function switchTab(name) {
   else if (name === 'reminders') loadUsers();
   else if (name === 'logs') loadLogs();
   else if (name === 'onboarding') loadOnboarding();
+  else if (name === 'config') loadConfig();
+}
+
+async function loadConfig() {
+  try {
+    const d = await api('/ui/config');
+    document.getElementById('cfg-editor').value = JSON.stringify(d.config || {}, null, 2);
+    document.getElementById('cfg-example').textContent = JSON.stringify(d.example || {}, null, 2);
+  } catch (e) { document.getElementById('cfg-editor').value = '// Failed to load'; }
+}
+async function saveConfig() {
+  const msg = document.getElementById('cfg-msg');
+  try {
+    const config = JSON.parse(document.getElementById('cfg-editor').value);
+    await api('/ui/config', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({config}) });
+    msg.style.color = '#4caf50'; msg.textContent = 'Saved';
+    setTimeout(() => msg.textContent = '', 2000);
+  } catch (e) { msg.style.color = '#f44336'; msg.textContent = e.message || 'Invalid JSON'; }
 }
 
 // --- Status ---
