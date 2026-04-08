@@ -7,7 +7,7 @@ A lightweight, self-hosted multi-agent orchestration platform. A central router 
 ```
   Telegram / Discord           Web Admin           Claude Desktop, Cursor, ...
          |                         |                          |
-     channel_agent                  |                     mcp_server
+    channel_agent                  |                     mcp_server
          \                         |                (Router-as-MCP Bridge)
           \                        |                        /
        ┌───────────────────────────────────────────────────────┐
