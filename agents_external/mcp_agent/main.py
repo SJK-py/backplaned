@@ -48,7 +48,7 @@ from helper import (
     onboard,
 )
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 import os
 

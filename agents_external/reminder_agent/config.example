@@ -1,0 +1,9 @@
+{
+    "LLM_AGENT_ID": "Agent ID for LLM inference calls (default: llm_agent)",
+    "DEFAULT_MODEL_ID": "Global default model ID for LLM calls. Per-user override via settings",
+    "CORE_AGENT_ID": "Agent ID for notification delivery (default: core_personal_agent)",
+    "LLM_TIMEOUT": "LLM call timeout in seconds (default: 120)",
+    "TOOL_TIMEOUT": "Tool execution timeout in seconds (default: 60)",
+    "CHECK_INTERVAL": "Periodic notification check interval in minutes (default: 30)",
+    "CHECK_LOOKAHEAD_HOURS": "How far ahead to check for upcoming events in hours (default: 72)"
+}

@@ -27,7 +27,7 @@ from typing import Any, AsyncIterator, Optional
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 # Allow importing helper.py from the project root.
 _ROOT = Path(__file__).resolve().parent.parent

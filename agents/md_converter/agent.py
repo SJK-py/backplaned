@@ -37,7 +37,7 @@ logger = logging.getLogger("md_converter")
 # Configuration — read directly from config.json (hot-reloadable)
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = _AGENT_DIR / "config.json"
+_CONFIG_PATH = _AGENT_DIR / "data" / "config.json"
 _OUR_AGENT_ID = "md_converter"
 
 

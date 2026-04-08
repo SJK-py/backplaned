@@ -81,7 +81,7 @@ from helper import (
 # ---------------------------------------------------------------------------
 
 _AGENT_DIR = str(Path(__file__).resolve().parent)
-_CONFIG_PATH = Path(_AGENT_DIR) / "config.json"
+_CONFIG_PATH = Path(_AGENT_DIR) / "data" / "config.json"
 
 _DEFAULT_SYSTEM_PROMPT: str = (
     "You are a personal assistant in a multi-agent system. You orchestrate tasks "

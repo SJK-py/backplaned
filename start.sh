@@ -44,11 +44,12 @@ if [ -n "$EXCLUDE_AGENTS" ]; then
     echo "[start] Excluded agents: $EXCLUDE_AGENTS"
 fi
 
-# ── Propagate start.config values into agent configs ────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────
 
 # Helper: set a key=value in an .env file (create key if missing)
 set_env_var() {
     local file="$1" key="$2" value="$3"
+    mkdir -p "$(dirname "$file")"
     if grep -q "^${key}=" "$file" 2>/dev/null; then
         "$VENV_BIN/python3" - "$file" "$key" "$value" <<'PYEOF'
 import sys, pathlib
@@ -66,6 +67,7 @@ PYEOF
 # Helper: update JSON config key (creates file if missing)
 set_json_key() {
     local file="$1" key="$2" value="$3"
+    mkdir -p "$(dirname "$file")"
     "$VENV_BIN/python3" - "$file" "$key" "$value" <<'PYEOF'
 import sys, json, pathlib
 f = pathlib.Path(sys.argv[1])
@@ -89,24 +91,59 @@ f.write_text(json.dumps(data, indent=4, ensure_ascii=False) + "\n", encoding="ut
 PYEOF
 }
 
-# ── Bootstrap config.json from defaults if missing ─────────────────────
+# ── Bootstrap config files to data/ dirs ──────────────────────────────
+# Only create if missing — never overwrite user-modified configs.
+
+# Embedded agents: config.default.json → data/config.json
 for default_cfg in "$ROOT"/agents/*/config.default.json; do
     agent_dir="$(dirname "$default_cfg")"
-    cfg="$agent_dir/config.json"
-    if [ ! -f "$cfg" ]; then
-        cp "$default_cfg" "$cfg"
+    data_cfg="$agent_dir/data/config.json"
+    mkdir -p "$agent_dir/data"
+    if [ ! -f "$data_cfg" ]; then
+        cp "$default_cfg" "$data_cfg"
+        echo "[start] Created $(basename "$agent_dir")/data/config.json from defaults"
     fi
 done
 
+# External agents: .env.example → data/.env, config.default.json → data/config.json
+for agent_dir in "$ROOT"/agents_external/*/; do
+    agent_name="$(basename "$agent_dir")"
+    is_excluded "$agent_name" && continue
+
+    # .env
+    data_env="$agent_dir/data/.env"
+    mkdir -p "$agent_dir/data"
+    if [ ! -f "$data_env" ]; then
+        if [ -f "$agent_dir/.env.example" ]; then
+            cp "$agent_dir/.env.example" "$data_env"
+            echo "[start] Created $agent_name/data/.env from .env.example"
+        fi
+    fi
+
+    # config.json (if a config.default.json template exists)
+    if [ -f "$agent_dir/config.default.json" ]; then
+        data_cfg="$agent_dir/data/config.json"
+        if [ ! -f "$data_cfg" ]; then
+            cp "$agent_dir/config.default.json" "$data_cfg"
+            echo "[start] Created $agent_name/data/config.json from defaults"
+        fi
+    fi
+done
+
+# ── Propagate start.config values into agent configs ──────────────────
+# These only run on first boot (or when FORCE_CONFIG=1 is set) because
+# the bootstrap step above creates the config files.  On subsequent
+# boots the files already exist with user modifications.
+
 # Propagate ADMIN_TOKEN to root .env and web_admin
 [ -n "$ADMIN_TOKEN" ] && set_env_var "$ROOT/.env" "ADMIN_TOKEN" "$ADMIN_TOKEN"
-[ -n "$ADMIN_TOKEN" ] && ! is_excluded "web_admin" && set_env_var "$ROOT/agents_external/web_admin/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
+[ -n "$ADMIN_TOKEN" ] && ! is_excluded "web_admin" && set_env_var "$ROOT/agents_external/web_admin/data/.env" "ROUTER_ADMIN_TOKEN" "$ADMIN_TOKEN"
 
 # Propagate ADMIN_PASSWORD to all agent .env files
 if [ -n "$ADMIN_PASSWORD" ]; then
     for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin; do
         is_excluded "$_agent_name" && continue
-        set_env_var "$ROOT/agents_external/$_agent_name/.env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
+        set_env_var "$ROOT/agents_external/$_agent_name/data/.env" "ADMIN_PASSWORD" "$ADMIN_PASSWORD"
     done
 fi
 
@@ -114,12 +151,12 @@ fi
 SESSION_SECRET="${SESSION_SECRET:-$("$VENV_BIN/python3" -c 'import secrets; print(secrets.token_hex(32))')}"
 for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin; do
     is_excluded "$_agent_name" && continue
-    set_env_var "$ROOT/agents_external/$_agent_name/.env" "SESSION_SECRET" "$SESSION_SECRET"
+    set_env_var "$ROOT/agents_external/$_agent_name/data/.env" "SESSION_SECRET" "$SESSION_SECRET"
 done
 
-# Propagate LLM Gateway settings to llm_agent config.json
+# Propagate LLM Gateway settings to llm_agent data/config.json
 if [ -n "$LLM_BASE_URL" ]; then
-    LLM_CFG="$ROOT/agents/llm_agent/config.json"
+    LLM_CFG="$ROOT/agents/llm_agent/data/config.json"
     set_json_key "$LLM_CFG" "models.default.provider" "${LLM_PROVIDER:-openai_compat}"
     set_json_key "$LLM_CFG" "models.default.base_url" "$LLM_BASE_URL"
     set_json_key "$LLM_CFG" "models.default.api_key" "${LLM_API_KEY:-}"
@@ -128,7 +165,7 @@ if [ -n "$LLM_BASE_URL" ]; then
 fi
 
 # Propagate memory_agent settings
-MEM_CFG="$ROOT/agents/memory_agent/config.json"
+MEM_CFG="$ROOT/agents/memory_agent/data/config.json"
 [ -n "$MEMORY_LLM_MODEL_ID" ] && set_json_key "$MEM_CFG" "LLM_MODEL_ID" "$MEMORY_LLM_MODEL_ID"
 [ -n "$MEMORY_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "EMBED_BASE_URL" "$MEMORY_EMBED_BASE_URL"
 [ -n "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "EMBED_API_KEY" "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}"
@@ -137,32 +174,35 @@ MEM_CFG="$ROOT/agents/memory_agent/config.json"
 
 # Propagate md_converter OCR settings
 if [ "$OCR_ENABLED" = "true" ]; then
-    OCR_CFG="$ROOT/agents/md_converter/config.json"
+    OCR_CFG="$ROOT/agents/md_converter/data/config.json"
     set_json_key "$OCR_CFG" "OCR_ENABLED" "true"
     set_json_key "$OCR_CFG" "OCR_BASE_URL" "${OCR_BASE_URL:-$LLM_BASE_URL}"
     [ -n "${OCR_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$OCR_CFG" "OCR_API_KEY" "${OCR_API_KEY:-$LLM_API_KEY}"
     set_json_key "$OCR_CFG" "OCR_MODEL" "${OCR_MODEL:-$LLM_MODEL}"
 fi
 
-# Propagate kb_agent embedding settings
+# Propagate kb_agent embedding settings to data/config.json
 if ! is_excluded "kb_agent"; then
-    KB_ENV="$ROOT/agents_external/kb_agent/.env"
-    [ -n "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}" ] && set_env_var "$KB_ENV" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEM0_EMBED_BASE_URL}"
-    [ -n "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$KB_ENV" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEM0_EMBED_API_KEY:-$LLM_API_KEY}}"
-    [ -n "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}" ] && set_env_var "$KB_ENV" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEM0_EMBED_MODEL}"
-    [ -n "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}" ] && set_env_var "$KB_ENV" "VECTOR_DIM" "${KB_VECTOR_DIM:-$MEM0_EMBEDDING_DIMS}"
+    KB_CFG="$ROOT/agents_external/kb_agent/data/config.json"
+    [ -n "${KB_EMBED_BASE_URL:-$MEMORY_EMBED_BASE_URL}" ] && set_json_key "$KB_CFG" "EMBED_BASE_URL" "${KB_EMBED_BASE_URL:-$MEMORY_EMBED_BASE_URL}"
+    [ -n "${KB_EMBED_MODEL:-$MEMORY_EMBED_MODEL}" ] && set_json_key "$KB_CFG" "EMBED_MODEL" "${KB_EMBED_MODEL:-$MEMORY_EMBED_MODEL}"
+    [ -n "${KB_VECTOR_DIM:-$MEMORY_EMBEDDING_DIMS}" ] && set_json_key "$KB_CFG" "VECTOR_DIM" "${KB_VECTOR_DIM:-$MEMORY_EMBEDDING_DIMS}"
+    # API key is a secret → goes in .env
+    [ -n "${KB_EMBED_API_KEY:-${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}}" ] && set_env_var "$ROOT/agents_external/kb_agent/data/.env" "EMBED_API_KEY" "${KB_EMBED_API_KEY:-${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}}"
 fi
 
-# Propagate Telegram/Discord settings
+# Propagate Telegram/Discord tokens (secrets → .env)
 if ! is_excluded "channel_agent"; then
-    CHAN_ENV="$ROOT/agents_external/channel_agent/.env"
+    CHAN_ENV="$ROOT/agents_external/channel_agent/data/.env"
     [ -n "$TELEGRAM_TOKEN" ] && set_env_var "$CHAN_ENV" "TELEGRAM_TOKEN" "$TELEGRAM_TOKEN"
     [ -n "$DISCORD_TOKEN" ] && set_env_var "$CHAN_ENV" "DISCORD_TOKEN" "$DISCORD_TOKEN"
-    [ -n "$RATE_LIMIT_WINDOW" ] && set_env_var "$CHAN_ENV" "RATE_LIMIT_WINDOW" "$RATE_LIMIT_WINDOW"
-    [ -n "$RATE_LIMIT_MAX_TRIALS" ] && set_env_var "$CHAN_ENV" "RATE_LIMIT_MAX_TRIALS" "$RATE_LIMIT_MAX_TRIALS"
+    # Rate limits → config.json
+    CHAN_CFG="$ROOT/agents_external/channel_agent/data/config.json"
+    [ -n "$RATE_LIMIT_WINDOW" ] && set_json_key "$CHAN_CFG" "RATE_LIMIT_WINDOW" "$RATE_LIMIT_WINDOW"
+    [ -n "$RATE_LIMIT_MAX_TRIALS" ] && set_json_key "$CHAN_CFG" "RATE_LIMIT_MAX_TRIALS" "$RATE_LIMIT_MAX_TRIALS"
 fi
 
-# ── Ports (propagate to agent .env files) ────────────────────────────────
+# ── Ports (propagate to agent data/.env files) ──────────────────────────
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 WEB_ADMIN_PORT="${WEB_ADMIN_PORT:-8080}"
 CHANNEL_PORT="${CHANNEL_PORT:-8081}"
@@ -173,14 +213,14 @@ KB_PORT="${KB_PORT:-8086}"
 CODING_PORT="${CODING_PORT:-8100}"
 REMINDER_PORT="${REMINDER_PORT:-8101}"
 
-is_excluded "web_admin"     || set_env_var "$ROOT/agents_external/web_admin/.env" "AGENT_PORT" "$WEB_ADMIN_PORT"
-is_excluded "channel_agent" || set_env_var "$ROOT/agents_external/channel_agent/.env" "AGENT_PORT" "$CHANNEL_PORT"
-is_excluded "mcp_agent"     || set_env_var "$ROOT/agents_external/mcp_agent/.env" "AGENT_PORT" "$MCP_AGENT_PORT"
-is_excluded "mcp_server"    || set_env_var "$ROOT/agents_external/mcp_server/.env" "AGENT_PORT" "$MCP_SERVER_PORT"
-is_excluded "cron_agent"    || set_env_var "$ROOT/agents_external/cron_agent/.env" "AGENT_PORT" "$CRON_PORT"
-is_excluded "kb_agent"      || set_env_var "$ROOT/agents_external/kb_agent/.env" "AGENT_PORT" "$KB_PORT"
-is_excluded "coding_agent"  || set_env_var "$ROOT/agents_external/coding_agent/.env" "AGENT_PORT" "$CODING_PORT"
-is_excluded "reminder_agent" || set_env_var "$ROOT/agents_external/reminder_agent/.env" "AGENT_PORT" "$REMINDER_PORT"
+is_excluded "web_admin"     || set_env_var "$ROOT/agents_external/web_admin/data/.env" "AGENT_PORT" "$WEB_ADMIN_PORT"
+is_excluded "channel_agent" || set_env_var "$ROOT/agents_external/channel_agent/data/.env" "AGENT_PORT" "$CHANNEL_PORT"
+is_excluded "mcp_agent"     || set_env_var "$ROOT/agents_external/mcp_agent/data/.env" "AGENT_PORT" "$MCP_AGENT_PORT"
+is_excluded "mcp_server"    || set_env_var "$ROOT/agents_external/mcp_server/data/.env" "AGENT_PORT" "$MCP_SERVER_PORT"
+is_excluded "cron_agent"    || set_env_var "$ROOT/agents_external/cron_agent/data/.env" "AGENT_PORT" "$CRON_PORT"
+is_excluded "kb_agent"      || set_env_var "$ROOT/agents_external/kb_agent/data/.env" "AGENT_PORT" "$KB_PORT"
+is_excluded "coding_agent"  || set_env_var "$ROOT/agents_external/coding_agent/data/.env" "AGENT_PORT" "$CODING_PORT"
+is_excluded "reminder_agent" || set_env_var "$ROOT/agents_external/reminder_agent/data/.env" "AGENT_PORT" "$REMINDER_PORT"
 
 # ── Re-source root .env (may have been updated above) ───────────────────
 set -a
@@ -285,7 +325,7 @@ start_agent() {
         return 0
     fi
 
-    local agent_env="$ROOT/agents_external/$dir_name/.env"
+    local agent_env="$ROOT/agents_external/$dir_name/data/.env"
     local agent_creds="$ROOT/agents_external/$dir_name/data/credentials.json"
 
     if [ ! -f "$agent_creds" ]; then
@@ -347,31 +387,24 @@ echo "[start] Press Ctrl+C to stop all."
 echo ""
 
 _shutdown() {
-    echo "[stop] Shutting down..."
-    kill $ALL_PIDS 2>/dev/null
+    echo ""
+    echo "[start] Shutting down ..."
+    for pid in $ALL_PIDS; do
+        kill "$pid" 2>/dev/null
+    done
     wait
+    echo "[start] All stopped."
     exit 0
 }
-trap _shutdown SIGINT SIGTERM
+trap _shutdown INT TERM
 
-# Monitor child processes — log which service died instead of silently exiting
-set +e
+# Wait for any child to exit; if one dies, shut down all
 while true; do
-    wait -n -p EXITED_PID $ALL_PIDS 2>/dev/null
-    EXIT_CODE=$?
-    # Identify which service exited
-    for entry in $RUNNING_SERVICES; do
-        svc="${entry%%:*}"
-        pid="${entry##*:}"
+    for pid in $ALL_PIDS; do
         if ! kill -0 "$pid" 2>/dev/null; then
-            echo "[start] WARNING: $svc (PID=$pid) exited with code $EXIT_CODE"
+            echo "[start] Process $pid exited. Shutting down all ..."
+            _shutdown
         fi
     done
-    # If the router itself died, shut everything down
-    if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
-        echo "[start] ERROR: Router has exited — shutting down all services."
-        kill $ALL_PIDS 2>/dev/null
-        wait
-        exit 1
-    fi
+    sleep 5
 done

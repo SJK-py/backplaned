@@ -1,0 +1,7 @@
+{
+    "LLM_AGENT_ID": "Agent ID for LLM inference calls (default: llm_agent)",
+    "DEFAULT_MODEL_ID": "Global default model ID for LLM calls. Per-user/per-job override via settings",
+    "CORE_AGENT_ID": "Agent ID for result delivery (default: core_personal_agent)",
+    "CHECK_INTERVAL": "Scheduler tick interval in seconds (default: 30)",
+    "TOOL_TIMEOUT": "Tool execution timeout in seconds (default: 120)"
+}

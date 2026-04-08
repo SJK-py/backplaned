@@ -46,7 +46,7 @@ logger = logging.getLogger("web_agent")
 # Configuration
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = _AGENT_DIR / "config.json"
+_CONFIG_PATH = _AGENT_DIR / "data" / "config.json"
 _OUR_AGENT_ID = "web_agent"
 
 

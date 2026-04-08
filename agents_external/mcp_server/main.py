@@ -46,7 +46,7 @@ if str(_ROOT) not in sys.path:
 
 from helper import AgentInfo, AgentOutput, OnboardResponse, PasswordFile, build_spawn_request, onboard
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 from mcp_bridge import MCPBridge
 

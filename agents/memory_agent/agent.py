@@ -42,7 +42,7 @@ from helper import AgentInfo, AgentOutput, build_result_request, build_spawn_req
 # Configuration — read directly from config.json (hot-reloadable)
 # ---------------------------------------------------------------------------
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "config.json"
 
 
 def _load_config() -> dict[str, Any]:

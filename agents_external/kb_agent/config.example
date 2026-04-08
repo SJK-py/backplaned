@@ -1,0 +1,13 @@
+{
+    "LLM_AGENT_ID": "Agent ID for LLM inference calls (default: llm_agent)",
+    "DEFAULT_MODEL_ID": "Global default model ID. Per-user override via users.json",
+    "EMBED_BASE_URL": "Base URL for OpenAI-compatible embedding endpoint",
+    "EMBED_MODEL": "Embedding model name (e.g. Qwen3-Embedding-4B-GGUF)",
+    "EMBED_TIMEOUT": "Embedding API timeout in seconds (default: 30)",
+    "VECTOR_DIM": "Embedding output dimension (default: 2560)",
+    "CHUNK_LEN_MAX": "Maximum chunk size in characters (default: 2000)",
+    "CHUNK_LEN_MIN": "Minimum chunk size in characters (default: 1000)",
+    "CHUNK_OVERLAP": "Overlap between chunks in characters (default: 100)",
+    "MD_CONVERTER_ID": "Agent ID for document conversion (default: md_converter)",
+    "TOOL_TIMEOUT": "Tool execution timeout in seconds (default: 120)"
+}

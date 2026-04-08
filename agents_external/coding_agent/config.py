@@ -1,8 +1,10 @@
 """
 coding_agent/config.py — Configuration loading for the Coding Agent.
 
-Loads agent-level settings from environment variables and per-user
-settings from a JSON config file.
+Infrastructure settings (secrets, URLs, ports) come from environment
+variables / .env.  Runtime settings (timeouts, model IDs) come from
+data/config.json.  Per-user settings (workspace limits, allowed
+commands) are in a separate per-user config file.
 """
 
 from __future__ import annotations
@@ -14,9 +16,19 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+_CONFIG_PATH = Path(__file__).resolve().parent / "data" / "config.json"
+
+
+def _load_config() -> dict[str, Any]:
+    """Read data/config.json (re-read on every call for hot-reload)."""
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
 
 # ---------------------------------------------------------------------------
-# Per-user configuration (from config.json)
+# Per-user configuration (from user_config.json)
 # ---------------------------------------------------------------------------
 
 class UserConfig(BaseModel):
@@ -35,50 +47,40 @@ class UserConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Agent-level configuration (from environment)
+# Agent-level configuration
 # ---------------------------------------------------------------------------
 
 class AgentConfig(BaseModel):
-    """Agent-level configuration sourced from environment variables."""
+    """Agent-level configuration."""
 
-    # Timeouts
-    llm_timeout: int = 120
-    tool_timeout: int = 60
-
-    # Workspace
-    workspace_root: str = "data/workspaces"
-
-    # Router
+    # --- Infrastructure (from .env) ---
     router_url: str = "http://localhost:8000"
     agent_id: str = "coding_agent"
     agent_auth_token: str = ""
     invitation_token: str = ""
-
-    # Server
     agent_host: str = "0.0.0.0"
     agent_port: int = 8100
     agent_endpoint_url: str = ""
-
-    # Paths
     data_dir: str = "data"
-    user_config_path: str = "config.json"
     log_dir: str = "data/logs"
-
-    # LLM Agent
-    llm_agent_id: str = "llm_agent"
-
-    # Web UI
     admin_password: str = ""
     session_secret: str = ""
 
+    # --- Runtime (from data/config.json) ---
+    llm_timeout: int = 120
+    tool_timeout: int = 60
+    workspace_root: str = "data/workspaces"
+    user_config_path: str = "data/user_config.json"
+    llm_agent_id: str = "llm_agent"
+    default_model_id: str = ""
+
     @classmethod
     def from_env(cls) -> AgentConfig:
-        """Load configuration from environment variables."""
+        """Load configuration from .env + data/config.json."""
         import secrets as _s
+        cfg = _load_config()
         return cls(
-            llm_timeout=int(os.environ.get("LLM_TIMEOUT", cls.model_fields["llm_timeout"].default)),
-            tool_timeout=int(os.environ.get("TOOL_TIMEOUT", cls.model_fields["tool_timeout"].default)),
-            workspace_root=os.environ.get("WORKSPACE_ROOT", cls.model_fields["workspace_root"].default),
+            # Infrastructure (env only)
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
             agent_id=os.environ.get("AGENT_ID", cls.model_fields["agent_id"].default),
             agent_auth_token=os.environ.get("AGENT_AUTH_TOKEN", cls.model_fields["agent_auth_token"].default),
@@ -87,11 +89,16 @@ class AgentConfig(BaseModel):
             agent_port=int(os.environ.get("AGENT_PORT", cls.model_fields["agent_port"].default)),
             agent_endpoint_url=os.environ.get("AGENT_ENDPOINT_URL", ""),
             data_dir=os.environ.get("DATA_DIR", cls.model_fields["data_dir"].default),
-            user_config_path=os.environ.get("USER_CONFIG_PATH", cls.model_fields["user_config_path"].default),
             log_dir=os.environ.get("LOG_DIR", cls.model_fields["log_dir"].default),
-            llm_agent_id=os.environ.get("LLM_AGENT_ID", cls.model_fields["llm_agent_id"].default),
             admin_password=os.environ.get("ADMIN_PASSWORD", cls.model_fields["admin_password"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _s.token_hex(32),
+            # Runtime (config.json > env fallback > default)
+            llm_timeout=int(cfg.get("LLM_TIMEOUT") or os.environ.get("LLM_TIMEOUT") or cls.model_fields["llm_timeout"].default),
+            tool_timeout=int(cfg.get("TOOL_TIMEOUT") or os.environ.get("TOOL_TIMEOUT") or cls.model_fields["tool_timeout"].default),
+            workspace_root=cfg.get("WORKSPACE_ROOT") or os.environ.get("WORKSPACE_ROOT") or cls.model_fields["workspace_root"].default,
+            user_config_path=cfg.get("USER_CONFIG_PATH") or os.environ.get("USER_CONFIG_PATH") or cls.model_fields["user_config_path"].default,
+            llm_agent_id=cfg.get("LLM_AGENT_ID") or os.environ.get("LLM_AGENT_ID") or cls.model_fields["llm_agent_id"].default,
+            default_model_id=cfg.get("DEFAULT_MODEL_ID") or os.environ.get("DEFAULT_MODEL_ID", ""),
         )
 
 

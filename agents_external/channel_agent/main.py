@@ -41,7 +41,7 @@ if str(_ROOT) not in sys.path:
 
 from helper import AgentInfo, AgentOutput, OnboardResponse, PasswordFile, build_result_request, build_spawn_request, onboard
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 import os
 
@@ -65,15 +65,25 @@ RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"{AGENT_ENDPOINT_URL}/receive"
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_TOKEN", "")
 DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
 
-CORE_AGENT_ID: str = os.environ.get("CORE_AGENT_ID", "core_personal_agent")
+# Runtime settings from data/config.json (hot-reloadable)
+_CHAN_CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
+
+def _load_chan_config() -> dict:
+    try:
+        return json.loads(_CHAN_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+_chan_cfg = _load_chan_config()
+CORE_AGENT_ID: str = _chan_cfg.get("CORE_AGENT_ID") or os.environ.get("CORE_AGENT_ID", "core_personal_agent")
 DATA_DIR: Path = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 SESSIONS_FILE: Path = DATA_DIR / "sessions.json"
 CREDENTIALS_FILE: Path = DATA_DIR / "credentials.json"
 INVITATION_TOKENS_FILE: Path = DATA_DIR / "invitation_tokens.json"
 RATE_LIMITS_FILE: Path = DATA_DIR / "rate_limits.json"
 
-RATE_LIMIT_WINDOW: int = int(os.environ.get("RATE_LIMIT_WINDOW", "3600"))
-RATE_LIMIT_MAX_TRIALS: int = int(os.environ.get("RATE_LIMIT_MAX_TRIALS", "5"))
+RATE_LIMIT_WINDOW: int = int(_chan_cfg.get("RATE_LIMIT_WINDOW") or os.environ.get("RATE_LIMIT_WINDOW", "3600"))
+RATE_LIMIT_MAX_TRIALS: int = int(_chan_cfg.get("RATE_LIMIT_MAX_TRIALS") or os.environ.get("RATE_LIMIT_MAX_TRIALS", "5"))
 LOG_CAPACITY: int = int(os.environ.get("LOG_CAPACITY", "500"))
 FILE_MAX_AGE: int = int(os.environ.get("FILE_MAX_AGE", "3600"))  # seconds, default 1 hour
 

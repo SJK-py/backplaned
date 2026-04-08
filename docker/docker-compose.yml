@@ -17,6 +17,13 @@ services:
     volumes:
       - "${DATA_ROOT:-./data}/router:/app/data"
       - "${DATA_ROOT:-./data}/proxyfiles:/app/proxyfiles"
+      # Embedded agents (config.json + runtime data)
+      - "${DATA_ROOT:-./data}/core_personal_agent:/app/agents/core_personal_agent/data"
+      - "${DATA_ROOT:-./data}/llm_agent:/app/agents/llm_agent/data"
+      - "${DATA_ROOT:-./data}/memory_agent:/app/agents/memory_agent/data"
+      - "${DATA_ROOT:-./data}/web_agent:/app/agents/web_agent/data"
+      - "${DATA_ROOT:-./data}/md_converter:/app/agents/md_converter/data"
+      # External agents (config.json + .env + runtime data)
       - "${DATA_ROOT:-./data}/channel_agent:/app/agents_external/channel_agent/data"
       - "${DATA_ROOT:-./data}/mcp_agent:/app/agents_external/mcp_agent/data"
       - "${DATA_ROOT:-./data}/mcp_server:/app/agents_external/mcp_server/data"

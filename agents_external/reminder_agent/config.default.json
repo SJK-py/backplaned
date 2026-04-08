@@ -1,0 +1,9 @@
+{
+    "LLM_AGENT_ID": "llm_agent",
+    "DEFAULT_MODEL_ID": "",
+    "CORE_AGENT_ID": "core_personal_agent",
+    "LLM_TIMEOUT": 120,
+    "TOOL_TIMEOUT": 60,
+    "CHECK_INTERVAL": 30,
+    "CHECK_LOOKAHEAD_HOURS": 72
+}

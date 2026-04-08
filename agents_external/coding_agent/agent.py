@@ -43,7 +43,7 @@ from helper import (
 )
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / "data" / ".env")
 
 from config import AgentConfig, ConfigManager, UserConfig
 from tools import ToolEngine, get_tool_definitions
@@ -847,7 +847,7 @@ if __name__ == "__main__":
 
     # Load .env file if present
     from dotenv import load_dotenv
-    env_path = Path(__file__).parent / ".env"
+    env_path = Path(__file__).parent / "data" / ".env"
     if env_path.exists():
         load_dotenv(env_path)
 
