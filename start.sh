@@ -166,7 +166,6 @@ fi
 
 # Propagate memory_agent settings
 MEM_CFG="$ROOT/agents/memory_agent/data/config.json"
-[ -n "$MEMORY_LLM_MODEL_ID" ] && set_json_key "$MEM_CFG" "LLM_MODEL_ID" "$MEMORY_LLM_MODEL_ID"
 [ -n "$MEMORY_EMBED_BASE_URL" ] && set_json_key "$MEM_CFG" "EMBED_BASE_URL" "$MEMORY_EMBED_BASE_URL"
 [ -n "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}" ] && set_json_key "$MEM_CFG" "EMBED_API_KEY" "${MEMORY_EMBED_API_KEY:-$LLM_API_KEY}"
 [ -n "$MEMORY_EMBED_MODEL" ] && set_json_key "$MEM_CFG" "EMBED_MODEL" "$MEMORY_EMBED_MODEL"

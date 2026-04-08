@@ -48,10 +48,10 @@ LLM_MAX_TOKENS=16384              # Max output tokens per completion
 # ═══════════════════════════════════════════════════════════════════════
 #
 # memory_agent routes LLM calls through llm_agent (per-user model ACL).
+# Model ID is configured via the web admin UI (memory_agent config.json).
 # Embedding is called directly for latency. If embedding values are left
 # empty, memory_agent will not function.
 
-MEMORY_LLM_MODEL_ID=""            # llm_agent model ID for memory operations (default: llm_agent default)
 MEMORY_EMBED_BASE_URL=""          # Embedding API endpoint (REQUIRED for memory_agent)
 MEMORY_EMBED_API_KEY=""           # Embedding API key (default: LLM_API_KEY)
 MEMORY_EMBED_MODEL=""             # Embedding model name (REQUIRED for memory_agent)
@@ -115,10 +115,11 @@ RATE_LIMIT_MAX_TRIALS=5           # Max attempts from unregistered users per win
 # EXCLUDE_AGENTS=""                 # e.g. "coding_agent" or "coding_agent,kb_agent"
 
 # ═══════════════════════════════════════════════════════════════════════
-# Ports (bare-metal deployment)
+# Ports
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Default ports for each service. Change if you have conflicts.
+# Default ports for each service. Used by both bare-metal (start.sh)
+# and Docker (docker-compose.yml) deployments.
 
 ROUTER_PORT=8000
 WEB_ADMIN_PORT=8080
