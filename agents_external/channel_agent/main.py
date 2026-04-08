@@ -1244,6 +1244,10 @@ async def _handle_direct_message(data: dict[str, Any], payload: dict[str, Any]) 
         return
 
     await _send_to_chat(details["platform"], details["chat_id"], message)
+    # Cancel typing indicator — user has received a response via this session.
+    tt = _typing_tasks.pop(session_id, None)
+    if tt and not tt.done():
+        tt.cancel()
     logger.info(
         "Direct message delivered to user %s via %s (session %s)",
         user_id, details["platform"], session_id,

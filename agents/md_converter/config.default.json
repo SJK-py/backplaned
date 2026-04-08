@@ -7,5 +7,5 @@
     "OCR_NO_PROMPT": "true",
     "MAX_CONTENT_LENGTH": "30000",
     "PREVIEW_LENGTH": "2000",
-    "OUTPUT_DIR": ""
+    "OUTPUT_DIR": "data/output"
 }
