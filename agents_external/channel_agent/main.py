@@ -521,7 +521,7 @@ async def _ensure_registered() -> None:
         return
 
     agent_info = AgentInfo(
-        agent_id="channel_inbound",
+        agent_id="channel_agent",
         description=(
             "Channel inbound agent. Bridges Telegram and Discord to the router. "
             "Calling this agent sends a direct message to the user on their active "

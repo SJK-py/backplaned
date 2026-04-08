@@ -633,7 +633,9 @@ async def _deliver_report(
         "user_id": user_id,
         "session_id": reporting_session,
         "message": (
-            f"Deliver the following scheduled task report to the user.\n\n"
+            f"Deliver the following scheduled task report to the user. "
+            f"Call the channel_agent to send this as a direct message. "
+            f"Use the user_id and session_id from your current session context.\n\n"
             f"Scheduled task: {job.get('description', 'N/A')}\n\n"
             f"Report:\n{report}"
             f"{file_note}"
