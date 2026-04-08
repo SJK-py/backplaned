@@ -160,7 +160,7 @@ def build_web_router() -> APIRouter:
             "user_id": user_id,
             "settings": settings,
             "jobs": jobs,
-            "note": "All timestamps (created_at, last_run, next_run, start_at, end_at) are in UTC.",
+            "note": "start_at/end_at are in user's local timezone. last_run/created_at are in UTC (frontend converts to local).",
         }
 
     @router.put("/ui/users/{user_id}/settings")
