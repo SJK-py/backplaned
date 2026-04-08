@@ -212,13 +212,13 @@ KB_PORT="${KB_PORT:-8086}"
 CODING_PORT="${CODING_PORT:-8100}"
 REMINDER_PORT="${REMINDER_PORT:-8101}"
 
-# Helper: set AGENT_PORT and AGENT_ENDPOINT_URL for an external agent
+# Helper: set AGENT_PORT and AGENT_URL for an external agent
 _set_agent_port() {
     local agent_name="$1" port="$2"
     is_excluded "$agent_name" && return
     local env_file="$ROOT/agents_external/$agent_name/data/.env"
     set_env_var "$env_file" "AGENT_PORT" "$port"
-    set_env_var "$env_file" "AGENT_ENDPOINT_URL" "http://localhost:${port}"
+    set_env_var "$env_file" "AGENT_URL" "http://localhost:${port}"
 }
 
 _set_agent_port "web_admin"      "$WEB_ADMIN_PORT"

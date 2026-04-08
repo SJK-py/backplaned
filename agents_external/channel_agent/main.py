@@ -60,8 +60,8 @@ SESSION_SECRET: str = os.environ.get("SESSION_SECRET", secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
-AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL") or f"http://localhost:{PORT}"
-RECEIVE_URL: str = os.environ.get("RECEIVE_URL") or f"{AGENT_ENDPOINT_URL}/receive"
+AGENT_URL: str = os.environ.get("AGENT_URL") or f"http://localhost:{PORT}"
+ENDPOINT_URL: str = f"{AGENT_URL}/receive"
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_TOKEN", "")
 DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
@@ -494,7 +494,7 @@ async def _ensure_registered() -> None:
                     try:
                         await _http_client.put(
                             f"{ROUTER_URL}/agent-info",
-                            json={"agent_id": _agent_id, "endpoint_url": RECEIVE_URL},
+                            json={"agent_id": _agent_id, "endpoint_url": ENDPOINT_URL},
                             timeout=10.0,
                         )
                     except Exception:
@@ -536,7 +536,7 @@ async def _ensure_registered() -> None:
         resp: OnboardResponse = await onboard(
             router_url=ROUTER_URL,
             invitation_token=INVITATION_TOKEN,
-            endpoint_url=RECEIVE_URL,
+            endpoint_url=ENDPOINT_URL,
             agent_info=agent_info,
         )
         _agent_id = resp.agent_id
@@ -586,7 +586,7 @@ def _save_file_locally(file_bytes: bytes, filename: str) -> Optional[dict[str, A
     _local_file_keys[unique_name] = key
 
     # Build the URL other agents will use to fetch this file.
-    base_url = AGENT_ENDPOINT_URL
+    base_url = AGENT_URL
     file_url = f"{base_url}/files/{unique_name}?key={key}"
 
     logger.info("Saved file '%s' locally → %s", filename, unique_name)
@@ -1708,7 +1708,7 @@ async def ui_status(ca_session: Optional[str] = Cookie(default=None)) -> dict:
         "telegram_running": _tg_app is not None,
         "discord_running": _discord_http is not None,
         "router_url": ROUTER_URL,
-        "receive_url": RECEIVE_URL,
+        "endpoint_url": ENDPOINT_URL,
     }
 
 
@@ -2140,7 +2140,7 @@ async def ui_onboarding(ca_session: Optional[str] = Cookie(default=None)) -> dic
     return {
         "router_url": ROUTER_URL,
         "agent_id": _agent_id,
-        "receive_url": RECEIVE_URL,
+        "endpoint_url": ENDPOINT_URL,
         "registered": _agent_id is not None,
         "router_reachable": router_reachable,
     }

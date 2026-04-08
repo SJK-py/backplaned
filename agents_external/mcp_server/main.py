@@ -64,7 +64,8 @@ SESSION_SECRET: str = os.environ.get("SESSION_SECRET", _secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
-RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"http://localhost:{PORT}/receive")
+AGENT_URL: str = os.environ.get("AGENT_URL") or f"http://localhost:{PORT}"
+ENDPOINT_URL: str = f"{AGENT_URL}/receive"
 
 MCP_TRANSPORT: str = os.environ.get("MCP_TRANSPORT", "sse")  # "sse" or "streamable-http"
 MCP_PORT: int = int(os.environ.get("MCP_PORT", "8084"))
@@ -194,7 +195,7 @@ async def _ensure_registered() -> None:
                     try:
                         await _http_client.put(
                             f"{ROUTER_URL}/agent-info",
-                            json={"agent_id": _agent_id, "endpoint_url": RECEIVE_URL},
+                            json={"agent_id": _agent_id, "endpoint_url": ENDPOINT_URL},
                             timeout=10.0,
                         )
                     except Exception:
@@ -241,7 +242,7 @@ async def _do_register(invitation_token: str) -> bool:
         resp: OnboardResponse = await onboard(
             router_url=ROUTER_URL,
             invitation_token=invitation_token,
-            endpoint_url=RECEIVE_URL,
+            endpoint_url=ENDPOINT_URL,
             agent_info=_mcp_server_agent_info,
         )
         _agent_id = resp.agent_id

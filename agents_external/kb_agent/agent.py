@@ -342,7 +342,7 @@ async def run_agent_loop(
     pfm = ProxyFileManager(
         inbox_dir=workspace / "inbox",
         router_url=agent_config.router_url,
-        agent_endpoint_url=agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}",
+        agent_url=agent_config.agent_url or f"http://localhost:{agent_config.agent_port}",
     )
 
     # Download inbound files to workspace
@@ -579,7 +579,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         documentation_url=doc_url,
     )
 
-    _endpoint_url = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
+    _endpoint_url = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
     _receive_url = f"{_endpoint_url}/receive"
 
     if saved_creds.get("auth_token"):
@@ -671,7 +671,7 @@ async def refresh_info(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "detail": "Not connected."}, status_code=503)
     agent_info.documentation_url = f"file://{_AGENT_DOC_PATH}" if _AGENT_DOC_PATH.exists() else None
     try:
-        _ep = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
+        _ep = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
         await router_client.refresh_from_agent_info(agent_info, endpoint_url=f"{_ep}/receive")
         dest_data = await router_client.get_destinations()
         available_destinations = dest_data.get("available_destinations", {})

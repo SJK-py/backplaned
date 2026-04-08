@@ -32,12 +32,12 @@ class AgentConfig(BaseModel):
     # --- Infrastructure (from .env) ---
     router_url: str = "http://localhost:8000"
     invitation_token: str = ""
-    receive_url: str = "http://localhost:8085/receive"
+    endpoint_url: str = "http://localhost:8085/receive"
     agent_host: str = "0.0.0.0"
     agent_port: int = 8085
     agent_id: str = "cron_agent"
     agent_auth_token: str = ""
-    agent_endpoint_url: str = ""
+    agent_url: str = ""
     admin_password: str = ""
     session_secret: str = ""
     data_dir: str = "data"
@@ -58,11 +58,11 @@ class AgentConfig(BaseModel):
             # Infrastructure (env only)
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
             invitation_token=os.environ.get("INVITATION_TOKEN", ""),
-            receive_url=os.environ.get("RECEIVE_URL", cls.model_fields["receive_url"].default),
+            endpoint_url=os.environ.get("ENDPOINT_URL", cls.model_fields["endpoint_url"].default),
             agent_host=os.environ.get("AGENT_HOST", cls.model_fields["agent_host"].default),
             agent_port=int(os.environ.get("AGENT_PORT", cls.model_fields["agent_port"].default)),
             agent_id=os.environ.get("AGENT_ID", cls.model_fields["agent_id"].default),
-            agent_endpoint_url=os.environ.get("AGENT_ENDPOINT_URL", cls.model_fields["agent_endpoint_url"].default),
+            agent_url=os.environ.get("AGENT_URL", cls.model_fields["agent_url"].default),
             admin_password=os.environ.get("ADMIN_PASSWORD", cls.model_fields["admin_password"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _s.token_hex(32),
             agent_auth_token=os.environ.get("AGENT_AUTH_TOKEN", cls.model_fields["agent_auth_token"].default),

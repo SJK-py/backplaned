@@ -117,7 +117,7 @@ def build_web_router() -> APIRouter:
         return {
             "agent_id": cfg.agent_id,
             "router_url": cfg.router_url,
-            "receive_url": cfg.receive_url,
+            "endpoint_url": cfg.endpoint_url,
             "router_connected": router_client is not None,
             "scheduler_running": _scheduler_task is not None and not _scheduler_task.done(),
             "check_interval": cfg.check_interval,
@@ -235,7 +235,7 @@ def build_web_router() -> APIRouter:
                 pass
         return {
             "router_url": cfg.router_url,
-            "receive_url": cfg.receive_url,
+            "endpoint_url": cfg.endpoint_url,
             "agent_id": cfg.agent_id,
             "registered": router_client is not None,
             "router_reachable": router_reachable,
@@ -254,7 +254,7 @@ def build_web_router() -> APIRouter:
         from helper import RouterClient, onboard as do_onboard
         import agent as agent_mod
 
-        endpoint_url = cfg.agent_endpoint_url or f"http://localhost:{cfg.agent_port}"
+        endpoint_url = cfg.agent_url or f"http://localhost:{cfg.agent_port}"
         try:
             resp = await do_onboard(
                 router_url=cfg.router_url,

@@ -137,7 +137,7 @@ def create_ui_router() -> APIRouter:
             "router_connected": router_connected,
             "llm_agent_id": agent_config.llm_agent_id,
             "workspace_root": agent_config.workspace_root,
-            "endpoint_url": agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}",
+            "endpoint_url": agent_config.agent_url or f"http://localhost:{agent_config.agent_port}",
             "available_destinations": list(available_destinations.keys()),
             "configured_users": config_manager.list_users(),
             "llm_timeout": agent_config.llm_timeout,
@@ -327,7 +327,7 @@ def create_ui_router() -> APIRouter:
         return {
             "router_url": agent_config.router_url,
             "agent_id": agent_config.agent_id,
-            "endpoint_url": agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}",
+            "endpoint_url": agent_config.agent_url or f"http://localhost:{agent_config.agent_port}",
             "registered": router_client is not None,
             "router_reachable": router_reachable,
             "available_destinations": list(available_destinations.keys()),
@@ -345,7 +345,7 @@ def create_ui_router() -> APIRouter:
         import agent as agent_mod
         from helper import RouterClient, onboard
 
-        endpoint_url = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
+        endpoint_url = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
         try:
             resp = await onboard(
                 router_url=agent_config.router_url,
