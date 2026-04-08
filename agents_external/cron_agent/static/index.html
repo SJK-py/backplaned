@@ -185,12 +185,29 @@ async function loadJobs(){
 
 let editingJob=null;
 
-function fmtDt(s){if(!s)return '-';try{return s.substring(0,19).replace('T',' ')}catch(e){return s}}
+// Format a timestamp for display. UTC timestamps (with Z or +00:00) are
+// converted to the user's timezone. Local timestamps (no tz suffix) are
+// displayed as-is.
+let _userTz = 'UTC';
+function fmtDt(s){
+  if(!s) return '-';
+  try {
+    // If the timestamp has timezone info (Z or +offset), convert to user tz
+    if (s.endsWith('Z') || s.includes('+') || /\d{2}:\d{2}$/.test(s.slice(-6))) {
+      const d = new Date(s);
+      if (isNaN(d)) return s.substring(0,19).replace('T',' ');
+      return d.toLocaleString('sv-SE', {timeZone: _userTz}).replace('T',' ');
+    }
+    // Local time — just reformat
+    return s.substring(0,19).replace('T',' ');
+  } catch(e) { return s; }
+}
 
 async function loadUserJobs(uid){
   const el=document.getElementById('jobs-content');
   const r=await api(`/ui/users/${uid}/jobs`);if(!r)return;const d=await r.json();
   const s=d.settings;const jobs=Object.values(d.jobs);
+  _userTz = s.timezone || 'UTC';
   let rows=jobs.map(j=>{
     const en=j.enabled?'<span class="badge badge-green">on</span>':'<span class="badge badge-gray">off</span>';
     return `<tr>

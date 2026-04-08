@@ -142,13 +142,14 @@ async def scheduler_loop(
                         continue
 
                     # Check start/end bounds.
+                    # start_at/end_at are in the user's local timezone.
                     start_at = job.get("start_at")
                     if start_at:
                         try:
                             sa_dt = datetime.fromisoformat(start_at)
                             if sa_dt.tzinfo is None:
-                                sa_dt = sa_dt.replace(tzinfo=timezone.utc)
-                            if now_utc < sa_dt:
+                                sa_dt = sa_dt.replace(tzinfo=tz)
+                            if now_local < sa_dt:
                                 continue
                         except Exception:
                             pass
@@ -158,8 +159,8 @@ async def scheduler_loop(
                         try:
                             ea_dt = datetime.fromisoformat(end_at)
                             if ea_dt.tzinfo is None:
-                                ea_dt = ea_dt.replace(tzinfo=timezone.utc)
-                            if now_utc > ea_dt:
+                                ea_dt = ea_dt.replace(tzinfo=tz)
+                            if now_local > ea_dt:
                                 # Auto-disable expired jobs.
                                 await db.modify_job(user_id, job_id, {"enabled": False})
                                 continue
