@@ -70,6 +70,7 @@
     <div class="tab" data-tab="search" data-role="user" onclick="showTab('search')">Search</div>
     <div class="tab" data-tab="upload" data-role="user" onclick="showTab('upload')">Upload</div>
     <div class="tab" data-tab="admin" data-role="admin" onclick="showTab('admin')">Users</div>
+    <div class="tab" data-tab="agentconfig" data-role="admin" onclick="showTab('agentconfig')">Config</div>
     <div class="tab" data-tab="setup" data-role="admin" onclick="showTab('setup')">Setup</div>
     <div class="tab" data-tab="password" onclick="showTab('password')">Password</div>
   </div>
@@ -178,6 +179,26 @@
     </div>
   </div>
 
+  <!-- Admin: Config -->
+  <div class="panel" id="tab-agentconfig">
+    <div class="card">
+      <h2>Agent Configuration</h2>
+      <p style="color:var(--text-dim);margin-bottom:1rem">Edit runtime settings. Changes take effect immediately.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">config.json</label>
+          <textarea id="acfg-editor" rows="16" style="width:100%;font-family:monospace;font-size:.85rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;resize:vertical"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="saveAgentConfig()" style="margin-top:.5rem">Save</button>
+          <span id="acfg-msg" style="margin-left:.5rem;font-size:.85rem"></span>
+        </div>
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">Field descriptions</label>
+          <pre id="acfg-example" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.82rem;overflow:auto;max-height:400px;margin:0;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Admin: Setup -->
   <div class="panel" id="tab-setup">
     <div class="card">
@@ -248,6 +269,7 @@ function showTab(name){
   if(name==='status')loadStatus();
   if(name==='docs')loadDocs();
   if(name==='admin')loadUsers();
+  if(name==='agentconfig')loadAgentConfig();
   if(name==='setup')loadOnboarding();
 }
 
@@ -409,6 +431,22 @@ async function resetUserPw(uid){
   const r=await api('/ui/admin/users/'+encodeURIComponent(uid)+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({new_password:nw})});
   if(!r)return;const d=await r.json();
   alert(d.status==='ok'?'Password reset for '+uid:(d.detail||'Error'));
+}
+
+// --- Agent Config ---
+async function loadAgentConfig(){
+  try{const r=await api('/ui/config');if(!r)return;const d=await r.json();
+  document.getElementById('acfg-editor').value=JSON.stringify(d.config||{},null,2);
+  document.getElementById('acfg-example').textContent=JSON.stringify(d.example||{},null,2);
+  }catch(e){document.getElementById('acfg-editor').value='// Failed to load';}
+}
+async function saveAgentConfig(){
+  const msg=document.getElementById('acfg-msg');
+  try{const config=JSON.parse(document.getElementById('acfg-editor').value);
+  const r=await api('/ui/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({config})});
+  if(!r)return;
+  msg.style.color='#4caf50';msg.textContent='Saved';setTimeout(()=>msg.textContent='',2000);
+  }catch(e){msg.style.color='#f44336';msg.textContent=e.message||'Invalid JSON';}
 }
 
 // --- Init ---

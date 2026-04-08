@@ -94,6 +94,7 @@ function loadActiveTab() {
   if (_activeTab === 'status') loadStatus();
   else if (_activeTab === 'servers') loadServers();
   else if (_activeTab === 'tools') loadTools();
+  else if (_activeTab === 'config') loadConfig();
   else if (_activeTab === 'setup') loadSetup();
   else if (_activeTab === 'logs') loadLogs();
 }
@@ -563,6 +564,35 @@ document.getElementById('refresh-logs').addEventListener('click', loadLogs);
 setInterval(() => { if (_activeTab === 'logs') loadLogs(); }, 5000);
 // Auto-refresh status when active.
 setInterval(() => { if (_activeTab === 'status') loadStatus(); }, 10000);
+
+// ---------------------------------------------------------------------------
+// Config Tab
+// ---------------------------------------------------------------------------
+
+async function loadConfig() {
+  try {
+    const r = await api('GET', '/ui/config');
+    if (!r || !r.ok) return;
+    const d = await r.json();
+    document.getElementById('cfg-editor').value = JSON.stringify(d.config || {}, null, 2);
+    document.getElementById('cfg-example').textContent = JSON.stringify(d.example || {}, null, 2);
+  } catch (e) {
+    document.getElementById('cfg-editor').value = '// Failed to load';
+  }
+}
+
+document.getElementById('btn-save-config').addEventListener('click', async () => {
+  const msg = document.getElementById('cfg-msg');
+  try {
+    const config = JSON.parse(document.getElementById('cfg-editor').value);
+    const r = await api('PUT', '/ui/config', { config });
+    if (!r) return;
+    msg.style.color = '#4caf50'; msg.textContent = 'Saved';
+    setTimeout(() => { msg.textContent = ''; }, 2000);
+  } catch (e) {
+    msg.style.color = '#f44336'; msg.textContent = e.message || 'Invalid JSON';
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Boot
