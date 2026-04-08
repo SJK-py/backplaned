@@ -45,7 +45,7 @@ from helper import (
 )
 
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / "data" / ".env")
 
 from config import AgentConfig
 from db import ReminderDB
@@ -81,7 +81,9 @@ _pending_llm: dict[str, asyncio.Future] = {}
 _pending_sub: dict[str, asyncio.Future] = {}
 
 LLM_AGENT_ID: str = os.environ.get("LLM_AGENT_ID", "llm_agent")
-DEFAULT_MODEL_ID: str = os.environ.get("DEFAULT_MODEL_ID", "") or ""
+def _get_default_model_id() -> str:
+    from config import _load_config
+    return _load_config().get("_get_default_model_id()") or os.environ.get("_get_default_model_id()", "") or ""
 
 # Max iterations for the LLM tool-calling loop
 _MAX_ITERATIONS = 20
@@ -222,7 +224,7 @@ async def run_agent_loop(
     # Load user settings for timezone and model.
     settings = await reminder_db.get_settings(user_id)
     user_tz = settings.get("timezone", "UTC")
-    user_model_id = settings.get("model_id") or DEFAULT_MODEL_ID or None
+    user_model_id = settings.get("model_id") or _get_default_model_id() or None
 
     # Build system prompt.
     system_prompt = _build_system_prompt(llmdata, user_tz)
@@ -540,7 +542,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 check_interval=agent_config.check_interval,
                 lookahead_hours=agent_config.check_lookahead_hours,
                 log_dir=agent_config.log_dir,
-                model_id=DEFAULT_MODEL_ID or None,
+                model_id=_get_default_model_id() or None,
             )
         )
         logger.info("Periodic checker started (interval: %d min).", agent_config.check_interval)
@@ -754,7 +756,7 @@ if __name__ == "__main__":
     import uvicorn
 
     from dotenv import load_dotenv
-    env_path = Path(__file__).parent / ".env"
+    env_path = Path(__file__).parent / "data" / ".env"
     if env_path.exists():
         load_dotenv(env_path)
 

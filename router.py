@@ -2445,7 +2445,7 @@ async def admin_get_agent_config(
         raise HTTPException(status_code=400, detail="Invalid agent_id.")
     if not agent_dir.is_dir():
         raise HTTPException(status_code=404, detail="Agent directory not found.")
-    config_path = agent_dir / "config.json"
+    config_path = agent_dir / "data" / "config.json"
     if not config_path.exists():
         raise HTTPException(status_code=404, detail="No config.json for this agent.")
     try:
@@ -2477,7 +2477,8 @@ async def admin_put_agent_config(
         raise HTTPException(status_code=400, detail="Invalid agent_id.")
     if not agent_dir.is_dir():
         raise HTTPException(status_code=404, detail="Agent directory not found.")
-    config_path = agent_dir / "config.json"
+    config_path = agent_dir / "data" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         tmp = config_path.with_suffix(".tmp")
         tmp.write_text(

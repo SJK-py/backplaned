@@ -45,7 +45,7 @@ logger = logging.getLogger("llm_agent")
 # ---------------------------------------------------------------------------
 
 _AGENT_DIR = Path(__file__).resolve().parent
-_CONFIG_PATH = _AGENT_DIR / "config.json"
+_CONFIG_PATH = _AGENT_DIR / "data" / "config.json"
 _OUR_AGENT_ID = "llm_agent"
 
 

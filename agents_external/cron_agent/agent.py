@@ -45,7 +45,7 @@ from config import AgentConfig
 from db import CronDB
 from tools import CRON_MANAGEMENT_TOOLS, REPORT_TOOL, INBOX_FILE_TOOLS
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 logging.basicConfig(
     level=logging.INFO,

@@ -49,7 +49,7 @@ from config import AgentConfig
 from db import KnowledgeDB
 from tools import KB_TOOLS
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / "data" / ".env")
 
 logging.basicConfig(
     level=logging.INFO,
