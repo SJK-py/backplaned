@@ -47,6 +47,7 @@ from helper import (
     build_spawn_request,
     onboard,
 )
+from config_ui import add_config_routes
 
 load_dotenv(Path(__file__).parent / "data" / ".env")
 
@@ -1158,6 +1159,8 @@ async def ui_logs(mcp_session: Optional[str] = Cookie(default=None)) -> list[str
     _require_auth(mcp_session)
     return list(_log_ring)
 
+
+add_config_routes(app, Path(__file__).resolve().parent, _require_auth, cookie_name="mcp_session")
 
 # ---------------------------------------------------------------------------
 # Root — serve the SPA

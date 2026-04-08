@@ -126,6 +126,7 @@
     <div class="tab" onclick="showTab('config')">User Config</div>
     <div class="tab" onclick="showTab('logs')">Logs</div>
     <div class="tab" onclick="showTab('workspace')">Workspace</div>
+    <div class="tab" onclick="showTab('agentconfig')">Config</div>
     <div class="tab" onclick="showTab('setup')">Setup</div>
   </div>
 
@@ -307,6 +308,26 @@
     </div>
   </div>
 
+  <!-- Agent Config -->
+  <div class="panel" id="tab-agentconfig">
+    <div class="card">
+      <h2>Agent Configuration</h2>
+      <p style="color:var(--text-dim);margin-bottom:1rem">Edit runtime settings. Changes take effect immediately.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">config.json</label>
+          <textarea id="acfg-editor" rows="16" style="width:100%;font-family:monospace;font-size:.85rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;resize:vertical"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="saveAgentConfig()" style="margin-top:.5rem">Save</button>
+          <span id="acfg-msg" style="margin-left:.5rem;font-size:.85rem"></span>
+        </div>
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">Field descriptions</label>
+          <pre id="acfg-example" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.82rem;overflow:auto;max-height:400px;margin:0;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Setup -->
   <div class="panel" id="tab-setup">
     <div class="card" id="onboard-card">
@@ -405,6 +426,7 @@ function showTab(name) {
   if (name === 'config') loadCfgUsers();
   if (name === 'logs') loadLogs();
   if (name === 'workspace') loadWsUsers();
+  if (name === 'agentconfig') loadAgentConfig();
   if (name === 'setup') loadSetup();
 }
 
@@ -713,6 +735,22 @@ function showMsg(id, text, ok) {
   el.className = 'msg ' + (ok ? 'msg-ok' : 'msg-err');
   el.textContent = text;
   setTimeout(() => { el.textContent = ''; el.className = ''; }, 4000);
+}
+
+// ── Agent Config ──
+async function loadAgentConfig(){
+  try{const r=await apiFetch('/ui/config');if(!r)return;const d=await r.json();
+  document.getElementById('acfg-editor').value=JSON.stringify(d.config||{},null,2);
+  document.getElementById('acfg-example').textContent=JSON.stringify(d.example||{},null,2);
+  }catch(e){document.getElementById('acfg-editor').value='// Failed to load';}
+}
+async function saveAgentConfig(){
+  const msg=document.getElementById('acfg-msg');
+  try{const config=JSON.parse(document.getElementById('acfg-editor').value);
+  const r=await apiFetch('/ui/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({config})});
+  if(!r)return;
+  msg.style.color='#4caf50';msg.textContent='Saved';setTimeout(()=>msg.textContent='',2000);
+  }catch(e){msg.style.color='#f44336';msg.textContent=e.message||'Invalid JSON';}
 }
 
 // ── Init ──

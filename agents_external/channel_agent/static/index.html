@@ -106,6 +106,7 @@
     <div class="tab" onclick="showTab('sessions')">Sessions</div>
     <div class="tab" onclick="showTab('chat')">Direct Chat</div>
     <div class="tab" onclick="showTab('logs')">Logs</div>
+    <div class="tab" onclick="showTab('config')">Config</div>
     <div class="tab" onclick="showTab('setup')">Setup</div>
   </div>
 
@@ -267,6 +268,26 @@
     <div class="log-box" id="log-box">Loading…</div>
   </div>
 
+  <!-- Config -->
+  <div class="panel" id="tab-config">
+    <div class="card">
+      <h2>Agent Configuration</h2>
+      <p style="color:var(--text-dim);margin-bottom:1rem">Edit runtime settings. Changes take effect immediately.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">config.json</label>
+          <textarea id="cfg-editor" rows="16" style="width:100%;font-family:monospace;font-size:.85rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;resize:vertical"></textarea>
+          <button class="btn btn-primary btn-sm" onclick="saveAgentConfig()" style="margin-top:.5rem">Save</button>
+          <span id="cfg-save-msg" style="margin-left:.5rem;font-size:.85rem"></span>
+        </div>
+        <div>
+          <label style="font-weight:600;display:block;margin-bottom:.3rem">Field descriptions</label>
+          <pre id="cfg-example" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.82rem;overflow:auto;max-height:400px;margin:0;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Setup -->
   <div class="panel" id="tab-setup">
     <div class="card" id="onboard-card">
@@ -348,6 +369,7 @@ function showTab(name) {
   if (name === 'users') { showUsersListView(); }
   if (name === 'sessions') loadSessions();
   if (name === 'logs') loadLogs();
+  if (name === 'config') loadAgentConfig();
   if (name === 'setup') loadOnboarding();
 }
 
@@ -749,6 +771,22 @@ async function changePassword() {
   if (!r) return;
   if (r.ok) { showMsg('chpw-msg', 'Password changed', true); document.getElementById('chpw-current').value = ''; document.getElementById('chpw-new').value = ''; }
   else { const e = await r.json().catch(() => ({})); showMsg('chpw-msg', e.detail || 'Error', false); }
+}
+
+// --- Agent Config ---
+async function loadAgentConfig(){
+  try{const r=await apiFetch('/ui/config');if(!r)return;const d=await r.json();
+  document.getElementById('cfg-editor').value=JSON.stringify(d.config||{},null,2);
+  document.getElementById('cfg-example').textContent=JSON.stringify(d.example||{},null,2);
+  }catch(e){document.getElementById('cfg-editor').value='// Failed to load';}
+}
+async function saveAgentConfig(){
+  const msg=document.getElementById('cfg-save-msg');
+  try{const config=JSON.parse(document.getElementById('cfg-editor').value);
+  const r=await apiFetch('/ui/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({config})});
+  if(!r)return;
+  msg.style.color='#4caf50';msg.textContent='Saved';setTimeout(()=>msg.textContent='',2000);
+  }catch(e){msg.style.color='#f44336';msg.textContent=e.message||'Invalid JSON';}
 }
 
 // --- Init ---

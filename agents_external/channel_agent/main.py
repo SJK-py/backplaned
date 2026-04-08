@@ -40,6 +40,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from helper import AgentInfo, AgentOutput, OnboardResponse, PasswordFile, build_result_request, build_spawn_request, onboard
+from config_ui import add_config_routes
 
 load_dotenv(Path(__file__).parent / "data" / ".env")
 
@@ -2154,6 +2155,8 @@ async def ui_onboarding_register(
         "agent_id": _agent_id,
     }
 
+
+add_config_routes(app, Path(__file__).resolve().parent, _require_auth, cookie_name="ca_session")
 
 # ---------------------------------------------------------------------------
 # Root — serve the SPA

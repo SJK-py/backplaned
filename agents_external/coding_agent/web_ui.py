@@ -24,6 +24,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_ROOT))
 from helper import PasswordFile
+from config_ui import add_config_routes
 
 
 # ---------------------------------------------------------------------------
@@ -369,5 +370,7 @@ def create_ui_router() -> APIRouter:
             return {"status": "ok", "agent_id": resp.agent_id}
         except Exception as e:
             return {"status": "error", "detail": str(e)}
+
+    add_config_routes(router, Path(__file__).resolve().parent, _require_auth, cookie_name="coding_session")
 
     return router

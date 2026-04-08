@@ -21,6 +21,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_ROOT))
 from helper import PasswordFile, hash_password, verify_password, is_password_hashed
+from config_ui import add_config_routes
 
 
 def build_web_router() -> APIRouter:
@@ -499,5 +500,7 @@ def build_web_router() -> APIRouter:
     @router.get("/")
     async def root() -> FileResponse:
         return FileResponse(str(Path(__file__).parent / "static" / "index.html"))
+
+    add_config_routes(router, Path(__file__).resolve().parent, _require_admin, cookie_name="kb_session")
 
     return router
