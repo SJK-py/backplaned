@@ -25,19 +25,25 @@ COPY agents_external/kb_agent/ agents_external/kb_agent/
 COPY agents_external/reminder_agent/ agents_external/reminder_agent/
 COPY agents_external/web_admin/ agents_external/web_admin/
 
-# Create data directories
+# Create data directories and non-root user
 RUN mkdir -p data proxyfiles && \
     for d in core_personal_agent llm_agent memory_agent web_agent md_converter; do \
         mkdir -p "agents/$d/data"; \
     done && \
     for d in channel_agent mcp_agent mcp_server cron_agent kb_agent reminder_agent web_admin; do \
         mkdir -p "agents_external/$d/data"; \
-    done
+    done && \
+    useradd -m -s /bin/bash agora && \
+    chown -R agora:agora /app
 
 RUN chmod +x start.sh
 
-# Non-root user for security
-RUN useradd -m -s /bin/bash agora
-
-# Entrypoint: fix volume ownership then drop to non-root user
-ENTRYPOINT ["sh", "-c", "chown -R agora:agora /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; exec gosu agora ./start.sh"]
+# Entrypoint: if running as root (standard Docker), fix volume ownership
+# and drop to non-root user. If already non-root (rootless Docker), run directly.
+ENTRYPOINT ["sh", "-c", "\
+    if [ \"$(id -u)\" = \"0\" ]; then \
+        chown -R agora:agora /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; \
+        exec gosu agora ./start.sh; \
+    else \
+        exec ./start.sh; \
+    fi"]
