@@ -1539,16 +1539,18 @@ def _require_auth(ca_session: Optional[str] = Cookie(default=None)) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    await _ensure_registered()
+    # Register with router in background so /health is available immediately.
+    reg_task = asyncio.create_task(_ensure_registered())
     tg_task = asyncio.create_task(_run_telegram())
     dc_task = asyncio.create_task(_run_discord())
     gc_task = asyncio.create_task(_file_gc_loop())
     yield
+    reg_task.cancel()
     tg_task.cancel()
     dc_task.cancel()
     gc_task.cancel()
     try:
-        await asyncio.gather(tg_task, dc_task, gc_task, return_exceptions=True)
+        await asyncio.gather(reg_task, tg_task, dc_task, gc_task, return_exceptions=True)
     except Exception:
         pass
     if _http_client:
