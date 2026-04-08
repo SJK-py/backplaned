@@ -162,16 +162,18 @@ def _refresh_config() -> None:
     global HISTORY_TOKEN_LIMIT, MEMORY_AGENT_ID, MAX_AGENT_ITERATIONS
     global LINK_HISTORY_TOKEN_RATIO, LINK_TRUNCATION_KEEP_RATIO, SYSTEM_PROMPT
     cfg = _load_config()
-    AGENT_TIMEOUT = float(cfg.get("CORE_AGENT_TIMEOUT", 290.0))
-    TOOL_TIMEOUT = float(cfg.get("CORE_TOOL_TIMEOUT", 240.0))
-    LLM_AGENT_ID = str(cfg.get("CORE_LLM_AGENT_ID", "llm_agent"))
-    LLM_MODEL_ID = str(cfg.get("CORE_LLM_MODEL_ID", "")) or None
-    HISTORY_TOKEN_LIMIT = int(cfg.get("CORE_HISTORY_TOKEN_LIMIT", 8000))
-    MEMORY_AGENT_ID = str(cfg.get("CORE_MEMORY_AGENT_ID", "memory_agent"))
-    MAX_AGENT_ITERATIONS = int(cfg.get("CORE_MAX_AGENT_ITERATIONS", 25))
-    LINK_HISTORY_TOKEN_RATIO = float(cfg.get("CORE_LINK_HISTORY_TOKEN_RATIO", 0.5))
-    LINK_TRUNCATION_KEEP_RATIO = float(cfg.get("CORE_LINK_TRUNCATION_KEEP_RATIO", 0.5))
-    SYSTEM_PROMPT = str(cfg.get("CORE_SYSTEM_PROMPT", _DEFAULT_SYSTEM_PROMPT))
+    _si = lambda v, d: d if v is None or v == "" else int(v)
+    _sf = lambda v, d: d if v is None or v == "" else float(v)
+    AGENT_TIMEOUT = _sf(cfg.get("CORE_AGENT_TIMEOUT"), 290.0)
+    TOOL_TIMEOUT = _sf(cfg.get("CORE_TOOL_TIMEOUT"), 240.0)
+    LLM_AGENT_ID = str(cfg.get("CORE_LLM_AGENT_ID") or "llm_agent")
+    LLM_MODEL_ID = str(cfg.get("CORE_LLM_MODEL_ID") or "") or None
+    HISTORY_TOKEN_LIMIT = _si(cfg.get("CORE_HISTORY_TOKEN_LIMIT"), 8000)
+    MEMORY_AGENT_ID = str(cfg.get("CORE_MEMORY_AGENT_ID") or "memory_agent")
+    MAX_AGENT_ITERATIONS = _si(cfg.get("CORE_MAX_AGENT_ITERATIONS"), 25)
+    LINK_HISTORY_TOKEN_RATIO = _sf(cfg.get("CORE_LINK_HISTORY_TOKEN_RATIO"), 0.5)
+    LINK_TRUNCATION_KEEP_RATIO = _sf(cfg.get("CORE_LINK_TRUNCATION_KEEP_RATIO"), 0.5)
+    SYSTEM_PROMPT = str(cfg.get("CORE_SYSTEM_PROMPT") or _DEFAULT_SYSTEM_PROMPT)
 
 
 _refresh_config()  # Initial load

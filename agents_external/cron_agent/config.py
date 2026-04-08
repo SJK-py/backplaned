@@ -54,6 +54,17 @@ class AgentConfig(BaseModel):
     def from_env(cls) -> AgentConfig:
         import secrets as _s
         cfg = _load_config()
+
+        def _get(key: str, env_key: str | None = None, default: Any = None) -> Any:
+            """config.json > env var > default. Handles zero/false correctly."""
+            v = cfg.get(key)
+            if v is not None:
+                return v
+            e = os.environ.get(env_key or key)
+            if e is not None and e != "":
+                return e
+            return default
+
         return cls(
             # Infrastructure (env only)
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
@@ -69,9 +80,9 @@ class AgentConfig(BaseModel):
             data_dir=os.environ.get("DATA_DIR", cls.model_fields["data_dir"].default),
             log_dir=os.environ.get("LOG_DIR", cls.model_fields["log_dir"].default),
             # Runtime (config.json > env fallback > default)
-            check_interval=int(cfg.get("CHECK_INTERVAL") or os.environ.get("CHECK_INTERVAL") or cls.model_fields["check_interval"].default),
-            llm_agent_id=cfg.get("LLM_AGENT_ID") or os.environ.get("LLM_AGENT_ID") or cls.model_fields["llm_agent_id"].default,
-            core_agent_id=cfg.get("CORE_AGENT_ID") or os.environ.get("CORE_AGENT_ID") or cls.model_fields["core_agent_id"].default,
-            default_model_id=cfg.get("DEFAULT_MODEL_ID") or os.environ.get("DEFAULT_MODEL_ID", ""),
-            tool_timeout=int(cfg.get("TOOL_TIMEOUT") or os.environ.get("TOOL_TIMEOUT") or cls.model_fields["tool_timeout"].default),
+            check_interval=int(_get("CHECK_INTERVAL", default=cls.model_fields["check_interval"].default)),
+            llm_agent_id=_get("LLM_AGENT_ID", default=cls.model_fields["llm_agent_id"].default),
+            core_agent_id=_get("CORE_AGENT_ID", default=cls.model_fields["core_agent_id"].default),
+            default_model_id=_get("DEFAULT_MODEL_ID", default=""),
+            tool_timeout=int(_get("TOOL_TIMEOUT", default=cls.model_fields["tool_timeout"].default)),
         )

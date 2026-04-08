@@ -92,20 +92,22 @@ def _refresh_config() -> None:
     global FETCH_MAX_CHARS, FETCH_TIMEOUT
     global AGENT_TIMEOUT, _MAX_ITERATIONS, _MAX_TOOL_CALLS, _MAX_SEARCHES, _MAX_FETCHES
     cfg = _load_config()
-    LLM_AGENT_ID = str(cfg.get("LLM_AGENT_ID", "llm_agent"))
-    LLM_MODEL_ID = str(cfg.get("LLM_MODEL_ID", "")) or ""
-    SEARCH_PROVIDER = str(cfg.get("SEARCH_PROVIDER", "searxng"))
-    SEARXNG_BASE_URL = str(cfg.get("SEARXNG_BASE_URL", "http://localhost:8080"))
-    BRAVE_API_KEY = str(cfg.get("BRAVE_API_KEY", ""))
-    SEARCH_MAX_RESULTS = int(cfg.get("SEARCH_MAX_RESULTS", 5))
-    CONTENT_LEN_LIMIT = int(cfg.get("CONTENT_LEN_LIMIT", 500))
-    FETCH_MAX_CHARS = int(cfg.get("FETCH_MAX_CHARS", 12000))
-    FETCH_TIMEOUT = float(cfg.get("FETCH_TIMEOUT", 15))
-    AGENT_TIMEOUT = float(cfg.get("AGENT_TIMEOUT", 120))
-    _MAX_ITERATIONS = int(cfg.get("MAX_ITERATIONS", 10))
-    _MAX_TOOL_CALLS = int(cfg.get("MAX_TOOL_CALLS", 15))
-    _MAX_SEARCHES = int(cfg.get("MAX_SEARCHES", 2))
-    _MAX_FETCHES = int(cfg.get("MAX_FETCHES", 3))
+    _si = lambda v, d: d if v is None or v == "" else int(v)
+    _sf = lambda v, d: d if v is None or v == "" else float(v)
+    LLM_AGENT_ID = str(cfg.get("LLM_AGENT_ID") or "llm_agent")
+    LLM_MODEL_ID = str(cfg.get("LLM_MODEL_ID") or "") or ""
+    SEARCH_PROVIDER = str(cfg.get("SEARCH_PROVIDER") or "searxng")
+    SEARXNG_BASE_URL = str(cfg.get("SEARXNG_BASE_URL") or "http://localhost:8080")
+    BRAVE_API_KEY = str(cfg.get("BRAVE_API_KEY") or "")
+    SEARCH_MAX_RESULTS = _si(cfg.get("SEARCH_MAX_RESULTS"), 5)
+    CONTENT_LEN_LIMIT = _si(cfg.get("CONTENT_LEN_LIMIT"), 500)
+    FETCH_MAX_CHARS = _si(cfg.get("FETCH_MAX_CHARS"), 12000)
+    FETCH_TIMEOUT = _sf(cfg.get("FETCH_TIMEOUT"), 15)
+    AGENT_TIMEOUT = _sf(cfg.get("AGENT_TIMEOUT"), 120)
+    _MAX_ITERATIONS = _si(cfg.get("MAX_ITERATIONS"), 10)
+    _MAX_TOOL_CALLS = _si(cfg.get("MAX_TOOL_CALLS"), 15)
+    _MAX_SEARCHES = _si(cfg.get("MAX_SEARCHES"), 2)
+    _MAX_FETCHES = _si(cfg.get("MAX_FETCHES"), 3)
 
 
 _refresh_config()  # Initial load

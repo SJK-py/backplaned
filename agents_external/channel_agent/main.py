@@ -76,15 +76,23 @@ def _load_chan_config() -> dict:
         return {}
 
 _chan_cfg = _load_chan_config()
-CORE_AGENT_ID: str = _chan_cfg.get("CORE_AGENT_ID") or os.environ.get("CORE_AGENT_ID", "core_personal_agent")
+
+def _chan_get(key: str, env_default: str = "") -> str | int | float:
+    """config.json > env var > env_default. Handles zero/false correctly."""
+    v = _chan_cfg.get(key)
+    if v is not None:
+        return v
+    return os.environ.get(key, env_default)
+
+CORE_AGENT_ID: str = _chan_get("CORE_AGENT_ID", "core_personal_agent")
 DATA_DIR: Path = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 SESSIONS_FILE: Path = DATA_DIR / "sessions.json"
 CREDENTIALS_FILE: Path = DATA_DIR / "credentials.json"
 INVITATION_TOKENS_FILE: Path = DATA_DIR / "invitation_tokens.json"
 RATE_LIMITS_FILE: Path = DATA_DIR / "rate_limits.json"
 
-RATE_LIMIT_WINDOW: int = int(_chan_cfg.get("RATE_LIMIT_WINDOW") or os.environ.get("RATE_LIMIT_WINDOW", "3600"))
-RATE_LIMIT_MAX_TRIALS: int = int(_chan_cfg.get("RATE_LIMIT_MAX_TRIALS") or os.environ.get("RATE_LIMIT_MAX_TRIALS", "5"))
+RATE_LIMIT_WINDOW: int = int(_chan_get("RATE_LIMIT_WINDOW", "3600"))
+RATE_LIMIT_MAX_TRIALS: int = int(_chan_get("RATE_LIMIT_MAX_TRIALS", "5"))
 LOG_CAPACITY: int = int(os.environ.get("LOG_CAPACITY", "500"))
 FILE_MAX_AGE: int = int(os.environ.get("FILE_MAX_AGE", "3600"))  # seconds, default 1 hour
 

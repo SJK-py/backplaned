@@ -731,10 +731,12 @@ async def _call_with_retry(
     until ``total_retry_count`` is exhausted.  Models not allowed for
     *user_id* are skipped during fallback.
     """
-    retry_count = int(cfg.get("retry_count", 2))
-    retry_interval = float(cfg.get("retry_interval", 1.0))
-    retry_multiplier = float(cfg.get("retry_interval_multiplier", 2.0))
-    total_limit = int(cfg.get("total_retry_count", 5))
+    _si = lambda v, d: d if v is None or v == "" else int(v)
+    _sf = lambda v, d: d if v is None or v == "" else float(v)
+    retry_count = _si(cfg.get("retry_count"), 2)
+    retry_interval = _sf(cfg.get("retry_interval"), 1.0)
+    retry_multiplier = _sf(cfg.get("retry_interval_multiplier"), 2.0)
+    total_limit = _si(cfg.get("total_retry_count"), 5)
 
     current_model_id = model_id or "default"
 
