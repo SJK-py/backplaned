@@ -360,6 +360,22 @@ def build_web_router() -> APIRouter:
         _save_users(users)
         return {"status": "ok"}
 
+    @router.put("/ui/admin/users/{uid}")
+    async def admin_update_user(
+        uid: str,
+        request: Request,
+        kb_session: Optional[str] = Cookie(default=None),
+    ) -> dict:
+        _require_admin(kb_session)
+        body = await request.json()
+        users = _load_users()
+        if uid not in users:
+            raise HTTPException(status_code=404, detail="User not found")
+        if "model_id" in body:
+            users[uid]["model_id"] = body["model_id"] or ""
+        _save_users(users)
+        return {"status": "ok"}
+
     @router.delete("/ui/admin/users/{uid}")
     async def admin_delete_user(
         uid: str,

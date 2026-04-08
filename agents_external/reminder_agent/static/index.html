@@ -235,6 +235,7 @@ async function loadUsers() {
         <td>${u.event_count}</td>
         <td>${u.task_count}</td>
         <td>${esc(u.timezone)}</td>
+        <td class="mono" style="font-size:.78rem">${esc(u.model_id || '(default)')}</td>
         <td>${esc(u.nighttime)}</td>
         <td class="mono" style="font-size:.78rem">${u.reporting_session_id ? esc(u.reporting_session_id) : '<span class="badge badge-gray">none</span>'}</td>
         <td class="mono" style="font-size:.78rem">${u.reporting_agent_id ? esc(u.reporting_agent_id) : '<span class="badge badge-gray">default</span>'}</td>
@@ -242,7 +243,7 @@ async function loadUsers() {
     el.innerHTML = `
       <div class="card">
         <h2>Users</h2>
-        <table><tr><th>User ID</th><th>Events</th><th>Tasks</th><th>Timezone</th><th>Nighttime</th><th>Reporting Session</th><th>Reporting Agent</th></tr>${rows}</table>
+        <table><tr><th>User ID</th><th>Events</th><th>Tasks</th><th>Timezone</th><th>Model</th><th>Nighttime</th><th>Reporting Session</th><th>Reporting Agent</th></tr>${rows}</table>
       </div>`;
   } catch (e) { el.innerHTML = '<p class="empty">Failed to load users.</p>'; }
 }
@@ -292,12 +293,14 @@ async function loadUserReminders(uid) {
         <h2>Settings for ${esc(uid)}</h2>
         <div class="kv">
           <span class="label">Timezone</span><span class="mono">${esc(s.timezone || 'UTC')}</span>
+          <span class="label">Model</span><span class="mono">${esc(s.model_id || '(default)')}</span>
           <span class="label">Nighttime</span><span>${esc(s.nighttime_start || '?')} - ${esc(s.nighttime_end || '?')}</span>
           <span class="label">Reporting Session</span><span class="mono">${esc(s.reporting_session_id || 'not set')}</span>
           <span class="label">Reporting Agent</span><span class="mono">${esc(s.reporting_agent_id || 'default (core_personal_agent)')}</span>
         </div>
         <div class="mt form-row">
           <div class="form-group"><label>Timezone</label><input type="text" id="set-tz" value="${esc(s.timezone || 'UTC')}"></div>
+          <div class="form-group"><label>Model ID</label><input type="text" id="set-mid" value="${esc(s.model_id || '')}" placeholder="(default)"></div>
           <div class="form-group"><label>Night Start</label><input type="text" id="set-ns" value="${esc(s.nighttime_start || '22:00')}"></div>
           <div class="form-group"><label>Night End</label><input type="text" id="set-ne" value="${esc(s.nighttime_end || '07:00')}"></div>
           <div class="form-group"><label>Reporting Agent</label><input type="text" id="set-ra" value="${esc(s.reporting_agent_id || '')}" placeholder="core_personal_agent"></div>
@@ -351,10 +354,11 @@ async function loadUpcoming(uid) {
 
 async function saveSettings(uid) {
   const tz = document.getElementById('set-tz').value;
+  const mid = document.getElementById('set-mid').value.trim();
   const ns = document.getElementById('set-ns').value;
   const ne = document.getElementById('set-ne').value;
   const ra = document.getElementById('set-ra').value.trim();
-  const body = { timezone: tz, nighttime_start: ns, nighttime_end: ne };
+  const body = { timezone: tz, nighttime_start: ns, nighttime_end: ne, model_id: mid || null };
   if (ra) body.reporting_agent_id = ra;
   await api(`/ui/users/${uid}/settings`, {
     method: 'PUT',
