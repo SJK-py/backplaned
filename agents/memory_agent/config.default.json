@@ -1,6 +1,7 @@
 {
     "LLM_AGENT_ID": "llm_agent",
     "LLM_MODEL_ID": "",
+    "USER_MODEL_IDS": {},
     "EMBED_BASE_URL": "",
     "EMBED_API_KEY": "",
     "EMBED_MODEL": "",

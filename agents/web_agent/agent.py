@@ -110,6 +110,14 @@ def _refresh_config() -> None:
 
 _refresh_config()  # Initial load
 
+
+def _resolve_model_id(user_id: str) -> Optional[str]:
+    """Resolve model_id for a user: per-user mapping > global default > None."""
+    cfg = _load_config()
+    user_models = cfg.get("USER_MODEL_IDS") or {}
+    return user_models.get(user_id) or LLM_MODEL_ID or None
+
+
 # ---------------------------------------------------------------------------
 # AgentInfo
 # ---------------------------------------------------------------------------
@@ -232,10 +240,11 @@ async def _llm_call(
     fut: asyncio.Future[dict[str, Any]] = loop.create_future()
     _pending[identifier] = fut
 
+    resolved_model = model_id or _resolve_model_id(user_id or "") or None
     llmcall: dict[str, Any] = {
         "messages": messages,
         "tools": tools,
-        "model_id": model_id or LLM_MODEL_ID or None,
+        "model_id": resolved_model,
     }
     if tool_choice is not None:
         llmcall["tool_choice"] = tool_choice

@@ -1,10 +1,9 @@
 """
 agents/llm_agent/agent.py — Centralized LLM inference agent.
 
-Pure inference service: accepts either LLMCall (raw messages + tools) or
-LLMData (high-level prompt) payloads, calls the configured LLM backend,
-and returns a normalized response.  Does NOT dispatch tool calls — callers
-handle tool execution themselves.
+Pure inference service: accepts LLMCall (raw messages + tools) payloads,
+calls the configured LLM backend, and returns a normalized response.
+Does NOT dispatch tool calls — callers handle tool execution themselves.
 
 Supports multiple model configurations via config.json, with automatic
 retry and fallback chains.
@@ -34,7 +33,6 @@ from helper import (
     AgentInfo,
     AgentOutput,
     LLMCall,
-    LLMData,
     ProxyFile,
     ProxyFileManager,
     build_result_request,
@@ -118,10 +116,10 @@ AGENT_INFO = AgentInfo(
     agent_id=_OUR_AGENT_ID,
     description=(
         "Centralized LLM inference agent. Accepts LLMCall (raw messages + tools) "
-        "or LLMData (high-level prompt) and returns a normalized response with "
-        "content and tool_calls. Supports multiple model configs via model_id."
+        "and returns a normalized response with content and tool_calls. "
+        "Supports multiple model configs via model_id."
     ),
-    input_schema="llmcall: Optional[LLMCall], llmdata: Optional[LLMData], model_id: Optional[str], user_id: Optional[str], files: Optional[List[ProxyFile]]",
+    input_schema="llmcall: LLMCall, model_id: Optional[str], user_id: Optional[str]",
     output_schema="content: str (JSON: {content, tool_calls})",
     required_input=[],
     hidden=True,
@@ -830,83 +828,35 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
     cfg = _load_config()
     user_id: str = raw_payload.get("user_id") or "not_specified"
 
-    # Determine input mode: LLMCall (new) or LLMData (legacy)
     llmcall_raw = raw_payload.get("llmcall")
-    llmdata_raw = raw_payload.get("llmdata")
-
-    # model_id can come from LLMCall, or top-level payload
-    explicit_model_id: Optional[str] = raw_payload.get("model_id")
-
-    messages: list[dict[str, Any]]
-    tools: list[dict[str, Any]]
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    tool_choice: Optional[Any] = None
-    model_id: Optional[str] = explicit_model_id
-
-    if llmcall_raw:
-        # New LLMCall mode — raw messages + tools
-        llmcall = LLMCall.model_validate(llmcall_raw)
-        messages = llmcall.messages
-        tools = llmcall.tools
-        tool_choice = llmcall.tool_choice
-        temperature = llmcall.temperature
-        max_tokens = llmcall.max_tokens
-        if llmcall.model_id and not model_id:
-            model_id = llmcall.model_id
-    elif llmdata_raw:
-        # Legacy LLMData mode — convert prompt to messages
-        if not llmdata_raw.get("prompt"):
-            return build_result_request(
-                agent_id=_OUR_AGENT_ID,
-                task_id=task_id,
-                parent_task_id=parent_task_id,
-                status_code=400,
-                output=AgentOutput(content="Error: payload.llmdata.prompt is required"),
-            )
-
-        llmdata = LLMData.model_validate(llmdata_raw)
-        files_raw: list[dict[str, Any]] = raw_payload.get("files") or []
-
-        system_parts: list[str] = []
-        if llmdata.agent_instruction:
-            system_parts.append(llmdata.agent_instruction)
-        if llmdata.context:
-            system_parts.append(llmdata.context)
-
-        user_content = llmdata.prompt
-        for f in files_raw:
-            filename = f.get("path", "file").split("/")[-1]
-            try:
-                text = await _read_proxy_file(f)
-                user_content += f"\n\n[File: {filename}]\n{text}"
-            except Exception as exc:
-                user_content += f"\n\n[File: {filename} — could not load: {exc}]"
-
-        messages = []
-        if system_parts:
-            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
-        messages.append({"role": "user", "content": user_content})
-        tools = []
-    else:
+    if not llmcall_raw:
         return build_result_request(
             agent_id=_OUR_AGENT_ID,
             task_id=task_id,
             parent_task_id=parent_task_id,
             status_code=400,
-            output=AgentOutput(content="Error: payload must contain 'llmcall' or 'llmdata'"),
+            output=AgentOutput(content="Error: payload must contain 'llmcall'"),
         )
+
+    # model_id can come from LLMCall, or top-level payload
+    explicit_model_id: Optional[str] = raw_payload.get("model_id")
+
+    llmcall = LLMCall.model_validate(llmcall_raw)
+    messages = llmcall.messages
+    tools = llmcall.tools
+    tool_choice = llmcall.tool_choice
+    temperature = llmcall.temperature
+    max_tokens = llmcall.max_tokens
+    model_id: Optional[str] = explicit_model_id
+    if llmcall.model_id and not model_id:
+        model_id = llmcall.model_id
 
     # Handle <list_model_id> special token — return available models without LLM call
     prompt_text = ""
-    if llmdata_raw:
-        prompt_text = llmdata_raw.get("prompt", "")
-    elif llmcall_raw:
-        # Check last user message
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                prompt_text = m.get("content", "") if isinstance(m.get("content"), str) else ""
-                break
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            prompt_text = m.get("content", "") if isinstance(m.get("content"), str) else ""
+            break
     if prompt_text.strip() == "<list_model_id>":
         allowed = _get_allowed_model_ids(cfg, user_id)
         models_info: dict[str, Any] = {}

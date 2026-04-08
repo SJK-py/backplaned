@@ -194,6 +194,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "nighttime_start": {"type": "string", "description": "Start of nighttime quiet hours (HH:MM, e.g. '22:00')"},
                     "nighttime_end": {"type": "string", "description": "End of nighttime quiet hours (HH:MM, e.g. '07:00')"},
                     "timezone": {"type": "string", "description": "User timezone (e.g. 'America/Los_Angeles')"},
+                    "model_id": {"type": "string", "description": "LLM model ID for this user (blank = agent default)"},
                     "reporting_session_id": {"type": "string", "description": "Session ID used for proactive notifications"},
                 },
                 "required": [],
@@ -568,7 +569,7 @@ class ToolEngine:
 
     async def _tool_update_user_settings(self, args: dict[str, Any]) -> dict[str, Any]:
         updates: dict[str, Any] = {}
-        for key in ("nighttime_start", "nighttime_end", "timezone", "reporting_session_id"):
+        for key in ("nighttime_start", "nighttime_end", "timezone", "model_id", "reporting_session_id"):
             if key in args:
                 updates[key] = args[key]
         if not updates:

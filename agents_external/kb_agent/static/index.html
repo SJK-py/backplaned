@@ -354,7 +354,7 @@ async function loadUsers(){
   tbody.innerHTML=d.users.map(u=>`<tr>
     <td>${esc(u.user_id)}</td>
     <td class="mono" style="font-size:.78rem">${esc(u.model_id||'(default)')}</td>
-    <td><button class="btn btn-sm" style="background:var(--border);color:var(--text);margin-right:.3rem" onclick="resetUserPw('${esc(u.user_id)}')">Reset PW</button><button class="btn btn-danger btn-sm" onclick="delUser('${esc(u.user_id)}')">Delete</button></td>
+    <td><button class="btn btn-sm" style="background:var(--border);color:var(--text);margin-right:.3rem" onclick="editUserModel('${esc(u.user_id)}','${esc(u.model_id||'')}')">Model</button><button class="btn btn-sm" style="background:var(--border);color:var(--text);margin-right:.3rem" onclick="resetUserPw('${esc(u.user_id)}')">Reset PW</button><button class="btn btn-danger btn-sm" onclick="delUser('${esc(u.user_id)}')">Delete</button></td>
   </tr>`).join('');
 }
 async function addUser(){
@@ -365,6 +365,12 @@ async function addUser(){
   const body={user_id:uid,password:pw};if(mid)body.model_id=mid;
   const r=await api('/ui/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(r&&r.ok){showMsg('au-msg','User created',true);loadUsers()}else showMsg('au-msg','Error',false);
+}
+async function editUserModel(uid,current){
+  const mid=prompt('Model ID for '+uid+' (blank = default):',current);
+  if(mid===null)return;
+  await api('/ui/admin/users/'+encodeURIComponent(uid),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_id:mid})});
+  loadUsers();
 }
 async function delUser(uid){
   if(!confirm('Delete user '+uid+'?'))return;

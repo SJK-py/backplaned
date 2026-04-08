@@ -165,6 +165,7 @@ def create_ui_router() -> APIRouter:
                 "event_count": len(events),
                 "task_count": len(tasks),
                 "timezone": settings.get("timezone", "UTC"),
+                "model_id": settings.get("model_id"),
                 "reporting_session_id": settings.get("reporting_session_id"),
                 "reporting_agent_id": settings.get("reporting_agent_id"),
                 "nighttime": f"{settings.get('nighttime_start', '?')}–{settings.get('nighttime_end', '?')}",
@@ -232,7 +233,7 @@ def create_ui_router() -> APIRouter:
         from agent import reminder_db
         body = await request.json()
         updates: dict[str, Any] = {}
-        for key in ("nighttime_start", "nighttime_end", "timezone", "reporting_session_id", "reporting_agent_id"):
+        for key in ("nighttime_start", "nighttime_end", "timezone", "model_id", "reporting_session_id", "reporting_agent_id"):
             if key in body:
                 updates[key] = body[key]
         if not updates:

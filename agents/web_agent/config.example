@@ -1,6 +1,7 @@
 {
   "LLM_AGENT_ID": "Agent ID of the LLM inference agent (default: llm_agent)",
-  "LLM_MODEL_ID": "Model config key for LLM calls (blank = llm_agent default)",
+  "LLM_MODEL_ID": "Global default model config key for LLM calls (blank = llm_agent default)",
+  "USER_MODEL_IDS": "Per-user model override: {\"user_id\": \"model_id\", ...}. Takes precedence over LLM_MODEL_ID",
   "SEARCH_PROVIDER": "Web search backend: searxng | duckduckgo | brave",
   "SEARXNG_BASE_URL": "Base URL for self-hosted SearXNG instance (e.g. http://localhost:8080)",
   "BRAVE_API_KEY": "API key for Brave Search (required if provider is brave)",
