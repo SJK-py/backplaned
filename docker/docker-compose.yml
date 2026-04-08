@@ -5,15 +5,15 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.router
     ports:
-      - "${ROUTER_PORT:-8000}:8000"
-      - "${WEB_ADMIN_PORT:-8080}:8080"
-      - "${CHANNEL_PORT:-8081}:8081"
-      - "${MCP_AGENT_PORT:-8082}:8082"
-      - "${MCP_SERVER_PORT:-8083}:8083"
-      - "${MCP_PORT:-8084}:8084"
-      - "${CRON_PORT:-8085}:8085"
-      - "${KB_PORT:-8086}:8086"
-      - "${REMINDER_PORT:-8101}:8101"
+      - "${ROUTER_PORT:-8000}:${ROUTER_PORT:-8000}"
+      - "${WEB_ADMIN_PORT:-8080}:${WEB_ADMIN_PORT:-8080}"
+      - "${CHANNEL_PORT:-8081}:${CHANNEL_PORT:-8081}"
+      - "${MCP_AGENT_PORT:-8082}:${MCP_AGENT_PORT:-8082}"
+      - "${MCP_SERVER_PORT:-8083}:${MCP_SERVER_PORT:-8083}"
+      - "${MCP_PORT:-8084}:${MCP_PORT:-8084}"
+      - "${CRON_PORT:-8085}:${CRON_PORT:-8085}"
+      - "${KB_PORT:-8086}:${KB_PORT:-8086}"
+      - "${REMINDER_PORT:-8101}:${REMINDER_PORT:-8101}"
     volumes:
       - "${DATA_ROOT:-./data}/router:/app/data"
       - "${DATA_ROOT:-./data}/proxyfiles:/app/proxyfiles"
@@ -41,14 +41,15 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.coding
     ports:
-      - "${CODING_PORT:-8100}:8100"
+      - "${CODING_PORT:-8100}:${CODING_PORT:-8100}"
     volumes:
       - "${DATA_ROOT:-./data}/coding_agent:/app/data"
     env_file:
       - ../start.config
     environment:
-      - ROUTER_URL=http://router:8000
-      - AGENT_ENDPOINT_URL=http://coding:8100
+      - ROUTER_URL=http://router:${ROUTER_PORT:-8000}
+      - AGENT_ENDPOINT_URL=http://coding:${CODING_PORT:-8100}
+      - AGENT_PORT=${CODING_PORT:-8100}
     depends_on:
       - router
     restart: unless-stopped
