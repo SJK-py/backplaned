@@ -188,7 +188,7 @@
           <h3>LLM Model</h3>
           <div class="form-row">
             <div class="form-group">
-              <label>Model ID (empty = DEFAULT_MODEL_ID env var, or "default")</label>
+              <label>Model ID (empty = DEFAULT_MODEL_ID from config, or "default")</label>
               <input type="text" id="cfg-model-id" placeholder="e.g. local_gptoss20b">
             </div>
           </div>
@@ -347,7 +347,7 @@
     <div class="card">
       <h2>LLM Backend</h2>
       <p style="font-size:.82rem;color:var(--text-dim)">
-        LLM models are configured in <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">agents/llm_agent/config.json</code>.
+        LLM models are configured in <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">llm_agent/data/config.json</code>.
         Per-user model assignment is in the User Config tab.
       </p>
       <div id="llm-info" style="margin-top:.6rem"></div>
@@ -355,7 +355,7 @@
     <div class="card">
       <h2>Timeouts</h2>
       <p style="font-size:.82rem;color:var(--text-dim)">
-        Configured via <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">.env</code>.
+        Configured via the Config tab.
         LLM timeout and tool timeout apply per-call.
       </p>
       <div id="timeout-info" style="margin-top:.6rem"></div>
