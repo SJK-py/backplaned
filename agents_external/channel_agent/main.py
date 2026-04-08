@@ -1,5 +1,5 @@
 """
-channel_agent/main.py — Channel inbound agent (external, always-running).
+channel_agent/main.py — Channel agent (external, always-running).
 
 Bridges Telegram and Discord to the router's core personal agent.
 Maintains per-user session state, routes messages through the router,
@@ -523,8 +523,8 @@ async def _ensure_registered() -> None:
     agent_info = AgentInfo(
         agent_id="channel_agent",
         description=(
-            "Channel inbound agent. Bridges Telegram and Discord to the router. "
-            "Calling this agent sends a direct message to the user on their active "
+            "Channel agent. Bridges Telegram and Discord to the router. "
+            "Call this agent to send a direct message to the user on their active "
             "chat platform (Telegram or Discord). Requires user_id and session_id "
             "to identify the recipient."
         ),
@@ -1566,7 +1566,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await _http_client.aclose()
 
 
-app = FastAPI(title="Channel Inbound Agent", lifespan=lifespan)
+app = FastAPI(title="Channel Agent", lifespan=lifespan)
 
 _static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_static)), name="static")
@@ -1593,8 +1593,8 @@ async def refresh_info(request: Request) -> JSONResponse:
                 json={
                     "agent_id": _agent_id,
                     "description": (
-                        "Channel inbound agent. Bridges Telegram and Discord to the router. "
-                        "Calling this agent sends a direct message to the user on their active "
+                        "Channel agent. Bridges Telegram and Discord to the router. "
+                        "Call this agent to send a direct message to the user on their active "
                         "chat platform (Telegram or Discord). Requires user_id and session_id "
                         "to identify the recipient."
                     ),

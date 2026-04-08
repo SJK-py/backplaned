@@ -1,7 +1,7 @@
 """
 agents/core_personal_agent/agent.py — Core personal LLM agent (embedded).
 
-Receives user messages from a channel inbound agent, maintains per-session
+Receives user messages from the channel agent, maintains per-session
 chat history, runs a full LLM agent loop with parallel tool-calling, and
 manages long-term memory via memory_agent.
 
