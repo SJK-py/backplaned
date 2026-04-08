@@ -28,6 +28,5 @@ RUN useradd -m -s /bin/bash agent
 RUN chown -R agent:agent /app
 USER agent
 
-EXPOSE 8100
-
+# Port is configured via start.config and mapped in docker-compose.yml.
 CMD ["./start.sh"]
