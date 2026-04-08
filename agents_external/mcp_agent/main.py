@@ -79,7 +79,8 @@ SESSION_SECRET: str = os.environ.get("SESSION_SECRET", _secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
-RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"http://localhost:{PORT}/receive")
+AGENT_URL: str = os.environ.get("AGENT_URL") or f"http://localhost:{PORT}"
+ENDPOINT_URL: str = f"{AGENT_URL}/receive"
 
 DATA_DIR: Path = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "data")))
 CONFIG_FILE: Path = DATA_DIR / "config.json"
@@ -189,6 +190,14 @@ async def _ensure_registered() -> None:
                         headers={"Authorization": f"Bearer {_auth_token}"},
                         timeout=120.0,
                     )
+                    try:
+                        await _http_client.put(
+                            f"{ROUTER_URL}/agent-info",
+                            json={"agent_id": _agent_id, "endpoint_url": ENDPOINT_URL},
+                            timeout=10.0,
+                        )
+                    except Exception:
+                        pass
                     logger.info("Router credentials reloaded for %s", _agent_id)
                     return
                 # 401/403 means credentials are invalid — fall through to re-onboard.
@@ -223,7 +232,7 @@ async def _do_register(invitation_token: str) -> bool:
         resp: OnboardResponse = await onboard(
             router_url=ROUTER_URL,
             invitation_token=invitation_token,
-            endpoint_url=RECEIVE_URL,
+            endpoint_url=ENDPOINT_URL,
             agent_info=agent_info,
         )
         _agent_id = resp.agent_id
@@ -469,7 +478,7 @@ async def _refresh_router_agent_info() -> bool:
 
     # Build documentation URL with cache-busting param so router re-fetches content.
     import time
-    doc_url = f"{RECEIVE_URL.rsplit('/receive', 1)[0]}/docs/tools.md?t={int(time.time())}"
+    doc_url = f"{AGENT_URL}/docs/tools.md?t={int(time.time())}"
 
     try:
         resp = await _http_client.put(

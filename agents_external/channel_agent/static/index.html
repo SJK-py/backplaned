@@ -386,7 +386,7 @@ async function loadStatus() {
     <div class="stat-item"><div class="label">Telegram</div><div class="value">${b(d.telegram_running,'Running','Stopped')}</div></div>
     <div class="stat-item"><div class="label">Discord</div><div class="value">${b(d.discord_running,'Running','Stopped')}</div></div>
     <div class="stat-item"><div class="label">Router URL</div><div class="value" style="font-size:.75rem">${esc(d.router_url)}</div></div>
-    <div class="stat-item"><div class="label">Receive URL</div><div class="value" style="font-size:.75rem">${esc(d.receive_url)}</div></div>
+    <div class="stat-item"><div class="label">Endpoint URL</div><div class="value" style="font-size:.75rem">${esc(d.endpoint_url)}</div></div>
   `;
 }
 
@@ -729,7 +729,7 @@ async function loadOnboarding() {
   const el = document.getElementById('onboard-info');
   el.innerHTML = `
     <div style="margin-bottom:.5rem">Router: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.router_url)}</code></div>
-    <div style="margin-bottom:.5rem">Receive URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.receive_url)}</code></div>
+    <div style="margin-bottom:.5rem">Endpoint URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.endpoint_url)}</code></div>
     <div>Status: <span class="badge ${d.registered ? 'badge-green' : 'badge-red'}">${d.registered ? 'Registered as ' + esc(d.agent_id||'') : 'Not registered'}</span></div>
   `;
 }

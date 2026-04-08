@@ -178,6 +178,15 @@ async def _ensure_web_agent() -> None:
                         headers={"Authorization": f"Bearer {_web_agent_auth_token}"},
                         timeout=30.0,
                     )
+                    receive_url = f"http://localhost:{PORT}/agent/receive"
+                    try:
+                        await _web_agent_http_client.put(
+                            f"{ROUTER_URL}/agent-info",
+                            json={"agent_id": _web_agent_id, "endpoint_url": receive_url},
+                            timeout=10.0,
+                        )
+                    except Exception:
+                        pass
                     return
                 # 401/403 means credentials are invalid — fall through to re-onboard.
         except Exception as exc:

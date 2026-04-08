@@ -302,7 +302,7 @@ class ProxyFileManager:
     Args:
         inbox_dir: Local directory for downloaded files.
         router_url: Router base URL (for downloading router-proxy files).
-        agent_endpoint_url: This agent's public URL (for serving files to
+        agent_url: This agent's public URL (for serving files to
             the router via HTTP).  None for embedded agents.
         persist: If True, inbox files are not cleaned up automatically.
     """
@@ -315,14 +315,14 @@ class ProxyFileManager:
         self,
         inbox_dir: str | Path,
         router_url: str = "http://localhost:8000",
-        agent_endpoint_url: Optional[str] = None,
+        agent_url: Optional[str] = None,
         persist: bool = False,
         inbox_max_age: Optional[float] = None,
     ) -> None:
         self.inbox_dir = Path(inbox_dir)
         self.inbox_dir.mkdir(parents=True, exist_ok=True)
         self.router_url = router_url.rstrip("/")
-        self.agent_endpoint_url = agent_endpoint_url
+        self.agent_url = agent_url
         self.persist = persist
         self.inbox_max_age = inbox_max_age or self._DEFAULT_INBOX_MAX_AGE
         # local_path → (original ProxyFile dict, content_hash)
@@ -470,10 +470,10 @@ class ProxyFileManager:
         If the path is in the registry and the content hash still matches,
         the original ProxyFile is reused (no re-transfer needed).
 
-        For **embedded** agents (no ``agent_endpoint_url``): returns a
+        For **embedded** agents (no ``agent_url``): returns a
         ``localfile`` ProxyFile — the router reads from the shared filesystem.
 
-        For **external** agents (``agent_endpoint_url`` set): generates a
+        For **external** agents (``agent_url`` set): generates a
         one-time key and returns an ``http`` ProxyFile pointing to the
         agent's file-serve endpoint.  The router fetches via HTTP and
         converts to ``router-proxy``.
@@ -507,7 +507,7 @@ class ProxyFileManager:
             if current_hash and current_hash == original_hash:
                 return original_pf
 
-        if self.agent_endpoint_url:
+        if self.agent_url:
             # External agent: serve via HTTP
             import secrets as _secrets
             import time as _time
@@ -515,7 +515,7 @@ class ProxyFileManager:
             ProxyFileManager._serve_keys[key] = (os.path.abspath(local_path), _time.monotonic())
             filename = Path(local_path).name
             return {
-                "path": f"{self.agent_endpoint_url}/files/serve?key={key}",
+                "path": f"{self.agent_url}/files/serve?key={key}",
                 "protocol": "http",
                 "key": None,
                 "original_filename": filename,
@@ -1444,11 +1444,14 @@ class RouterClient:
         output_schema: Optional[str] = None,
         required_input: Optional[list[str]] = None,
         documentation_url: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
     ) -> httpx.Response:
         """
         Update this agent's AgentInfo on the router.
 
         Only non-None fields are merged into the existing info.
+        If ``endpoint_url`` is provided, the agent's registered endpoint
+        is also updated (useful when the port changes between restarts).
 
         Returns:
             The raw ``httpx.Response`` from the router.
@@ -1467,11 +1470,15 @@ class RouterClient:
             body["required_input"] = required_input
         if documentation_url is not None:
             body["documentation_url"] = documentation_url
+        if endpoint_url is not None:
+            body["endpoint_url"] = endpoint_url
         resp = await self._client.put(f"{self.router_url}/agent-info", json=body)
         resp.raise_for_status()
         return resp
 
-    async def refresh_from_agent_info(self, info: "AgentInfo") -> httpx.Response:
+    async def refresh_from_agent_info(
+        self, info: "AgentInfo", endpoint_url: Optional[str] = None,
+    ) -> httpx.Response:
         """Update this agent's info on the router from an AgentInfo object."""
         return await self.refresh_agent_info(
             description=info.description,
@@ -1479,6 +1486,7 @@ class RouterClient:
             output_schema=info.output_schema,
             required_input=info.required_input,
             documentation_url=info.documentation_url,
+            endpoint_url=endpoint_url,
         )
 
     # ------------------------------------------------------------------

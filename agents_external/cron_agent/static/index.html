@@ -162,7 +162,7 @@ async function loadStatus(){
     <div class="stat-item"><div class="label">Agent ID</div><div class="value mono" style="font-size:.78rem">${esc(d.agent_id)||'-'}</div></div>
     <div class="stat-item"><div class="label">Router</div><div class="value">${b(d.router_connected,'Connected','Disconnected')}</div></div>
     <div class="stat-item"><div class="label">Router URL</div><div class="value mono" style="font-size:.75rem">${esc(d.router_url)}</div></div>
-    <div class="stat-item"><div class="label">Receive URL</div><div class="value mono" style="font-size:.75rem">${esc(d.receive_url)}</div></div>
+    <div class="stat-item"><div class="label">Endpoint URL</div><div class="value mono" style="font-size:.75rem">${esc(d.endpoint_url)}</div></div>
     <div class="stat-item"><div class="label">Scheduler</div><div class="value">${b(d.scheduler_running,'Running','Stopped')}</div></div>
     <div class="stat-item"><div class="label">Check Interval</div><div class="value">${d.check_interval}s</div></div>
     <div class="stat-item"><div class="label">LLM Agent</div><div class="value mono" style="font-size:.78rem">${esc(d.llm_agent_id)}</div></div>
@@ -331,7 +331,7 @@ async function loadOnboarding(){
   const destsStr=dests.length?dests.join(', '):'(none)';
   document.getElementById('onboard-info').innerHTML=`
     <div style="margin-bottom:.4rem">Router: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.router_url)}</code></div>
-    <div style="margin-bottom:.4rem">Receive URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.receive_url)}</code></div>
+    <div style="margin-bottom:.4rem">Endpoint URL: <code style="background:var(--bg);padding:.1rem .3rem;border-radius:3px">${esc(d.endpoint_url)}</code></div>
     <div style="margin-bottom:.4rem">Status: <span class="badge ${d.registered?'badge-green':'badge-red'}">${d.registered?'Registered as '+d.agent_id:'Not registered'}</span>
       ${d.router_reachable?'<span class="badge badge-green" style="margin-left:.3rem">Router reachable</span>':'<span class="badge badge-red" style="margin-left:.3rem">Router unreachable</span>'}</div>
     <div style="font-size:.82rem;color:var(--text-dim)">Available destinations: ${esc(destsStr)}</div>`;

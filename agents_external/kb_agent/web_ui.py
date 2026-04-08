@@ -288,7 +288,7 @@ def build_web_router() -> APIRouter:
             pfm = ProxyFileManager(
                 inbox_dir=ws_dir / "inbox",
                 router_url=cfg.router_url,
-                agent_endpoint_url=cfg.agent_endpoint_url or f"http://localhost:{cfg.agent_port}",
+                agent_url=cfg.agent_url or f"http://localhost:{cfg.agent_port}",
             )
             resolved_file = pfm.resolve(tmp_path)
             if resolved_file:
@@ -458,7 +458,7 @@ def build_web_router() -> APIRouter:
         cfg = _cfg()
         from helper import RouterClient, onboard as do_onboard
         import agent as agent_mod
-        endpoint_url = cfg.agent_endpoint_url or f"http://localhost:{cfg.agent_port}"
+        endpoint_url = cfg.agent_url or f"http://localhost:{cfg.agent_port}"
         try:
             resp = await do_onboard(
                 router_url=cfg.router_url,
