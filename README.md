@@ -7,7 +7,7 @@ A lightweight, self-hosted multi-agent orchestration platform. A central router 
 ```
   Telegram / Discord           Web Admin           Claude Desktop, Cursor, ...
          |                         |                          |
-   channel_inbound                 |                     mcp_server
+     channel_agent                  |                     mcp_server
          \                         |                (Router-as-MCP Bridge)
           \                        |                        /
        ┌───────────────────────────────────────────────────────┐
@@ -39,7 +39,7 @@ All communication flows through the **router**, which acts as an ESB-style messa
 | **md_converter** | Embedded | `tool` | Converts documents (PDF, DOCX, PPTX, XLSX, HTML, etc.) to Markdown. Optional LLM-based OCR for scanned documents. |
 | **memory_agent** | Embedded | `usertool` | Long-term memory via LanceDB (local). LLM-powered fact extraction and consolidation. Per-user add/search operations. |
 | **web_agent** | Embedded | `tool` | Web research agent. Searches (DuckDuckGo, SearXNG, Brave) and fetches pages with LLM-driven multi-step research loops. |
-| **channel_inbound** | External | `channel` | Bridges Telegram and Discord to the router. Handles slash commands, file uploads, inline progress streaming. |
+| **channel_agent** | External | `channel` | Bridges Telegram and Discord to the router. Handles slash commands, file uploads, inline progress streaming. Also delivers outbound messages to users when called by other agents. |
 | **coding_agent** | External | `usertool` | Sandboxed code execution workspace. Writes, runs, and iterates on code with file I/O. Per-user security policies. |
 | **reminder_agent** | External | `usertool`+`notify` | Calendar events, tasks, and reminders with natural language. Proactive notifications via checker loop. |
 | **cron_agent** | External | `usertool`+`notify` | Scheduled recurring tasks with cron expressions. Autonomous execution with result reporting. |

@@ -7,7 +7,7 @@ Runs every CHECK_INTERVAL minutes.  For each user:
   3. Filters out recently-reminded items.
   4. Calls LLM with structured output to decide which items to notify.
   5. Wrapper updates last_reminded atomically, then spawns notification
-     to core_personal_agent (which forwards via channel_inbound DM).
+     to core_personal_agent (which forwards via channel_agent DM).
 """
 
 from __future__ import annotations
@@ -257,7 +257,7 @@ async def _send_notification(
         "session_id": session_id,
         "message": (
             f"You have a reminder notification to deliver to the user. "
-            f"Use the channel_inbound agent to send the following direct message "
+            f"Call the channel_agent to send the following direct message "
             f"to the user. Use the user_id and session_id from your current "
             f"session context (do NOT use any session_id mentioned in this text). "
             f"Then report the result.\n\n"
