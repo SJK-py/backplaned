@@ -64,7 +64,7 @@ class AgentConfig(BaseModel):
             invitation_token=os.environ.get("INVITATION_TOKEN", cls.model_fields["invitation_token"].default),
             agent_host=os.environ.get("AGENT_HOST", cls.model_fields["agent_host"].default),
             agent_port=int(os.environ.get("AGENT_PORT", cls.model_fields["agent_port"].default)),
-            agent_endpoint_url=os.environ.get("AGENT_ENDPOINT_URL", ""),
+            agent_endpoint_url=os.environ.get("AGENT_ENDPOINT_URL") or "",
             data_dir=os.environ.get("DATA_DIR", cls.model_fields["data_dir"].default),
             log_dir=os.environ.get("LOG_DIR", cls.model_fields["log_dir"].default),
             credentials_path=os.environ.get("CREDENTIALS_PATH", cls.model_fields["credentials_path"].default),

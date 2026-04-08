@@ -302,6 +302,7 @@ class UpdateAgentInfoRequest(BaseModel):
     output_schema: Optional[str] = None
     required_input: Optional[list[str]] = None
     documentation_url: Optional[str] = None
+    endpoint_url: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -2024,6 +2025,12 @@ async def update_agent_info(
                     if new_path:
                         documentation_path = new_path
 
+        # Update endpoint_url if provided.
+        if request.endpoint_url is not None:
+            conn.execute(
+                "UPDATE agents SET endpoint_url = ? WHERE agent_id = ?",
+                (request.endpoint_url, request.agent_id),
+            )
         conn.execute(
             "UPDATE agents SET agent_info = ?, documentation_path = ? WHERE agent_id = ?",
             (json.dumps(existing_info), documentation_path, request.agent_id),

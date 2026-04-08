@@ -60,8 +60,8 @@ SESSION_SECRET: str = os.environ.get("SESSION_SECRET", secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
-AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL", f"http://localhost:{PORT}")
-RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"{AGENT_ENDPOINT_URL}/receive")
+AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL") or f"http://localhost:{PORT}"
+RECEIVE_URL: str = os.environ.get("RECEIVE_URL") or f"{AGENT_ENDPOINT_URL}/receive"
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_TOKEN", "")
 DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
@@ -490,6 +490,15 @@ async def _ensure_registered() -> None:
                         headers={"Authorization": f"Bearer {_auth_token}"},
                         timeout=120.0,
                     )
+                    # Update endpoint_url in case the port changed.
+                    try:
+                        await _http_client.put(
+                            f"{ROUTER_URL}/agent-info",
+                            json={"agent_id": _agent_id, "endpoint_url": RECEIVE_URL},
+                            timeout=10.0,
+                        )
+                    except Exception:
+                        pass
                     logger.info("Router credentials reloaded for %s", _agent_id)
                     return
                 # 401/403 means credentials are invalid — fall through to re-onboard.
