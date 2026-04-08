@@ -5,6 +5,6 @@
     "EMBED_BASE_URL": "",
     "EMBED_API_KEY": "",
     "EMBED_MODEL": "",
-    "EMBEDDING_DIMS": "768",
-    "DEFAULT_SEARCH_COUNT": "5"
+    "EMBEDDING_DIMS": 768,
+    "DEFAULT_SEARCH_COUNT": 5
 }

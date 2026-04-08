@@ -69,9 +69,10 @@ def _refresh_config() -> None:
     """Re-read config.json and update module-level variables."""
     global OUTPUT_DIR, MAX_CONTENT_LENGTH, PREVIEW_LENGTH
     cfg = _load_config()
+    _si = lambda v, d: d if v is None or v == "" else int(v)
     OUTPUT_DIR = str(cfg.get("OUTPUT_DIR") or str(_AGENT_DIR / "data" / "output"))
-    MAX_CONTENT_LENGTH = int(cfg.get("MAX_CONTENT_LENGTH", 30000))
-    PREVIEW_LENGTH = int(cfg.get("PREVIEW_LENGTH", 2000))
+    MAX_CONTENT_LENGTH = _si(cfg.get("MAX_CONTENT_LENGTH"), 30000)
+    PREVIEW_LENGTH = _si(cfg.get("PREVIEW_LENGTH"), 2000)
 
 
 _refresh_config()  # Initial load

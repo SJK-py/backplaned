@@ -63,6 +63,17 @@ class AgentConfig(BaseModel):
             import warnings as _w
             _w.warn("ADMIN_PASSWORD is not set — web UI login will be unavailable until configured", stacklevel=2)
         cfg = _load_config()
+
+        def _get(key: str, env_key: str | None = None, default: Any = None) -> Any:
+            """config.json > env var > default. Handles zero/false correctly."""
+            v = cfg.get(key)
+            if v is not None:
+                return v
+            e = os.environ.get(env_key or key)
+            if e is not None and e != "":
+                return e
+            return default
+
         return cls(
             # Infrastructure (env only)
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
@@ -78,15 +89,15 @@ class AgentConfig(BaseModel):
             data_dir=os.environ.get("DATA_DIR", cls.model_fields["data_dir"].default),
             embed_api_key=os.environ.get("EMBED_API_KEY", cls.model_fields["embed_api_key"].default),
             # Runtime (config.json > env fallback > default)
-            embed_base_url=cfg.get("EMBED_BASE_URL") or os.environ.get("EMBED_BASE_URL") or cls.model_fields["embed_base_url"].default,
-            embed_model=cfg.get("EMBED_MODEL") or os.environ.get("EMBED_MODEL") or cls.model_fields["embed_model"].default,
-            embed_timeout=float(cfg.get("EMBED_TIMEOUT") or os.environ.get("EMBED_TIMEOUT") or cls.model_fields["embed_timeout"].default),
-            vector_dim=int(cfg.get("VECTOR_DIM") or os.environ.get("VECTOR_DIM") or cls.model_fields["vector_dim"].default),
-            llm_agent_id=cfg.get("LLM_AGENT_ID") or os.environ.get("LLM_AGENT_ID") or cls.model_fields["llm_agent_id"].default,
-            default_model_id=cfg.get("DEFAULT_MODEL_ID") or os.environ.get("DEFAULT_MODEL_ID", ""),
-            chunk_len_max=int(cfg.get("CHUNK_LEN_MAX") or os.environ.get("CHUNK_LEN_MAX") or cls.model_fields["chunk_len_max"].default),
-            chunk_len_min=int(cfg.get("CHUNK_LEN_MIN") or os.environ.get("CHUNK_LEN_MIN") or cls.model_fields["chunk_len_min"].default),
-            chunk_overlap=int(cfg.get("CHUNK_OVERLAP") or os.environ.get("CHUNK_OVERLAP") or cls.model_fields["chunk_overlap"].default),
-            md_converter_id=cfg.get("MD_CONVERTER_ID") or os.environ.get("MD_CONVERTER_ID") or cls.model_fields["md_converter_id"].default,
-            tool_timeout=int(cfg.get("TOOL_TIMEOUT") or os.environ.get("TOOL_TIMEOUT") or cls.model_fields["tool_timeout"].default),
+            embed_base_url=_get("EMBED_BASE_URL", default=cls.model_fields["embed_base_url"].default),
+            embed_model=_get("EMBED_MODEL", default=cls.model_fields["embed_model"].default),
+            embed_timeout=float(_get("EMBED_TIMEOUT", default=cls.model_fields["embed_timeout"].default)),
+            vector_dim=int(_get("VECTOR_DIM", default=cls.model_fields["vector_dim"].default)),
+            llm_agent_id=_get("LLM_AGENT_ID", default=cls.model_fields["llm_agent_id"].default),
+            default_model_id=_get("DEFAULT_MODEL_ID", default=""),
+            chunk_len_max=int(_get("CHUNK_LEN_MAX", default=cls.model_fields["chunk_len_max"].default)),
+            chunk_len_min=int(_get("CHUNK_LEN_MIN", default=cls.model_fields["chunk_len_min"].default)),
+            chunk_overlap=int(_get("CHUNK_OVERLAP", default=cls.model_fields["chunk_overlap"].default)),
+            md_converter_id=_get("MD_CONVERTER_ID", default=cls.model_fields["md_converter_id"].default),
+            tool_timeout=int(_get("TOOL_TIMEOUT", default=cls.model_fields["tool_timeout"].default)),
         )

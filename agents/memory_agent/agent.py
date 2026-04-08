@@ -67,7 +67,7 @@ EMBED_BASE_URL: str = _cfg("EMBED_BASE_URL", "http://172.23.90.91:8000/api/v1")
 EMBED_API_KEY: str = _cfg("EMBED_API_KEY", "placeholder")
 EMBED_MODEL: str = _cfg("EMBED_MODEL", "Qwen3-Embedding-4B-GGUF")
 
-EMBEDDING_DIMS: int = int(_cfg("EMBEDDING_DIMS", "768") or "768")
+EMBEDDING_DIMS: int = int(_cfg("EMBEDDING_DIMS", "768"))
 
 DEFAULT_SEARCH_COUNT: int = int(_cfg("DEFAULT_SEARCH_COUNT", "5"))
 

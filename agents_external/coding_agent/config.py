@@ -79,6 +79,17 @@ class AgentConfig(BaseModel):
         """Load configuration from .env + data/config.json."""
         import secrets as _s
         cfg = _load_config()
+
+        def _get(key: str, env_key: str | None = None, default: Any = None) -> Any:
+            """config.json > env var > default. Handles zero/false correctly."""
+            v = cfg.get(key)
+            if v is not None:
+                return v
+            e = os.environ.get(env_key or key)
+            if e is not None and e != "":
+                return e
+            return default
+
         return cls(
             # Infrastructure (env only)
             router_url=os.environ.get("ROUTER_URL", cls.model_fields["router_url"].default),
@@ -93,12 +104,12 @@ class AgentConfig(BaseModel):
             admin_password=os.environ.get("ADMIN_PASSWORD", cls.model_fields["admin_password"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _s.token_hex(32),
             # Runtime (config.json > env fallback > default)
-            llm_timeout=int(cfg.get("LLM_TIMEOUT") or os.environ.get("LLM_TIMEOUT") or cls.model_fields["llm_timeout"].default),
-            tool_timeout=int(cfg.get("TOOL_TIMEOUT") or os.environ.get("TOOL_TIMEOUT") or cls.model_fields["tool_timeout"].default),
-            workspace_root=cfg.get("WORKSPACE_ROOT") or os.environ.get("WORKSPACE_ROOT") or cls.model_fields["workspace_root"].default,
-            user_config_path=cfg.get("USER_CONFIG_PATH") or os.environ.get("USER_CONFIG_PATH") or cls.model_fields["user_config_path"].default,
-            llm_agent_id=cfg.get("LLM_AGENT_ID") or os.environ.get("LLM_AGENT_ID") or cls.model_fields["llm_agent_id"].default,
-            default_model_id=cfg.get("DEFAULT_MODEL_ID") or os.environ.get("DEFAULT_MODEL_ID", ""),
+            llm_timeout=int(_get("LLM_TIMEOUT", default=cls.model_fields["llm_timeout"].default)),
+            tool_timeout=int(_get("TOOL_TIMEOUT", default=cls.model_fields["tool_timeout"].default)),
+            workspace_root=_get("WORKSPACE_ROOT", default=cls.model_fields["workspace_root"].default),
+            user_config_path=_get("USER_CONFIG_PATH", default=cls.model_fields["user_config_path"].default),
+            llm_agent_id=_get("LLM_AGENT_ID", default=cls.model_fields["llm_agent_id"].default),
+            default_model_id=_get("DEFAULT_MODEL_ID", default=""),
         )
 
 
