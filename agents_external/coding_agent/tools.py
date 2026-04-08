@@ -8,6 +8,8 @@ security enforcement (path validation, command blocking).
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
 import re
 import subprocess
 from pathlib import Path
@@ -220,6 +222,23 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_image",
+            "description": "Read an image file for visual analysis. The image will be displayed inline for the LLM to analyze.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Image file path relative to workspace (e.g. 'screenshot.png', 'inbox/photo.jpg').",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
 ]
 
 
@@ -299,6 +318,21 @@ class ToolEngine:
         total = len(lines)
         header = f"[{args['file_path']}] Lines {offset}-{min(offset + len(selected) - 1, total)} of {total}"
         return header + "\n" + "\n".join(numbered)
+
+    async def _tool_read_image(self, args: dict[str, Any]) -> str:
+        """Read an image file and return a marker for inline injection."""
+        path = _resolve_and_validate_path(args["file_path"], self.workspace, self.user_config)
+        if not path.is_file():
+            return f"Error: '{args['file_path']}' is not a file or does not exist."
+        try:
+            data = path.read_bytes()
+            mime = mimetypes.guess_type(str(path))[0] or "image/png"
+            if not mime.startswith("image/"):
+                return f"Error: '{args['file_path']}' does not appear to be an image ({mime})."
+            b64 = base64.b64encode(data).decode("ascii")
+            return f"[IMAGE_BASE64:{mime}:{b64}]"
+        except Exception as exc:
+            return f"Error reading image: {exc}"
 
     async def _tool_write_file(self, args: dict[str, Any]) -> str:
         path = _resolve_and_validate_path(args["file_path"], self.workspace, self.user_config)

@@ -329,6 +329,7 @@ async def run_agent_loop(
     iteration = 0
     total_tool_calls = 0
     tools_used: list[str] = []
+    _pending_images: list[tuple[str, str]] = []  # (mime, base64) for read_image
     prompt_tokens = 0
     completion_tokens = 0
     # Files collected via attach_file tool, included in final result
@@ -508,11 +509,31 @@ async def run_agent_loop(
 
                 # Handle local tools
                 result = await engine.execute(tool_name, arguments)
+
+                # Image results: replace marker with placeholder, queue for injection
+                if result.startswith("[IMAGE_BASE64:"):
+                    parts = result.split(":", 2)
+                    if len(parts) == 3:
+                        _pending_images.append((parts[1], parts[2].rstrip("]")))
+                        result = "Image loaded. It will appear in the next message for your analysis."
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "content": result,
                 })
+
+            # Inject pending images as a multimodal user message
+            if _pending_images:
+                img_content: list[dict[str, Any]] = [
+                    {"type": "text", "text": "Here is the image for your analysis:"},
+                ]
+                for mime, b64 in _pending_images:
+                    img_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    })
+                messages.append({"role": "user", "content": img_content})
+                _pending_images.clear()
 
         # Max iterations reached
         logger.warning(f"[{task_id}] Max iterations reached ({user_config.max_iterations})")
