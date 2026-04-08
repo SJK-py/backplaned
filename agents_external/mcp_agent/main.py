@@ -189,6 +189,14 @@ async def _ensure_registered() -> None:
                         headers={"Authorization": f"Bearer {_auth_token}"},
                         timeout=120.0,
                     )
+                    try:
+                        await _http_client.put(
+                            f"{ROUTER_URL}/agent-info",
+                            json={"agent_id": _agent_id, "endpoint_url": RECEIVE_URL},
+                            timeout=10.0,
+                        )
+                    except Exception:
+                        pass
                     logger.info("Router credentials reloaded for %s", _agent_id)
                     return
                 # 401/403 means credentials are invalid — fall through to re-onboard.

@@ -1444,11 +1444,14 @@ class RouterClient:
         output_schema: Optional[str] = None,
         required_input: Optional[list[str]] = None,
         documentation_url: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
     ) -> httpx.Response:
         """
         Update this agent's AgentInfo on the router.
 
         Only non-None fields are merged into the existing info.
+        If ``endpoint_url`` is provided, the agent's registered endpoint
+        is also updated (useful when the port changes between restarts).
 
         Returns:
             The raw ``httpx.Response`` from the router.
@@ -1467,11 +1470,15 @@ class RouterClient:
             body["required_input"] = required_input
         if documentation_url is not None:
             body["documentation_url"] = documentation_url
+        if endpoint_url is not None:
+            body["endpoint_url"] = endpoint_url
         resp = await self._client.put(f"{self.router_url}/agent-info", json=body)
         resp.raise_for_status()
         return resp
 
-    async def refresh_from_agent_info(self, info: "AgentInfo") -> httpx.Response:
+    async def refresh_from_agent_info(
+        self, info: "AgentInfo", endpoint_url: Optional[str] = None,
+    ) -> httpx.Response:
         """Update this agent's info on the router from an AgentInfo object."""
         return await self.refresh_agent_info(
             description=info.description,
@@ -1479,6 +1486,7 @@ class RouterClient:
             output_schema=info.output_schema,
             required_input=info.required_input,
             documentation_url=info.documentation_url,
+            endpoint_url=endpoint_url,
         )
 
     # ------------------------------------------------------------------

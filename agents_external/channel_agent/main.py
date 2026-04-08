@@ -60,8 +60,8 @@ SESSION_SECRET: str = os.environ.get("SESSION_SECRET", secrets.token_hex(32))
 
 ROUTER_URL: str = os.environ.get("ROUTER_URL", "http://localhost:8000").rstrip("/")
 INVITATION_TOKEN: str = os.environ.get("INVITATION_TOKEN", "")
-AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL", f"http://localhost:{PORT}")
-RECEIVE_URL: str = os.environ.get("RECEIVE_URL", f"{AGENT_ENDPOINT_URL}/receive")
+AGENT_ENDPOINT_URL: str = os.environ.get("AGENT_ENDPOINT_URL") or f"http://localhost:{PORT}"
+RECEIVE_URL: str = os.environ.get("RECEIVE_URL") or f"{AGENT_ENDPOINT_URL}/receive"
 
 TELEGRAM_TOKEN: str = os.environ.get("TELEGRAM_TOKEN", "")
 DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
@@ -490,6 +490,15 @@ async def _ensure_registered() -> None:
                         headers={"Authorization": f"Bearer {_auth_token}"},
                         timeout=120.0,
                     )
+                    # Update endpoint_url in case port changed since registration.
+                    try:
+                        await _http_client.put(
+                            f"{ROUTER_URL}/agent-info",
+                            json={"agent_id": _agent_id, "endpoint_url": RECEIVE_URL},
+                            timeout=10.0,
+                        )
+                    except Exception:
+                        pass
                     logger.info("Router credentials reloaded for %s", _agent_id)
                     return
                 # 401/403 means credentials are invalid — fall through to re-onboard.
@@ -1539,16 +1548,18 @@ def _require_auth(ca_session: Optional[str] = Cookie(default=None)) -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    await _ensure_registered()
+    # Register in background so /health is available immediately.
+    reg_task = asyncio.create_task(_ensure_registered())
     tg_task = asyncio.create_task(_run_telegram())
     dc_task = asyncio.create_task(_run_discord())
     gc_task = asyncio.create_task(_file_gc_loop())
     yield
+    reg_task.cancel()
     tg_task.cancel()
     dc_task.cancel()
     gc_task.cancel()
     try:
-        await asyncio.gather(tg_task, dc_task, gc_task, return_exceptions=True)
+        await asyncio.gather(reg_task, tg_task, dc_task, gc_task, return_exceptions=True)
     except Exception:
         pass
     if _http_client:

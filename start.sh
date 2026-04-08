@@ -212,14 +212,27 @@ KB_PORT="${KB_PORT:-8086}"
 CODING_PORT="${CODING_PORT:-8100}"
 REMINDER_PORT="${REMINDER_PORT:-8101}"
 
-is_excluded "web_admin"     || set_env_var "$ROOT/agents_external/web_admin/data/.env" "AGENT_PORT" "$WEB_ADMIN_PORT"
-is_excluded "channel_agent" || set_env_var "$ROOT/agents_external/channel_agent/data/.env" "AGENT_PORT" "$CHANNEL_PORT"
-is_excluded "mcp_agent"     || set_env_var "$ROOT/agents_external/mcp_agent/data/.env" "AGENT_PORT" "$MCP_AGENT_PORT"
-is_excluded "mcp_server"    || set_env_var "$ROOT/agents_external/mcp_server/data/.env" "AGENT_PORT" "$MCP_SERVER_PORT"
-is_excluded "cron_agent"    || set_env_var "$ROOT/agents_external/cron_agent/data/.env" "AGENT_PORT" "$CRON_PORT"
-is_excluded "kb_agent"      || set_env_var "$ROOT/agents_external/kb_agent/data/.env" "AGENT_PORT" "$KB_PORT"
-is_excluded "coding_agent"  || set_env_var "$ROOT/agents_external/coding_agent/data/.env" "AGENT_PORT" "$CODING_PORT"
-is_excluded "reminder_agent" || set_env_var "$ROOT/agents_external/reminder_agent/data/.env" "AGENT_PORT" "$REMINDER_PORT"
+# Helper: set AGENT_PORT and AGENT_ENDPOINT_URL for an external agent
+_set_agent_port() {
+    local agent_name="$1" port="$2"
+    is_excluded "$agent_name" && return
+    local env_file="$ROOT/agents_external/$agent_name/data/.env"
+    set_env_var "$env_file" "AGENT_PORT" "$port"
+    set_env_var "$env_file" "AGENT_ENDPOINT_URL" "http://localhost:${port}"
+}
+
+_set_agent_port "web_admin"      "$WEB_ADMIN_PORT"
+_set_agent_port "channel_agent"  "$CHANNEL_PORT"
+_set_agent_port "mcp_agent"      "$MCP_AGENT_PORT"
+_set_agent_port "mcp_server"     "$MCP_SERVER_PORT"
+_set_agent_port "cron_agent"     "$CRON_PORT"
+_set_agent_port "kb_agent"       "$KB_PORT"
+_set_agent_port "coding_agent"   "$CODING_PORT"
+_set_agent_port "reminder_agent" "$REMINDER_PORT"
+
+# MCP protocol port (separate from mcp_server's AGENT_PORT)
+MCP_PORT="${MCP_PORT:-8084}"
+is_excluded "mcp_server" || set_env_var "$ROOT/agents_external/mcp_server/data/.env" "MCP_PORT" "$MCP_PORT"
 
 # ── Re-source root .env (may have been updated above) ───────────────────
 set -a

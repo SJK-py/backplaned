@@ -103,9 +103,14 @@ class MCPManager:
             self._servers[cfg.name] = MCPServerState(config=cfg)
 
     def _save_config(self) -> None:
-        data = {
-            "servers": [s.config.model_dump() for s in self._servers.values()]
-        }
+        # Preserve non-server keys (e.g. LLM_AGENT_ID, LLM_MODEL_ID)
+        data: dict = {}
+        if self._config_file.exists():
+            try:
+                data = json.loads(self._config_file.read_text())
+            except Exception:
+                pass
+        data["servers"] = [s.config.model_dump() for s in self._servers.values()]
         self._config_file.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._config_file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2))

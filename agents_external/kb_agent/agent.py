@@ -579,6 +579,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         documentation_url=doc_url,
     )
 
+    _endpoint_url = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
+    _receive_url = f"{_endpoint_url}/receive"
+
     if saved_creds.get("auth_token"):
         agent_config.agent_auth_token = saved_creds["auth_token"]
         agent_config.agent_id = saved_creds.get("agent_id", agent_config.agent_id)
@@ -588,7 +591,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             auth_token=agent_config.agent_auth_token,
         )
         try:
-            await router_client.refresh_from_agent_info(agent_info)
+            await router_client.refresh_from_agent_info(agent_info, endpoint_url=_receive_url)
         except Exception as e:
             logger.warning("Failed to refresh agent info: %s", e)
         try:
@@ -599,12 +602,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         logger.info("Using saved credentials for '%s'.", agent_config.agent_id)
 
     elif agent_config.invitation_token:
-        endpoint_url = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
         try:
             resp = await onboard(
                 router_url=agent_config.router_url,
                 invitation_token=agent_config.invitation_token,
-                endpoint_url=f"{endpoint_url}/receive",
+                endpoint_url=_receive_url,
                 agent_info=agent_info,
             )
             agent_config.agent_auth_token = resp.auth_token
@@ -669,7 +671,8 @@ async def refresh_info(request: Request) -> JSONResponse:
         return JSONResponse({"status": "error", "detail": "Not connected."}, status_code=503)
     agent_info.documentation_url = f"file://{_AGENT_DOC_PATH}" if _AGENT_DOC_PATH.exists() else None
     try:
-        await router_client.refresh_from_agent_info(agent_info)
+        _ep = agent_config.agent_endpoint_url or f"http://localhost:{agent_config.agent_port}"
+        await router_client.refresh_from_agent_info(agent_info, endpoint_url=f"{_ep}/receive")
         dest_data = await router_client.get_destinations()
         available_destinations = dest_data.get("available_destinations", {})
         return JSONResponse({"status": "refreshed"})
