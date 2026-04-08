@@ -10,14 +10,16 @@ if [ ! -f "$ROOT/.env" ]; then
         cp "$ROOT/.env.example" "$ROOT/.env"
         echo "[start] Created .env from .env.example"
     else
-        echo "[start] ERROR: $ROOT/.env not found and no .env.example to copy from." >&2
-        exit 1
+        # In Docker, .env is not needed — env vars come from env_file.
+        echo "[start] No .env found (OK in Docker — using environment variables)"
     fi
 fi
-set -a
-# shellcheck disable=SC1091
-source "$ROOT/.env"
-set +a
+if [ -f "$ROOT/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/.env"
+    set +a
+fi
 
 # ── Load start.config (user settings — takes precedence over .env) ─────
 if [ -f "$ROOT/start.config" ]; then

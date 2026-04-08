@@ -4,7 +4,7 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl && \
+    curl gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency management
@@ -15,7 +15,7 @@ COPY pyproject.toml .
 RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
 
 # Copy source code
-COPY router.py helper.py config_ui.py start.sh ./
+COPY router.py helper.py config_ui.py start.sh .env.example ./
 COPY agents/ agents/
 COPY agents_external/channel_agent/ agents_external/channel_agent/
 COPY agents_external/mcp_agent/ agents_external/mcp_agent/
@@ -38,8 +38,6 @@ RUN chmod +x start.sh
 
 # Non-root user for security
 RUN useradd -m -s /bin/bash agora
-RUN chown -R agora:agora /app
-USER agora
 
-# Ports are configured via start.config and mapped in docker-compose.yml.
-CMD ["./start.sh"]
+# Entrypoint: fix volume ownership then drop to non-root user
+ENTRYPOINT ["sh", "-c", "chown -R agora:agora /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; exec gosu agora ./start.sh"]

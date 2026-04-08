@@ -4,7 +4,7 @@ WORKDIR /app
 
 # System deps for code execution sandbox
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl build-essential && \
+    git curl build-essential gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv
@@ -25,8 +25,6 @@ RUN chmod +x start.sh
 
 # Non-root user for security
 RUN useradd -m -s /bin/bash agent
-RUN chown -R agent:agent /app
-USER agent
 
-# Port is configured via start.config and mapped in docker-compose.yml.
-CMD ["./start.sh"]
+# Entrypoint: fix volume ownership then drop to non-root user
+ENTRYPOINT ["sh", "-c", "chown -R agent:agent /app/data 2>/dev/null; exec gosu agent ./start.sh"]
