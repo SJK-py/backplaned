@@ -74,12 +74,12 @@ OCR_MODEL=""                      # Override model for OCR (default: LLM_MODEL)
 # ═══════════════════════════════════════════════════════════════════════
 #
 # kb_agent needs an embedding endpoint for vector search. If left empty,
-# falls back to MEM0_EMBED_* values above.
+# falls back to MEMORY_EMBED_* values above.
 
-KB_EMBED_BASE_URL=""              # Override embedding endpoint (default: MEM0_EMBED_BASE_URL)
-KB_EMBED_API_KEY=""               # Override embedding API key (default: MEM0_EMBED_API_KEY)
-KB_EMBED_MODEL=""                 # Override embedding model (default: MEM0_EMBED_MODEL)
-KB_VECTOR_DIM=""                  # Embedding vector dimension for kb_agent (default: MEM0_EMBEDDING_DIMS)
+KB_EMBED_BASE_URL=""              # Override embedding endpoint (default: MEMORY_EMBED_BASE_URL)
+KB_EMBED_API_KEY=""               # Override embedding API key (default: MEMORY_EMBED_API_KEY)
+KB_EMBED_MODEL=""                 # Override embedding model (default: MEMORY_EMBED_MODEL)
+KB_VECTOR_DIM=""                  # Embedding vector dimension for kb_agent (default: MEMORY_EMBEDDING_DIMS)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Telegram Integration (optional)
