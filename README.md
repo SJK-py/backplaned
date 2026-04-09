@@ -115,20 +115,24 @@ nano start.config   # Set ADMIN_TOKEN, ADMIN_PASSWORD, LLM_BASE_URL, LLM_MODEL
 
 # 2. Configure docker/.env (Docker-specific: ports, tokens)
 cp docker/.env.example docker/.env
-nano docker/.env     # Set ADMIN_TOKEN (same as start.config)
+nano docker/.env     # Set ADMIN_TOKEN (must match start.config)
 
 # 3. Launch
 cd docker
 docker compose up -d
 
-# 4. Register coding agent (first time only)
-#    Open the coding agent web UI (default: http://localhost:8100)
-#    and use the Setup tab to register with the router.
+# 4. Register coding agent (first time only):
+#    a. Open web admin UI (http://localhost:8080)
+#    b. Go to Invitations tab → create token with group "usertool"
+#    c. Open coding agent UI (http://localhost:8100)
+#    d. Go to Setup tab → paste the invitation token → Register
 ```
 
 Two containers:
 - **router** — Router + embedded agents + lightweight external agents. Reads `start.config` (mounted as volume) at startup to populate agent configurations.
-- **coding** — Isolated coding agent sandbox. Register via its web UI after first boot.
+- **coding** — Isolated coding agent sandbox. Requires one-time registration via web UI after first boot.
+
+> **Important:** `ADMIN_TOKEN` in `docker/.env` must match the value in `start.config`. The router uses it for API authentication, and the web admin agent uses it to manage agents and create invitation tokens.
 
 ### How Docker config works
 
