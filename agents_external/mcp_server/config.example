@@ -1,0 +1,3 @@
+{
+    "exclude_agents": "List of agent IDs to exclude from MCP tool exposure (e.g. [\"coding_agent\", \"core_personal_agent\"])"
+}

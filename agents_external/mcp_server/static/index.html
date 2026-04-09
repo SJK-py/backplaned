@@ -30,6 +30,7 @@
     <button class="tab-btn active" data-tab="status">Status</button>
     <button class="tab-btn" data-tab="tools">Tools</button>
     <button class="tab-btn" data-tab="logs">Logs</button>
+    <button class="tab-btn" data-tab="config">Config</button>
     <button class="tab-btn" data-tab="setup">Setup</button>
   </nav>
 
@@ -98,6 +99,26 @@
           <button class="btn btn-secondary btn-sm" id="refresh-logs">Refresh</button>
         </div>
         <div class="log-view" id="log-view">Loading...</div>
+      </div>
+    </div>
+
+    <!-- ===== CONFIG TAB ===== -->
+    <div id="tab-config" class="tab-panel">
+      <div class="section">
+        <h2>Agent Configuration</h2>
+        <p style="color:var(--text-dim);margin-bottom:1rem">Edit runtime settings. Changes take effect immediately.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+          <div>
+            <label style="font-weight:600;display:block;margin-bottom:.3rem">config.json</label>
+            <textarea id="cfg-editor" rows="16" style="width:100%;font-family:monospace;font-size:.85rem;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem;resize:vertical"></textarea>
+            <button class="btn" onclick="saveConfig()" style="margin-top:.5rem">Save</button>
+            <span id="cfg-msg" style="margin-left:.5rem;font-size:.85rem"></span>
+          </div>
+          <div>
+            <label style="font-weight:600;display:block;margin-bottom:.3rem">Field descriptions</label>
+            <pre id="cfg-example" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.5rem;font-size:.82rem;overflow:auto;max-height:400px;margin:0;white-space:pre-wrap"></pre>
+          </div>
+        </div>
       </div>
     </div>
 

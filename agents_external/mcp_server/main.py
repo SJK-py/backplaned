@@ -45,6 +45,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from helper import AgentInfo, AgentOutput, OnboardResponse, PasswordFile, build_spawn_request, onboard
+from config_ui import add_config_routes
 
 load_dotenv(Path(__file__).parent / "data" / ".env")
 
@@ -426,6 +427,8 @@ app = FastAPI(title="Router-as-MCP-Server", lifespan=lifespan)
 _static_dir = Path(__file__).parent / "static"
 if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+add_config_routes(app, Path(__file__).resolve().parent, _require_auth, cookie_name="mcps_session")
 
 
 # ---------------------------------------------------------------------------
