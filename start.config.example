@@ -1,4 +1,4 @@
-# ─── Agora Start Configuration ────────────────────────────────────────
+# ─── Backplaned Start Configuration ────────────────────────────────────
 #
 # This file is sourced by start.sh on startup. All values here are
 # propagated into the appropriate .env and config.json files for each

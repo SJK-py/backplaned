@@ -35,9 +35,9 @@ RUN mkdir -p data proxyfiles && \
     for d in channel_agent mcp_agent mcp_server cron_agent kb_agent reminder_agent web_admin; do \
         mkdir -p "agents_external/$d/data"; \
     done && \
-    groupadd -g $GID agora && \
-    useradd -u $UID -g $GID -m -s /bin/bash agora && \
-    chown -R agora:agora /app
+    groupadd -g $GID backplaned && \
+    useradd -u $UID -g $GID -m -s /bin/bash backplaned && \
+    chown -R backplaned:backplaned /app
 
 RUN chmod +x start.sh
 
@@ -45,8 +45,8 @@ RUN chmod +x start.sh
 # If already non-root (rootless Docker), run directly.
 ENTRYPOINT ["sh", "-c", "\
     if [ \"$(id -u)\" = \"0\" ]; then \
-        chown -R agora:agora /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; \
-        exec gosu agora ./start.sh; \
+        chown -R backplaned:backplaned /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; \
+        exec gosu backplaned ./start.sh; \
     else \
         exec ./start.sh; \
     fi"]

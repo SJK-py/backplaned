@@ -1,4 +1,4 @@
-# Agora
+# Backplaned
 
 A lightweight, self-hosted multi-agent orchestration platform. A central router handles task routing, access control, and file transfer between pluggable agents over a unified HTTP protocol. Ships with a personal assistant suite: LLM gateway, long-term memory, web research, code execution, document conversion, knowledge base, reminders, scheduled tasks, and Telegram/Discord/MCP bridges.
 
@@ -73,8 +73,8 @@ Agents are organized into groups with directional routing rules:
 ### Setup
 
 ```bash
-git clone https://github.com/SJK-py/agora.git agora
-cd agora
+git clone https://github.com/SJK-py/backplaned.git backplaned
+cd backplaned
 
 # Create virtual environment and install dependencies
 uv venv
@@ -105,8 +105,8 @@ For full configuration options (memory, embeddings, OCR, Telegram, Discord, port
 ## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/SJK-py/agora.git agora
-cd agora
+git clone https://github.com/SJK-py/backplaned.git backplaned
+cd backplaned
 
 # 1. Configure start.config (agent settings: LLM, embeddings, passwords)
 cp start.config.example start.config
@@ -217,7 +217,7 @@ External agents register with the router using single-use invitation tokens:
 ## Project Structure
 
 ```
-agora/
+backplaned/
 ├── router.py                 # Central router
 ├── helper.py                 # Shared client library (models, builders, RouterClient)
 ├── start.sh                  # Bare-metal launcher
