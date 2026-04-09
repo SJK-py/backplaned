@@ -65,5 +65,5 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "4"
-          memory: 8G
+          cpus: "${CODING_CPU_LIMIT:-2}"
+          memory: "${CODING_MEMORY_LIMIT:-4G}"
