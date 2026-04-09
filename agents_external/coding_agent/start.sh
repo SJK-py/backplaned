@@ -71,4 +71,4 @@ fi
 mkdir -p "${WORKSPACE_ROOT:-data/workspaces}" "${LOG_DIR:-data/logs}"
 
 echo "[coding] Starting on ${AGENT_HOST:-0.0.0.0}:${AGENT_PORT:-8100} ..."
-exec python3 agent.py
+exec .venv/bin/python3 agent.py
