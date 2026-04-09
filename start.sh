@@ -359,6 +359,10 @@ start_agent() {
 
 # ── External Agents ────────────────────────────────────────────────────
 
+# Ensure helper.py and config_ui.py (at project root) are importable by all agents.
+PYTHONPATH="$ROOT:${PYTHONPATH:-}"
+export PYTHONPATH
+
 start_agent "web_admin" "Web-Admin" '["admin"]' '["admin"]' "$WEB_ADMIN_PORT" \
     "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$WEB_ADMIN_PORT"
 
@@ -370,9 +374,6 @@ start_agent "mcp_server" "MCP-Server" '["bridge"]' '["bridge"]' "$MCP_SERVER_POR
 
 start_agent "mcp_agent" "MCP-Agent" '["tool"]' '["tool"]' "$MCP_AGENT_PORT" \
     "$VENV_BIN/uvicorn" main:app --host 0.0.0.0 --port "$MCP_AGENT_PORT"
-
-PYTHONPATH="$ROOT:${PYTHONPATH:-}"
-export PYTHONPATH
 
 start_agent "coding_agent" "Coding" '["usertool"]' '["usertool"]' "$CODING_PORT" \
     "$VENV_BIN/python3" agent.py
