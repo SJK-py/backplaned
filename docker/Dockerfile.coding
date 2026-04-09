@@ -12,7 +12,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency manifest and install
 COPY pyproject.toml .
-COPY agora/ agora/
+COPY backplaned/ backplaned/
 RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
 
 # Copy coding agent source + shared helpers
