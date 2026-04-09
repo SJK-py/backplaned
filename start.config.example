@@ -115,11 +115,12 @@ RATE_LIMIT_MAX_TRIALS=5           # Max attempts from unregistered users per win
 # EXCLUDE_AGENTS=""                 # e.g. "coding_agent" or "coding_agent,kb_agent"
 
 # ═══════════════════════════════════════════════════════════════════════
-# Ports
+# Ports (bare-metal only)
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Default ports for each service. Used by both bare-metal (start.sh)
-# and Docker (docker-compose.yml) deployments.
+# Container-internal ports are hardcoded to these defaults in Docker.
+# For Docker deployments, COMMENT OUT or REMOVE these lines — host-side
+# port mapping is configured in docker/.env instead.
 
 ROUTER_PORT=8000
 WEB_ADMIN_PORT=8080
@@ -133,8 +134,10 @@ CODING_PORT=8100
 REMINDER_PORT=8101
 
 # ═══════════════════════════════════════════════════════════════════════
-# Docker (docker-compose only)
+# Agent Exclusion (optional)
 # ═══════════════════════════════════════════════════════════════════════
+#
+# For Docker: uncomment the line below — coding_agent runs in its own
+# container and should not be started by start.sh in the router container.
 
-# DATA_ROOT="./data"              # Host directory for all persistent data volumes
-# EXCLUDE_AGENTS="coding_agent"   # coding_agent runs in its own container; exclude from router
+# EXCLUDE_AGENTS="coding_agent"

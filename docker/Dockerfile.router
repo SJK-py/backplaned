@@ -4,7 +4,7 @@ WORKDIR /app
 
 # System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl && \
+    curl gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency management
@@ -15,7 +15,7 @@ COPY pyproject.toml .
 RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
 
 # Copy source code
-COPY router.py helper.py config_ui.py start.sh ./
+COPY router.py helper.py config_ui.py start.sh .env.example ./
 COPY agents/ agents/
 COPY agents_external/channel_agent/ agents_external/channel_agent/
 COPY agents_external/mcp_agent/ agents_external/mcp_agent/
@@ -25,21 +25,25 @@ COPY agents_external/kb_agent/ agents_external/kb_agent/
 COPY agents_external/reminder_agent/ agents_external/reminder_agent/
 COPY agents_external/web_admin/ agents_external/web_admin/
 
-# Create data directories
+# Create data directories and non-root user
 RUN mkdir -p data proxyfiles && \
     for d in core_personal_agent llm_agent memory_agent web_agent md_converter; do \
         mkdir -p "agents/$d/data"; \
     done && \
     for d in channel_agent mcp_agent mcp_server cron_agent kb_agent reminder_agent web_admin; do \
         mkdir -p "agents_external/$d/data"; \
-    done
+    done && \
+    useradd -m -s /bin/bash agora && \
+    chown -R agora:agora /app
 
 RUN chmod +x start.sh
 
-# Non-root user for security
-RUN useradd -m -s /bin/bash agora
-RUN chown -R agora:agora /app
-USER agora
-
-# Ports are configured via start.config and mapped in docker-compose.yml.
-CMD ["./start.sh"]
+# Entrypoint: if running as root (standard Docker), fix volume ownership
+# and drop to non-root user. If already non-root (rootless Docker), run directly.
+ENTRYPOINT ["sh", "-c", "\
+    if [ \"$(id -u)\" = \"0\" ]; then \
+        chown -R agora:agora /app/data /app/proxyfiles /app/agents/*/data /app/agents_external/*/data 2>/dev/null; \
+        exec gosu agora ./start.sh; \
+    else \
+        exec ./start.sh; \
+    fi"]
