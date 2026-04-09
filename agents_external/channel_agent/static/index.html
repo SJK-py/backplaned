@@ -485,7 +485,9 @@ async function saveConfig() {
   showMsg('cfg-msg', 'Saving…', true);
 
   if (mode === 'invitation' && token) {
-    // Save config into the invitation token
+    // Save config into the invitation token (include verbose + core_agent)
+    config._verbose = _cfgVerbose;
+    config._core_agent_id = document.getElementById('cfg-core-agent').value.trim() || null;
     const r = await apiFetch('/ui/invitation-tokens/' + encodeURIComponent(token) + '/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config }),
