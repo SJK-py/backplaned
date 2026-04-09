@@ -35,9 +35,13 @@ services:
       - "${DATA_ROOT:-./data}/reminder_agent:/app/agents_external/reminder_agent/data"
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
     environment:
-      # Only ADMIN_TOKEN is needed by router.py at import time.
-      # All other config is read by start.sh from /app/start.config.
       - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - EXCLUDE_AGENTS=${EXCLUDE_AGENTS:-coding_agent}
+      # Optional router tuning (uncomment to override defaults)
+      # - EMBEDDED_AGENT_TIMEOUT=${EMBEDDED_AGENT_TIMEOUT:-720}
+      # - GLOBAL_TIMEOUT_HOURS=${GLOBAL_TIMEOUT_HOURS:-1}
+      # - MAX_DEPTH=${MAX_DEPTH:-10}
+      # - MAX_WIDTH=${MAX_WIDTH:-50}
     restart: unless-stopped
 
   # ── Coding Agent (isolated sandbox) ─────────────────────────────────
@@ -54,6 +58,7 @@ services:
       - AGENT_URL=http://coding:8100
       - AGENT_PORT=8100
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - INVITATION_TOKEN=${CODING_INVITATION_TOKEN:-}
     depends_on:
       - router
     restart: unless-stopped
