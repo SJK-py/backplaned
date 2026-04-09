@@ -15,6 +15,9 @@ services:
       - "${KB_PORT:-8086}:${KB_PORT:-8086}"
       - "${REMINDER_PORT:-8101}:${REMINDER_PORT:-8101}"
     volumes:
+      # start.config is sourced by start.sh inside the container
+      - ../start.config:/app/start.config:ro
+      # Persistent data
       - "${DATA_ROOT:-./data}/router:/app/data"
       - "${DATA_ROOT:-./data}/proxyfiles:/app/proxyfiles"
       # Embedded agents (config.json + runtime data)
@@ -31,8 +34,10 @@ services:
       - "${DATA_ROOT:-./data}/kb_agent:/app/agents_external/kb_agent/data"
       - "${DATA_ROOT:-./data}/reminder_agent:/app/agents_external/reminder_agent/data"
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
-    env_file:
-      - ../start.config
+    environment:
+      # Only ADMIN_TOKEN is needed by router.py at import time.
+      # All other config is read by start.sh from /app/start.config.
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
     restart: unless-stopped
 
   # ── Coding Agent (isolated sandbox) ─────────────────────────────────
@@ -44,12 +49,12 @@ services:
       - "${CODING_PORT:-8100}:${CODING_PORT:-8100}"
     volumes:
       - "${DATA_ROOT:-./data}/coding_agent:/app/data"
-    env_file:
-      - ../start.config
     environment:
+      # Infrastructure vars for coding agent's start.sh bootstrap
       - ROUTER_URL=http://router:${ROUTER_PORT:-8000}
       - AGENT_URL=http://coding:${CODING_PORT:-8100}
       - AGENT_PORT=${CODING_PORT:-8100}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
     depends_on:
       - router
     restart: unless-stopped
