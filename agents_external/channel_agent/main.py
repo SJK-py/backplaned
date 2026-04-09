@@ -962,17 +962,33 @@ async def _handle_incoming(
         logger.info("Registered user %s via invitation token (%s:%s)", new_user_id, platform, platform_user_id)
         # Apply pre-configured config if present
         pre_config = token_info.get("config")
-        if pre_config and any(v is not None and v != "" for v in pre_config.values()):
-            config_json = json.dumps(pre_config, ensure_ascii=False)
-            data = _load_data()
-            core_agent_id = _get_core_agent(data, new_user_id)
-            await _spawn_to_core(
-                identifier=f"_noreply_regcfg_{uuid.uuid4().hex[:8]}",
-                user_id=new_user_id,
-                session_id="SYSTEM",
-                message=f"<update_user_config> {config_json}",
-                core_agent_id=core_agent_id,
-            )
+        if pre_config:
+            # Channel-agent-managed settings (verbose, core_agent_map)
+            if pre_config.pop("_verbose", False):
+                async with _data_lock:
+                    data = _load_data()
+                    verbose = data.setdefault("verbose_users", [])
+                    if new_user_id not in verbose:
+                        verbose.append(new_user_id)
+                    _save_data(data)
+            core_agent = pre_config.pop("_core_agent_id", None)
+            if core_agent:
+                async with _data_lock:
+                    data = _load_data()
+                    data.setdefault("core_agent_map", {})[new_user_id] = core_agent
+                    _save_data(data)
+            # Core-agent-managed settings (model_id, timezone, etc.)
+            if any(v is not None and v != "" for v in pre_config.values()):
+                config_json = json.dumps(pre_config, ensure_ascii=False)
+                data = _load_data()
+                core_agent_id = _get_core_agent(data, new_user_id)
+                await _spawn_to_core(
+                    identifier=f"_noreply_regcfg_{uuid.uuid4().hex[:8]}",
+                    user_id=new_user_id,
+                    session_id="SYSTEM",
+                    message=f"<update_user_config> {config_json}",
+                    core_agent_id=core_agent_id,
+                )
         await _send_to_chat(
             platform, chat_id,
             f"Registered as {new_user_id}. Use /config to review your configuration.",
