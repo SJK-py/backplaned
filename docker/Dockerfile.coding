@@ -18,9 +18,12 @@ RUN uv venv .venv && uv pip install --python .venv/bin/python3 -e .
 COPY helper.py config_ui.py ./
 COPY agents_external/coding_agent/ ./
 
-# Create data directories and non-root user (UID 1000 for common host compatibility)
+# Create data directories and non-root user
+ARG UID=1000
+ARG GID=1000
 RUN mkdir -p data/workspaces data/logs && \
-    useradd -u 1000 -m -s /bin/bash agent && \
+    groupadd -g $GID agent && \
+    useradd -u $UID -g $GID -m -s /bin/bash agent && \
     chown -R agent:agent /app
 
 RUN chmod +x start.sh

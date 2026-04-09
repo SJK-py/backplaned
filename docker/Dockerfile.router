@@ -25,7 +25,9 @@ COPY agents_external/kb_agent/ agents_external/kb_agent/
 COPY agents_external/reminder_agent/ agents_external/reminder_agent/
 COPY agents_external/web_admin/ agents_external/web_admin/
 
-# Create data directories and non-root user (UID 1000 for common host compatibility)
+# Create data directories and non-root user
+ARG UID=1000
+ARG GID=1000
 RUN mkdir -p data proxyfiles && \
     for d in core_personal_agent llm_agent memory_agent web_agent md_converter; do \
         mkdir -p "agents/$d/data"; \
@@ -33,7 +35,8 @@ RUN mkdir -p data proxyfiles && \
     for d in channel_agent mcp_agent mcp_server cron_agent kb_agent reminder_agent web_admin; do \
         mkdir -p "agents_external/$d/data"; \
     done && \
-    useradd -u 1000 -m -s /bin/bash agora && \
+    groupadd -g $GID agora && \
+    useradd -u $UID -g $GID -m -s /bin/bash agora && \
     chown -R agora:agora /app
 
 RUN chmod +x start.sh
