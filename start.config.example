@@ -115,8 +115,12 @@ RATE_LIMIT_MAX_TRIALS=5           # Max attempts from unregistered users per win
 # EXCLUDE_AGENTS=""                 # e.g. "coding_agent" or "coding_agent,kb_agent"
 
 # ═══════════════════════════════════════════════════════════════════════
-# Ports (bare-metal only — for Docker, set in docker/.env)
+# Ports (bare-metal only)
 # ═══════════════════════════════════════════════════════════════════════
+#
+# Container-internal ports are hardcoded to these defaults in Docker.
+# For Docker deployments, COMMENT OUT or REMOVE these lines — host-side
+# port mapping is configured in docker/.env instead.
 
 ROUTER_PORT=8000
 WEB_ADMIN_PORT=8080
