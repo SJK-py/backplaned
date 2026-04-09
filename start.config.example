@@ -136,6 +136,8 @@ REMINDER_PORT=8101
 # ═══════════════════════════════════════════════════════════════════════
 # Agent Exclusion (optional)
 # ═══════════════════════════════════════════════════════════════════════
+#
+# For Docker: uncomment the line below — coding_agent runs in its own
+# container and should not be started by start.sh in the router container.
 
-# EXCLUDE_AGENTS=""                 # e.g. "coding_agent" or "coding_agent,kb_agent"
-# For Docker: EXCLUDE_AGENTS="coding_agent" (runs in its own container)
+# EXCLUDE_AGENTS="coding_agent"

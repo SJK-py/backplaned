@@ -108,22 +108,27 @@ For full configuration options (memory, embeddings, OCR, Telegram, Discord, port
 git clone https://github.com/SJK-py/agora.git agora
 cd agora
 
-# 1. Configure start.config (agent settings: LLM endpoint, embeddings, etc.)
+# 1. Configure start.config (agent settings: LLM, embeddings, passwords)
 cp start.config.example start.config
-nano start.config   # Set LLM_BASE_URL, LLM_MODEL, ADMIN_PASSWORD at minimum
+nano start.config   # Set ADMIN_TOKEN, ADMIN_PASSWORD, LLM_BASE_URL, LLM_MODEL
+                    # Uncomment EXCLUDE_AGENTS="coding_agent"
 
-# 2. Configure docker/.env (Docker-specific: ports, tokens, paths)
+# 2. Configure docker/.env (Docker-specific: ports, tokens)
 cp docker/.env.example docker/.env
-nano docker/.env     # Set ADMIN_TOKEN, ADMIN_PASSWORD
+nano docker/.env     # Set ADMIN_TOKEN (same as start.config)
 
 # 3. Launch
 cd docker
 docker compose up -d
+
+# 4. Register coding agent (first time only)
+#    Open the coding agent web UI (default: http://localhost:8100)
+#    and use the Setup tab to register with the router.
 ```
 
 Two containers:
-- **router** — Router + embedded agents + lightweight external agents. Reads `start.config` at startup to populate agent configurations.
-- **coding** — Isolated coding agent sandbox. Gets minimal env vars from docker-compose.
+- **router** — Router + embedded agents + lightweight external agents. Reads `start.config` (mounted as volume) at startup to populate agent configurations.
+- **coding** — Isolated coding agent sandbox. Register via its web UI after first boot.
 
 ### How Docker config works
 

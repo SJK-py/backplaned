@@ -36,7 +36,6 @@ services:
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
-      - EXCLUDE_AGENTS=${EXCLUDE_AGENTS:-coding_agent}
       # Optional router tuning (uncomment to override defaults)
       # - EMBEDDED_AGENT_TIMEOUT=${EMBEDDED_AGENT_TIMEOUT:-720}
       # - GLOBAL_TIMEOUT_HOURS=${GLOBAL_TIMEOUT_HOURS:-1}
@@ -57,8 +56,7 @@ services:
       - ROUTER_URL=http://router:8000
       - AGENT_URL=http://coding:8100
       - AGENT_PORT=8100
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - INVITATION_TOKEN=${CODING_INVITATION_TOKEN:-}
+      - ADMIN_PASSWORD=${CODING_ADMIN_PASSWORD:-}
     depends_on:
       - router
     restart: unless-stopped

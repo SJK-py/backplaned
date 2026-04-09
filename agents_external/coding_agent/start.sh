@@ -47,7 +47,6 @@ f.write_text('\n'.join(f'{k}={v}' if l.startswith(f'{k}=') else l for l in lines
 
 # Propagate secrets/infrastructure from env (docker env_file → data/.env)
 _set_env "$ENV_FILE" "ADMIN_PASSWORD" "${ADMIN_PASSWORD:-}"
-_set_env "$ENV_FILE" "INVITATION_TOKEN" "${INVITATION_TOKEN:-}"
 _set_env "$ENV_FILE" "AGENT_PORT" "${AGENT_PORT:-${CODING_PORT:-8100}}"
 _set_env "$ENV_FILE" "ROUTER_URL" "${ROUTER_URL:-http://localhost:8000}"
 _set_env "$ENV_FILE" "AGENT_URL" "${AGENT_URL:-}"
