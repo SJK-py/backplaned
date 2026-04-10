@@ -230,7 +230,6 @@ async def receive(request: Request) -> JSONResponse:
     # Return result — the router processes the 200 response body
     # as a routing payload and delivers it to the origin agent
     from helper import build_result_request
-    auth_token = os.environ.get("MY_AGENT_AUTH_TOKEN", "")
     return JSONResponse(
         build_result_request(
             agent_id="my_agent",
