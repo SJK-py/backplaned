@@ -2,10 +2,6 @@
 
 A lightweight, self-hosted multi-agent orchestration platform. A central router handles task routing, access control, and file transfer between pluggable agents over a unified HTTP protocol. Ships with a personal assistant suite: LLM gateway, long-term memory, web research, code execution, document conversion, knowledge base, reminders, scheduled tasks, and Telegram/Discord/MCP bridges.
 
-## Showcases
-
-![showcase_coding](/docs/images/showcase_coding.gif) ![showcase_document](/docs/images/showcase_document.gif)
-
 ## Architecture
 
 ![architecture](/docs/images/architecture.png)
@@ -13,6 +9,10 @@ A lightweight, self-hosted multi-agent orchestration platform. A central router 
 All communication flows through the **router**, which acts as an ESB-style message broker. It manages task lifecycle (create, route, complete, timeout), proxy file storage, agent registration via invitation tokens, and group-based ACL.
 
 **Embedded agents** run in-process with the router via zero-latency ASGI transport. **External agents** are separate processes communicating over HTTP — they can run on different hosts or in containers.
+
+## Showcases
+
+![showcase_coding](/docs/images/showcase_coding.gif) ![showcase_document](/docs/images/showcase_document.gif)
 
 ## Agents
 
