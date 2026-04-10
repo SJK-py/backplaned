@@ -115,6 +115,99 @@ Two containers:
 
 On first startup, `start.sh` creates `data/config.json` and `data/.env` for each agent from templates and `start.config` values. On subsequent starts, existing configs are preserved — only secrets (passwords, tokens) are re-propagated.
 
+## Telegram User Registration
+
+The `channel_agent` bridges Telegram to the router. Registration is invitation-based: an admin generates a one-time invitation token through the channel_agent web UI, and the Telegram user consumes it by sending a `/register` command to the bot.
+
+### 1. Create a Telegram bot
+
+1. In Telegram, open a chat with [@BotFather](https://t.me/BotFather) and send `/newbot`.
+2. Follow the prompts to pick a name and username. BotFather will reply with an HTTP API token.
+3. Set the token in `start.config`:
+   ```bash
+   TELEGRAM_TOKEN="123456:ABC-your-bot-token-from-BotFather"
+   ```
+4. Restart the stack (`./start.sh` for bare metal, or `docker compose restart` for Docker). On startup, channel_agent reads the token and begins polling Telegram for messages.
+
+### 2. Log in to the channel_agent web UI
+
+The channel_agent web UI is served on **port 8081** by default (set by `CHANNEL_PORT` in `start.config` for bare metal, or `docker/.env` for Docker).
+
+1. Open `http://<host>:8081` in your browser.
+2. Log in with the admin password from `ADMIN_PASSWORD` in `start.config`.
+3. Change the password on first login via the account menu if desired.
+
+### 3. Create an invitation token
+
+1. Go to the **Users** tab.
+2. Under **Invitation Tokens**, enter the `user_id` you want to assign to the new user (this is the internal identifier the core agent uses — one per person).
+3. Click **Invite User**. A new token appears in the list with a default 24-hour TTL.
+4. (Optional) Click **Config** next to the token to pre-configure the user's settings before they register. You can set:
+   - **Model ID** — Which LLM model the user will use (from `llm_agent` config)
+   - **Summarization model ID** — Model used for memory/history summarization
+   - **Timezone** — IANA timezone (e.g. `America/Los_Angeles`, `Asia/Seoul`)
+   - **System prompt** — Custom system prompt for the user's sessions
+   - **Verbose mode** — If on, the bot streams LLM thinking and tool calls to the chat
+   - **Core agent** — Which orchestrator agent this user routes through (defaults to `core_personal_agent`)
+5. Copy the token string from the table and send it to the user over a secure channel.
+
+### 4. User registers on Telegram
+
+The user opens a chat with your bot on Telegram and sends:
+
+```
+/register <token>
+```
+
+For example:
+
+```
+/register aB3xY9_long-invitation-token-string
+```
+
+If the token is valid and unexpired, the bot replies with `Registered as <user_id>. Use /config to review your configuration.` Any pre-configured settings from step 3 are automatically applied.
+
+Invitation tokens are **single-use** and expire after their TTL (default 24 hours). Invalid or expired tokens return `Invalid or expired invitation token.`
+
+**Rate limiting:** Unregistered users are rate-limited (default: 5 attempts per hour, configurable via `RATE_LIMIT_WINDOW` and `RATE_LIMIT_MAX_TRIALS` in `start.config`) to prevent brute-forcing tokens.
+
+### 5. Everyday use
+
+After registering, the user simply sends messages and files to the bot. The channel_agent routes each message to `core_personal_agent`, which runs the full agent loop and replies.
+
+Useful slash commands for registered users:
+
+| Command | Description |
+|---------|-------------|
+| `/help` (or `/start`) | Show the list of commands |
+| `/new` | Start a new chat session (archives current history) |
+| `/stop` | Stop the currently running task |
+| `/tokens` | Show estimated token usage for the current session |
+| `/agents` | List available agents and their capabilities |
+| `/config` | Show your current configuration |
+| `/config <instruction>` | Modify your config in natural language (e.g. `/config set my timezone to Europe/Berlin`) |
+| `/model` | List models you can use |
+| `/model <id>` | Switch to a different model |
+| `/link <agent_id>` | Talk directly to a specialized agent (skips orchestrator) |
+| `/link` | List agents you can link to |
+| `/unlink` | End the direct agent link |
+
+Files (images, documents, etc.) can be uploaded directly — the bot forwards them to the orchestrator, which can pass them to tools like `md_converter`, `kb_agent`, or `coding_agent`.
+
+### Managing registered users
+
+Back in the channel_agent web UI (**Users** tab), admins can:
+
+- View all registered users and their Telegram/Discord mappings
+- Toggle verbose mode per user
+- Override the core agent per user (useful for routing power users to a different orchestrator)
+- Delete user mappings (revokes access; they'll need a new invitation)
+- Revoke unused invitation tokens
+
+### Discord
+
+The Discord flow is identical: set `DISCORD_TOKEN` in `start.config`, invite the bot to a server, and have users send `/register <token>` in a DM with the bot. The same invitation tokens work for both platforms.
+
 ## Documentation
 
 Detailed documentation is available in the [`docs/`](docs/) directory:
