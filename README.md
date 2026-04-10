@@ -2,29 +2,13 @@
 
 A lightweight, self-hosted multi-agent orchestration platform. A central router handles task routing, access control, and file transfer between pluggable agents over a unified HTTP protocol. Ships with a personal assistant suite: LLM gateway, long-term memory, web research, code execution, document conversion, knowledge base, reminders, scheduled tasks, and Telegram/Discord/MCP bridges.
 
+## Showcases
+
+![showcase_coding](/docs/images/showcase_coding.gif) ![showcase_document](/docs/images/showcase_document.gif)
+
 ## Architecture
 
-```
-  Telegram / Discord           Web Admin           Claude Desktop, Cursor, ...
-         |                         |                          |
-    channel_agent                  |                     mcp_server
-         \                         |                (Router-as-MCP Bridge)
-          \                        |                        /
-       ┌───────────────────────────────────────────────────────┐
-       │                            Router                     │
-       │              task routing · ACL · proxy files         │
-       └──┬───────────┬──────────────┬─────────────────────┬───┘
-          │           │              │                     │
-   core_personal  ┌───┴───┐  ┌───────┴────────┐  ┌─────────┴────────┐
-      _agent      │ infra │  │      tool      │  │    usertool      │
-  (Orchestrator,  ├───────┤  ├────────────────┤  ├──────────────────┤
-      Session     │  llm  │  │  md_converter  │  │   memory_agent   │
-    Management)   │ agent │  │    web_agent   │  │   coding_agent   │
-                  └───────┘  │    mcp_agent   │  │     kb_agent     │
-                             │ (External MCP  │  │  reminder_agent  │
-                             │ Server Bridge) │  │    cron_agent    │
-                             └────────────────┘  └──────────────────┘
-```
+![architecture](/docs/images/architecture.png)
 
 All communication flows through the **router**, which acts as an ESB-style message broker. It manages task lifecycle (create, route, complete, timeout), proxy file storage, agent registration via invitation tokens, and group-based ACL.
 
