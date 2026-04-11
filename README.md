@@ -67,7 +67,7 @@ ADMIN_TOKEN="your-secret-admin-token"
 ADMIN_PASSWORD="your-admin-password"
 LLM_PROVIDER="openai_compat"
 LLM_BASE_URL="http://localhost:11434/v1"   # e.g. Ollama
-LLM_MODEL="llama3.1"
+LLM_MODEL="gemma4:26b"
 ```
 
 For full configuration options (memory, embeddings, OCR, Telegram, Discord, ports), see the comments in `start.config.example`.
