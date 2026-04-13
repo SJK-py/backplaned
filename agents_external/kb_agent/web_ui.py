@@ -13,7 +13,7 @@ import sys as _sys
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Cookie, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Cookie, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
@@ -232,11 +232,11 @@ def build_web_router() -> APIRouter:
     @router.post("/ui/upload")
     async def upload_md(
         file: UploadFile = File(...),
-        collection: str = "default",
-        title: Optional[str] = None,
-        description: str = "",
-        tags: str = "",
-        user_id: Optional[str] = None,
+        collection: str = Form("default"),
+        title: Optional[str] = Form(None),
+        description: str = Form(""),
+        tags: str = Form(""),
+        user_id: Optional[str] = Form(None),
         kb_session: Optional[str] = Cookie(default=None),
     ) -> dict:
         _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
