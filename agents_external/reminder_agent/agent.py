@@ -83,7 +83,7 @@ _pending_sub: dict[str, asyncio.Future] = {}
 LLM_AGENT_ID: str = os.environ.get("LLM_AGENT_ID", "llm_agent")
 def _get_default_model_id() -> str:
     from config import _load_config
-    return _load_config().get("_get_default_model_id()") or os.environ.get("_get_default_model_id()", "") or ""
+    return _load_config().get("DEFAULT_MODEL_ID") or os.environ.get("DEFAULT_MODEL_ID", "") or ""
 
 # Max iterations for the LLM tool-calling loop
 _MAX_ITERATIONS = 20
