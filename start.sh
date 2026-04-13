@@ -282,6 +282,52 @@ create_invitation() {
     fi
 }
 
+# ── Helper: validate credentials.json against the running router ─────────
+# Probes /agent/destinations with the saved auth_token.  On 200 returns 0
+# (credentials are valid).  On any non-200 HTTP response (typically 403
+# "Invalid credentials" after a rebuild that wiped router.db) removes
+# credentials.json and clears AGENT_AUTH_TOKEN from data/.env so the
+# existing re-onboarding path in start_agent() fires automatically.
+# The router has already passed its health check at this point, so any
+# non-200 is treated as stale credentials, not a network hiccup.
+validate_credentials() {
+    local label="$1" creds_file="$2" env_file="$3"
+
+    [ -f "$creds_file" ] || return 0
+
+    local auth_token
+    auth_token=$("$VENV_BIN/python3" - "$creds_file" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        print(json.load(f).get("auth_token", ""))
+except Exception:
+    pass
+PYEOF
+)
+
+    if [ -z "$auth_token" ]; then
+        echo "[$label] credentials.json missing auth_token — clearing for re-onboarding."
+        rm -f "$creds_file"
+        [ -f "$env_file" ] && set_env_var "$env_file" "AGENT_AUTH_TOKEN" ""
+        return 0
+    fi
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+        -H "Authorization: Bearer $auth_token" \
+        "http://localhost:${ROUTER_PORT}/agent/destinations" 2>/dev/null || echo "000")
+
+    if [ "$http_code" = "200" ]; then
+        return 0
+    fi
+
+    echo "[$label] Router rejected saved credentials (HTTP $http_code) — clearing for re-onboarding."
+    rm -f "$creds_file"
+    [ -f "$env_file" ] && set_env_var "$env_file" "AGENT_AUTH_TOKEN" ""
+    return 0
+}
+
 # ── Seed ACL group allowlist ─────────────────────────────────────────────
 # (init_db seeds embedded->embedded; we add the full rule set here)
 seed_acl() {
@@ -341,6 +387,11 @@ start_agent() {
 
     local agent_env="$ROOT/agents_external/$dir_name/data/.env"
     local agent_creds="$ROOT/agents_external/$dir_name/data/credentials.json"
+
+    # Validate any saved credentials against the router; stale ones
+    # (e.g. after a router.db reset) are deleted so the branch below
+    # fires and mints a fresh invitation token.
+    validate_credentials "$label" "$agent_creds" "$agent_env"
 
     if [ ! -f "$agent_creds" ]; then
         echo "[$label] No saved credentials — creating invitation token ..."
