@@ -32,6 +32,7 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "nighttime_start": "22:00",
     "nighttime_end": "07:00",
     "timezone": "America/Los_Angeles",
+    "model_id": None,
     "google_sync": {
         "enabled": False,
         "calendar_api_key": None,
