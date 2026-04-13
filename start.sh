@@ -182,6 +182,12 @@ if [ "$OCR_ENABLED" = "true" ]; then
     set_json_key "$OCR_CFG" "OCR_MODEL" "${OCR_MODEL:-$LLM_MODEL}"
 fi
 
+# Propagate web_agent search settings
+WEB_CFG="$ROOT/agents/web_agent/data/config.json"
+[ -n "$SEARCH_PROVIDER" ] && set_json_key "$WEB_CFG" "SEARCH_PROVIDER" "$SEARCH_PROVIDER"
+[ -n "$SEARXNG_BASE_URL" ] && set_json_key "$WEB_CFG" "SEARXNG_BASE_URL" "$SEARXNG_BASE_URL"
+[ -n "$BRAVE_API_KEY" ] && set_json_key "$WEB_CFG" "BRAVE_API_KEY" "$BRAVE_API_KEY"
+
 # Propagate kb_agent embedding settings to data/config.json
 if ! is_excluded "kb_agent"; then
     KB_CFG="$ROOT/agents_external/kb_agent/data/config.json"

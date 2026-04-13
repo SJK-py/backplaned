@@ -189,7 +189,7 @@ Long-term memory store using LanceDB for vector search. Stores and retrieves per
 Web research agent that performs multi-step searches and page reads to produce sourced reports.
 
 **Features:**
-- Search providers: DuckDuckGo (default), SearXNG, Brave
+- Search providers: **SearXNG** (default) or **Brave Search API**. A SearXNG container is included in the Docker deployment.
 - Multi-step research loop: search, read pages, refine query, search again
 - LLM-driven: uses an LLM to decide which pages to fetch and how to synthesize results
 - Configurable limits on searches, fetches, and iterations
@@ -199,6 +199,11 @@ Web research agent that performs multi-step searches and page reads to produce s
 - Input: `llmdata: LLMData`
 - Output: `content: str`
 
+**Backend setup:**
+
+- **Docker:** The bundled `searxng` service in `docker-compose.yml` is preconfigured with JSON output enabled. The default `SEARXNG_BASE_URL` (`http://searxng:8080`) in `start.config.example` reaches it over the compose network. Host-side port mapping defaults to `8880` (set `SEARXNG_PORT` in `docker/.env` to change).
+- **Bare metal:** Run your own SearXNG instance (with `formats: [html, json]` in its `settings.yml`) and set `SEARXNG_BASE_URL` in `start.config` to its URL. Alternatively, set `SEARCH_PROVIDER="brave"` and supply `BRAVE_API_KEY`.
+
 **Configuration (`config.json`):**
 
 | Key | Default | Description |
@@ -206,8 +211,8 @@ Web research agent that performs multi-step searches and page reads to produce s
 | `LLM_AGENT_ID` | `llm_agent` | Agent for LLM inference |
 | `LLM_MODEL_ID` | `""` | Model config key |
 | `USER_MODEL_IDS` | `{}` | Per-user model overrides |
-| `SEARCH_PROVIDER` | `duckduckgo` | Search provider (`duckduckgo`, `searxng`, `brave`) |
-| `SEARXNG_BASE_URL` | `""` | SearXNG instance URL |
+| `SEARCH_PROVIDER` | `searxng` | Search provider (`searxng` or `brave`) |
+| `SEARXNG_BASE_URL` | `""` | SearXNG instance URL (populated from `start.config`) |
 | `BRAVE_API_KEY` | `""` | Brave Search API key |
 | `SEARCH_MAX_RESULTS` | `5` | Max results per search query |
 | `CONTENT_LEN_LIMIT` | `500` | Search result snippet length |

@@ -49,6 +49,16 @@ services:
       # - MAX_WIDTH=${MAX_WIDTH:-50}
     restart: unless-stopped
 
+  # ── SearXNG (web search backend for web_agent) ──────────────────────
+  searxng:
+    image: searxng/searxng:latest
+    ports:
+      - "${SEARXNG_PORT:-8880}:8080"
+    configs:
+      - source: searxng_settings
+        target: /etc/searxng/settings.yml
+    restart: unless-stopped
+
   # ── Coding Agent (isolated sandbox) ─────────────────────────────────
   coding:
     build:
@@ -76,3 +86,20 @@ services:
         limits:
           cpus: "${CODING_CPU_LIMIT:-2}"
           memory: "${CODING_MEMORY_LIMIT:-4G}"
+
+# ── Inline SearXNG settings ───────────────────────────────────────────
+# Mounted at /etc/searxng/settings.yml inside the searxng container.
+# JSON output is required by web_agent; the rate limiter is disabled
+# because this instance is local and serves a single client.
+configs:
+  searxng_settings:
+    content: |
+      use_default_settings: true
+      server:
+        secret_key: "backplaned-searxng-local-secret-override-for-public-deployments"
+        limiter: false
+        image_proxy: false
+      search:
+        formats:
+          - html
+          - json

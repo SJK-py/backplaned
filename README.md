@@ -22,7 +22,7 @@ All communication flows through the **router**, which acts as an ESB-style messa
 | **llm_agent** | Embedded | `infra` | Centralized LLM inference gateway. Supports OpenAI, Anthropic, Google Generative AI, and OpenAI-compatible providers with fallback chains and per-user model ACL. |
 | **md_converter** | Embedded | `tool` | Converts documents (PDF, DOCX, PPTX, XLSX, HTML, images, etc.) to Markdown. Optional LLM-based OCR for scanned documents. |
 | **memory_agent** | Embedded | `usertool` | Long-term memory via LanceDB (local). LLM-powered fact extraction and consolidation. Per-user add/search operations. |
-| **web_agent** | Embedded | `tool` | Web research agent. Searches (DuckDuckGo, SearXNG, Brave) and fetches pages with LLM-driven multi-step research loops. |
+| **web_agent** | Embedded | `tool` | Web research agent. Searches via SearXNG or Brave and fetches pages with LLM-driven multi-step research loops. |
 | **channel_agent** | External | `channel` | Bridges Telegram and Discord to the router. Handles slash commands, file uploads, inline progress streaming. Also delivers outbound messages to users when called by other agents. |
 | **coding_agent** | External | `usertool` | Sandboxed code execution workspace. Writes, runs, and iterates on code with file I/O. Per-user security policies. |
 | **reminder_agent** | External | `usertool`+`notify` | Calendar events, tasks, and reminders with natural language. Proactive notifications via checker loop. |
@@ -39,6 +39,7 @@ All communication flows through the **router**, which acts as an ESB-style messa
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - An OpenAI-compatible LLM endpoint (local or cloud)
+- A search backend for `web_agent` — either a SearXNG instance with JSON output enabled, or a Brave Search API key ([https://brave.com/search/api/](https://brave.com/search/api/)). The Docker deployment ships a preconfigured SearXNG container; for bare metal you must run your own (see [SearXNG docs](https://docs.searxng.org/)) and set `SEARXNG_BASE_URL` in `start.config`.
 
 ### Setup
 
