@@ -39,6 +39,9 @@ services:
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
+      # Persist the router's SQLite DB on the mounted data volume so that
+      # registered external agents survive container rebuilds.
+      - DB_PATH=/app/data/router.db
       # Optional router tuning (uncomment to override defaults)
       # - EMBEDDED_AGENT_TIMEOUT=${EMBEDDED_AGENT_TIMEOUT:-720}
       # - GLOBAL_TIMEOUT_HOURS=${GLOBAL_TIMEOUT_HOURS:-1}
