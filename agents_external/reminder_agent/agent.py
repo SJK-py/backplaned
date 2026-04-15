@@ -350,6 +350,20 @@ async def run_agent_loop(
                 # Handle sub-agent tools (call_{agent_id}).
                 if tool_name.startswith("call_"):
                     dest_agent_id = tool_name[5:]
+                    # Authoritative session-context injection: override any
+                    # user_id/session_id/timezone the LLM generated so that
+                    # downstream ACL (llm_agent allowed_models, per-user
+                    # model maps) sees the real session owner.
+                    dest_info = task_available_destinations.get(dest_agent_id, {})
+                    dest_schema = dest_info.get("input_schema", "")
+                    sub_payload = dict(arguments)
+                    if "user_id" in dest_schema:
+                        sub_payload["user_id"] = user_id
+                    if "session_id" in dest_schema:
+                        sub_payload["session_id"] = session_id
+                    if user_tz and user_tz != "UTC":
+                        if "timezone" in dest_schema or "session_id" in dest_schema:
+                            sub_payload["timezone"] = user_tz
                     try:
                         identifier = f"sub_{uuid.uuid4().hex[:12]}"
                         loop = asyncio.get_running_loop()
@@ -360,15 +374,18 @@ async def run_agent_loop(
                                 identifier=identifier,
                                 parent_task_id=task_id,
                                 destination_agent_id=dest_agent_id,
-                                payload=arguments,
+                                payload=sub_payload,
                             )
                             sub_result = await asyncio.wait_for(fut, timeout=120.0)
-                            sub_payload = sub_result.get("payload", {})
-                            result_text = sub_payload.get("content", "") or json.dumps(sub_payload)
+                            sub_payload_result = sub_result.get("payload", {})
+                            result_text = sub_payload_result.get("content", "") or json.dumps(sub_payload_result)
                             # Note any attached files the sub-agent returned.
-                            sub_files = sub_payload.get("files") or []
+                            sub_files = sub_payload_result.get("files") or []
                             if sub_files:
-                                names = ", ".join(f.get("filename", "?") for f in sub_files)
+                                names = ", ".join(
+                                    f.get("original_filename") or Path(f.get("path", "")).name or "?"
+                                    for f in sub_files
+                                )
                                 result_text += (
                                     f"\n[{len(sub_files)} file(s) attached by sub-agent: {names}."
                                     " You cannot open or process these files directly;"
