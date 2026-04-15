@@ -1399,10 +1399,19 @@ async def _agent_loop(
                     tc.name[len("call_"):] if tc.name.startswith("call_") else tc.name
                 )
                 rewritten = pfm.resolve_in_args(tc.arguments)
-                # Inject user timezone only if the destination agent accepts it
+                # Authoritative session-context injection: user_id / session_id
+                # / timezone come from the current session, overriding whatever
+                # the LLM generated.  This prevents a hallucinated or missing
+                # user_id from bypassing per-user ACL in downstream agents
+                # (e.g. llm_agent's allowed_models check, web_agent /
+                # memory_agent / kb_agent's per-user model mapping).
+                dest_info = available_destinations.get(dest, {})
+                dest_schema = dest_info.get("input_schema", "")
+                if "user_id" in dest_schema:
+                    rewritten["user_id"] = user_id
+                if "session_id" in dest_schema:
+                    rewritten["session_id"] = session_id
                 if user_timezone and user_timezone != "UTC":
-                    dest_info = available_destinations.get(dest, {})
-                    dest_schema = dest_info.get("input_schema", "")
                     if "timezone" in dest_schema or "session_id" in dest_schema:
                         rewritten["timezone"] = user_timezone
                 await _spawn_via_http(
