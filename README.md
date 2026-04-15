@@ -99,11 +99,24 @@ docker compose up -d
 #    d. Go to Setup tab → paste the invitation token → Register
 ```
 
-Two containers:
+Containers:
 - **router** — Router + embedded agents + lightweight external agents. Reads `start.config` (mounted as volume) at startup to populate agent configurations.
 - **coding** — Isolated coding agent sandbox. Requires one-time registration via web UI after first boot.
+- **searxng** — Optional. Bundled search backend for `web_agent`. Runs when the `searxng` Compose profile is active (see below).
 
 > **Important:** `ADMIN_TOKEN` in `docker/.env` must match the value in `start.config`. The router uses it for API authentication, and the web admin agent uses it to manage agents and create invitation tokens.
+
+### Web search backend
+
+`web_agent` needs a search provider. The compose file ships a `searxng` service that is **gated behind the `searxng` Docker Compose profile** so you can opt out if you already run your own SearXNG instance (or prefer Brave).
+
+The default `docker/.env.example` has `COMPOSE_PROFILES=searxng`, so a fresh Docker setup runs the bundled container and `web_agent` reaches it at `http://searxng:8080` (the default `SEARXNG_BASE_URL` in `start.config.example`). Host-side port defaults to `8880` (`SEARXNG_PORT`).
+
+To use your **own** SearXNG instance or Brave:
+
+1. Edit `docker/.env` and clear the profile: `COMPOSE_PROFILES=`.
+2. Edit `start.config` and either point `SEARXNG_BASE_URL` at your own URL, or set `SEARCH_PROVIDER="brave"` with a valid `BRAVE_API_KEY`.
+3. If your own SearXNG is on the same Docker host, make sure `settings.yml` has `search.formats: [html, json]` — `web_agent` requires the JSON API.
 
 ### How Docker config works
 

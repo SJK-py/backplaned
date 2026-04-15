@@ -50,8 +50,15 @@ services:
     restart: unless-stopped
 
   # ── SearXNG (web search backend for web_agent) ──────────────────────
+  #
+  # Gated behind the "searxng" Compose profile so users who already run
+  # their own SearXNG instance (or prefer the Brave backend) can skip
+  # this container.  Activate by setting COMPOSE_PROFILES=searxng in
+  # docker/.env (the default in docker/.env.example), or pass
+  # `--profile searxng` on the command line.
   searxng:
     image: searxng/searxng:latest
+    profiles: ["searxng"]
     ports:
       - "${SEARXNG_PORT:-8880}:8080"
     configs:

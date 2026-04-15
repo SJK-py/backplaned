@@ -201,8 +201,9 @@ Web research agent that performs multi-step searches and page reads to produce s
 
 **Backend setup:**
 
-- **Docker:** The bundled `searxng` service in `docker-compose.yml` is preconfigured with JSON output enabled. The default `SEARXNG_BASE_URL` (`http://searxng:8080`) in `start.config.example` reaches it over the compose network. Host-side port mapping defaults to `8880` (set `SEARXNG_PORT` in `docker/.env` to change).
-- **Bare metal:** Run your own SearXNG instance (with `formats: [html, json]` in its `settings.yml`) and set `SEARXNG_BASE_URL` in `start.config` to its URL. Alternatively, set `SEARCH_PROVIDER="brave"` and supply `BRAVE_API_KEY`.
+- **Docker (bundled SearXNG):** The `searxng` service in `docker-compose.yml` is gated behind the `searxng` Compose profile. `docker/.env.example` ships with `COMPOSE_PROFILES=searxng` so the bundled container runs by default; `start.config.example` points `SEARXNG_BASE_URL` at `http://searxng:8080` over the Compose network. The settings file is inlined via `configs.content` (JSON output enabled, rate limiter disabled). Host-side port defaults to `8880` (`SEARXNG_PORT` in `docker/.env`).
+- **Docker (your own SearXNG):** Clear `COMPOSE_PROFILES` in `docker/.env` so the bundled container doesn't start, then set `SEARXNG_BASE_URL` in `start.config` to your instance URL. Your SearXNG must have `search.formats: [html, json]` in its `settings.yml` — `web_agent` uses the JSON API.
+- **Bare metal:** Run your own SearXNG (same JSON requirement) and set `SEARXNG_BASE_URL` accordingly. Alternatively, set `SEARCH_PROVIDER="brave"` and supply `BRAVE_API_KEY`.
 
 **Configuration (`config.json`):**
 
