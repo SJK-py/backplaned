@@ -2,21 +2,66 @@
 agents/web_agent/tools.py — Web search and fetch tool implementations.
 
 Supports multiple search backends (SearXNG, Brave) and webpage content
-extraction with HTML stripping.
+extraction.  HTML pages are converted to Markdown via MarkItDown so link
+hrefs, tables, and images survive the fetch → LLM pipeline.
 """
 
 from __future__ import annotations
 
 import asyncio
 import html
+import io
 import json
+import logging
 import re
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlparse
 
 import httpx
 
+logger = logging.getLogger("web_agent.tools")
+
 USER_AGENT = "Mozilla/5.0 (compatible; WebAgent/1.0)"
+
+
+# ---------------------------------------------------------------------------
+# MarkItDown singleton (lazy-loaded — avoids paying the import cost until
+# the first HTML fetch; MarkItDown is already a project dependency via
+# md_converter, so the module is usually resident in the router process).
+# ---------------------------------------------------------------------------
+
+_markitdown_converter: Any = None
+
+
+def _get_markitdown() -> Any:
+    """Return a shared MarkItDown instance, constructed on first use.
+
+    OCR is intentionally not enabled here — web_fetch targets HTML pages,
+    not scanned documents, so the OCR plugin would only add startup cost.
+    """
+    global _markitdown_converter
+    if _markitdown_converter is None:
+        from markitdown import MarkItDown
+        _markitdown_converter = MarkItDown()
+    return _markitdown_converter
+
+
+def _html_to_markdown(raw_html: str) -> str:
+    """Convert an HTML string to Markdown via MarkItDown.
+
+    Runs in a thread because MarkItDown.convert_stream is synchronous.
+    On any failure, falls back to the regex-based ``_html_to_text``
+    converter so a single bad page can't break web_fetch.
+    """
+    try:
+        converter = _get_markitdown()
+        buf = io.BytesIO(raw_html.encode("utf-8"))
+        result = converter.convert_stream(buf, file_extension=".html")
+        return _normalize(result.text_content or "")
+    except Exception as exc:
+        logger.warning("MarkItDown HTML conversion failed, falling back to regex: %s", exc)
+        return _html_to_text(raw_html)
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +260,10 @@ async def web_fetch(
         if "application/json" in ctype:
             text = json.dumps(r.json(), indent=2, ensure_ascii=False)
         elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-            text = _html_to_text(r.text)
+            # MarkItDown is synchronous and can take tens of ms on large pages;
+            # offload to the default executor to keep the event loop responsive.
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(None, partial(_html_to_markdown, r.text))
         else:
             text = _normalize(r.text)
 
@@ -281,7 +329,8 @@ WEB_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "web_fetch",
             "description": (
-                "Fetch a webpage and extract readable text (truncated to ~12k chars). "
+                "Fetch a webpage and return its content as Markdown — links, "
+                "tables, and images are preserved (truncated to ~12k chars). "
                 "Use sparingly — only fetch the most relevant URLs."
             ),
             "parameters": {
