@@ -133,7 +133,7 @@ AGENT_INFO = AgentInfo(
         "This agent is time-aware in UTC. Include user's timezone in "
         "llmdata.context if local time relevance matters."
     ),
-    input_schema="llmdata: LLMData",
+    input_schema="llmdata: LLMData, user_id: Optional[str]",
     output_schema="content: str",
     required_input=["llmdata"],
 )
