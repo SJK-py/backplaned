@@ -82,6 +82,23 @@ KB_EMBED_MODEL=""                 # Override embedding model (default: MEMORY_EM
 KB_VECTOR_DIM=""                  # Embedding vector dimension for kb_agent (default: MEMORY_EMBEDDING_DIMS)
 
 # ═══════════════════════════════════════════════════════════════════════
+# Web Search (web_agent)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# web_agent requires either a SearXNG instance or a Brave Search API key.
+#
+# Docker: a searxng container is included in docker-compose.yml. Keep the
+#   default SEARXNG_BASE_URL below to reach it via the internal network.
+#
+# Bare metal: run your own SearXNG (https://docs.searxng.org/) with JSON
+#   output enabled in settings.yml, or sign up for the Brave Search API
+#   (https://brave.com/search/api/) and set SEARCH_PROVIDER="brave".
+
+SEARCH_PROVIDER="searxng"         # "searxng" or "brave"
+SEARXNG_BASE_URL="http://searxng:8080"   # Docker default; for bare metal, use http://localhost:8880
+BRAVE_API_KEY=""                  # Brave Search API key (required if SEARCH_PROVIDER="brave")
+
+# ═══════════════════════════════════════════════════════════════════════
 # Telegram Integration (optional)
 # ═══════════════════════════════════════════════════════════════════════
 

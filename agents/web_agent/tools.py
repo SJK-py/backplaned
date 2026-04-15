@@ -1,8 +1,8 @@
 """
 agents/web_agent/tools.py — Web search and fetch tool implementations.
 
-Supports multiple search backends (SearXNG, DuckDuckGo, Brave) and
-webpage content extraction with HTML stripping.
+Supports multiple search backends (SearXNG, Brave) and webpage content
+extraction with HTML stripping.
 """
 
 from __future__ import annotations
@@ -148,27 +148,6 @@ async def search_brave(
         return f"Error: Brave search failed: {e}"
 
 
-async def search_duckduckgo(query: str, count: int = 5) -> str:
-    """Search via DuckDuckGo (no API key needed)."""
-    try:
-        from ddgs import DDGS
-        ddgs = DDGS(timeout=10)
-        raw = await asyncio.to_thread(ddgs.text, query, max_results=count)
-        if not raw:
-            return f"No results for: {query}"
-        items = [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("href", ""),
-                "content": r.get("body", ""),
-            }
-            for r in raw
-        ]
-        return _format_results(query, items, count)
-    except Exception as e:
-        return f"Error: DuckDuckGo search failed: {e}"
-
-
 async def web_search(
     query: str,
     provider: str = "searxng",
@@ -190,10 +169,8 @@ async def web_search(
         )
     elif provider == "brave":
         return await search_brave(query, brave_api_key, count, timeout)
-    elif provider == "duckduckgo":
-        return await search_duckduckgo(query, count)
     else:
-        return f"Error: unknown search provider '{provider}'"
+        return f"Error: unknown search provider '{provider}' (supported: searxng, brave)"
 
 
 # ---------------------------------------------------------------------------

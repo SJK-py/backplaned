@@ -2,7 +2,7 @@
     "LLM_AGENT_ID": "llm_agent",
     "LLM_MODEL_ID": "",
     "USER_MODEL_IDS": {},
-    "SEARCH_PROVIDER": "duckduckgo",
+    "SEARCH_PROVIDER": "searxng",
     "SEARXNG_BASE_URL": "",
     "BRAVE_API_KEY": "",
     "SEARCH_MAX_RESULTS": 5,
