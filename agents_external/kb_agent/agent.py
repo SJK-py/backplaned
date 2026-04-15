@@ -483,9 +483,19 @@ async def run_agent_loop(
             # Sub-agent tools
             if tool_name.startswith("call_"):
                 dest = tool_name[5:]
+                # Authoritative user_id injection: override any value the
+                # LLM generated so downstream ACL (llm_agent allowed_models,
+                # per-user model maps) sees the real session owner.
+                # kb_agent's own input schema has no session_id/timezone,
+                # so only user_id is available to forward.
+                sub_payload = pfm.resolve_in_args(arguments)
+                dest_info = available_destinations.get(dest, {})
+                dest_schema = dest_info.get("input_schema", "")
+                if "user_id" in dest_schema:
+                    sub_payload["user_id"] = user_id
                 try:
                     result_data = await _spawn_and_wait(
-                        dest, pfm.resolve_in_args(arguments), timeout=agent_config.tool_timeout,
+                        dest, sub_payload, timeout=agent_config.tool_timeout,
                     )
                     result_text = await extract_result_text(result_data, pfm, path_display_base=workspace)
                     sc = result_data.get("status_code")

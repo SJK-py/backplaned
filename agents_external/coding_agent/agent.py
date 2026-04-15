@@ -475,13 +475,28 @@ async def run_agent_loop(
                     fut: asyncio.Future[dict[str, Any]] = loop.create_future()
                     _pending_results[identifier] = fut
 
+                    # Authoritative session-context injection: override any
+                    # user_id/timezone the LLM generated so downstream ACL
+                    # (llm_agent allowed_models, per-user model maps) sees
+                    # the real session owner.  coding_agent's own schema
+                    # has no session_id, so only user_id and timezone are
+                    # available to forward.
+                    sub_payload = pfm.resolve_in_args(arguments)
+                    dest_info = available_destinations.get(dest_agent_id, {})
+                    dest_schema = dest_info.get("input_schema", "")
+                    if "user_id" in dest_schema:
+                        sub_payload["user_id"] = user_id
+                    if user_timezone and user_timezone != "UTC":
+                        if "timezone" in dest_schema or "session_id" in dest_schema:
+                            sub_payload["timezone"] = user_timezone
+
                     try:
                         spawn_payload = build_spawn_request(
                             agent_id=agent_config.agent_id,
                             identifier=identifier,
                             parent_task_id=task_id,
                             destination_agent_id=dest_agent_id,
-                            payload=pfm.resolve_in_args(arguments),
+                            payload=sub_payload,
                         )
                         await router_client.route(spawn_payload)
                         # Wait for the result delivery from the router.

@@ -586,9 +586,25 @@ async def run_autonomous(
             # Sub-agent tools (call_{agent_id})
             if tool_name.startswith("call_"):
                 dest = tool_name[5:]
+                # Authoritative session-context injection: override any
+                # user_id/session_id/timezone the LLM generated so that
+                # downstream ACL (llm_agent allowed_models, per-user
+                # model maps) sees the real session owner.  The reporting
+                # session id is the one that notifications route to.
+                sub_payload = pfm.resolve_in_args(arguments)
+                dest_info = available_destinations.get(dest, {})
+                dest_schema = dest_info.get("input_schema", "")
+                reporting_sid = settings.get("reporting_session_id")
+                if "user_id" in dest_schema:
+                    sub_payload["user_id"] = user_id
+                if "session_id" in dest_schema and reporting_sid:
+                    sub_payload["session_id"] = reporting_sid
+                if user_tz and user_tz != "UTC":
+                    if "timezone" in dest_schema or "session_id" in dest_schema:
+                        sub_payload["timezone"] = user_tz
                 try:
                     result_data = await _spawn_and_wait(
-                        dest, pfm.resolve_in_args(arguments), timeout=agent_config.tool_timeout,
+                        dest, sub_payload, timeout=agent_config.tool_timeout,
                     )
                     result_text = await extract_result_text(
                         result_data, pfm, path_display_base=inbox_dir,
