@@ -739,7 +739,7 @@ document.getElementById('btn-send-task').addEventListener('click', async () => {
   resultStatus.innerHTML = `<span class="spinner"></span> Waiting for result… <span class="mono" style="font-size:11px">${esc(task_id)}</span>`;
 
   // Long-poll for result
-  const pollR = await api('GET', `/ui/task-result/${task_id}?timeout=60`);
+  const pollR = await api('GET', `/ui/task-result/${task_id}?timeout=300`);
   if (!pollR.ok) {
     resultStatus.textContent = 'Error waiting for result.';
     btn.disabled = false;
