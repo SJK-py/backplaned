@@ -670,7 +670,7 @@ async def ui_send_task(
 @app.get("/ui/task-result/{task_id}")
 async def ui_task_result(
     task_id: str,
-    timeout: int = 60,
+    timeout: int = 300,
     ar_session: Optional[str] = Cookie(default=None),
 ) -> Any:
     _require_auth(ar_session)
