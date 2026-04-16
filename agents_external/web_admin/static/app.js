@@ -625,7 +625,7 @@ function renderDynamicFields(fields, required_input) {
     if (/^(int|float|number)/.test(field.type)) {
       return `<div class="dynamic-field">
         <label>${field.name}${reqMark} <span style="color:var(--text-dim);font-size:11px">(${field.type})</span></label>
-        <input type="number" data-field="${field.name}" data-type="number" placeholder="${field.name}" style="width:200px" />
+        <input type="number" data-field="${field.name}" data-type="number" placeholder="${field.name}" />
       </div>`;
     }
 
@@ -633,7 +633,7 @@ function renderDynamicFields(fields, required_input) {
     const multiline = /dict|object|str/.test(field.type) && !/List/.test(field.type);
     const input = multiline
       ? `<textarea data-field="${field.name}" rows="3" placeholder="${field.name}…"></textarea>`
-      : `<input type="text" data-field="${field.name}" placeholder="${field.name}" style="min-width:280px" />`;
+      : `<input type="text" data-field="${field.name}" placeholder="${field.name}" />`;
 
     return `<div class="dynamic-field">
       <label>${field.name}${reqMark} <span style="color:var(--text-dim);font-size:11px">(${field.type})</span></label>

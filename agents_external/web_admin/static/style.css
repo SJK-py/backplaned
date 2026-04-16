@@ -239,6 +239,15 @@ select { cursor: pointer; }
 .dynamic-field { margin-bottom: .7rem; }
 .dynamic-field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: .3rem; }
 .dynamic-field label span.required { color: var(--red); }
+/* Stretch payload inputs to the full width of the card; checkboxes are
+   excluded so their inline label layout is preserved. */
+.dynamic-field input[type="text"],
+.dynamic-field input[type="number"],
+.dynamic-field textarea,
+.llmdata-group textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
 .llmdata-group {
   background: var(--surface2);
   border: 1px solid var(--border);
