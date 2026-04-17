@@ -393,6 +393,33 @@ class KnowledgeDB:
             logger.warning("Remove failed for '%s': %s", title, exc)
             return False
 
+    async def rename_document(self, user_id: str, old_title: str, new_title: str) -> dict[str, Any]:
+        """Rename a document, deduplicating the new title if it already exists."""
+        table = self._get_table(user_id)
+        try:
+            # Check the old title exists
+            df_old = table.search().where(f"`title` = '{_esc(old_title)}'", prefilter=True).limit(1).to_pandas()
+            if df_old.empty:
+                return {"status": "error", "detail": f"Document not found: {old_title}"}
+
+            # Deduplicate the new title against existing documents
+            final_title = new_title
+            df_all = table.search().select(["title"]).limit(10000).to_pandas()
+            existing = set(df_all["title"].unique()) if not df_all.empty else set()
+            existing.discard(old_title)
+            counter = 1
+            while final_title in existing:
+                final_title = f"{new_title}_{counter}"
+                counter += 1
+
+            table.update(where=f"`title` = '{_esc(old_title)}'", values={"title": final_title})
+            table.create_fts_index("text", replace=True)
+            logger.info("Renamed '%s' → '%s' for user %s", old_title, final_title, user_id)
+            return {"status": "renamed", "old_title": old_title, "new_title": final_title}
+        except Exception as exc:
+            logger.warning("Rename failed for '%s': %s", old_title, exc)
+            return {"status": "error", "detail": str(exc)}
+
     async def modify_metadata(
         self,
         user_id: str,
