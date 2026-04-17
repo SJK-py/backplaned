@@ -534,9 +534,10 @@ async def _ensure_registered() -> None:
             "Channel agent. Bridges Telegram and Discord to the router. "
             "Call this agent to send a direct message to the user on their active "
             "chat platform (Telegram or Discord). Requires user_id and session_id "
-            "to identify the recipient."
+            "to identify the recipient. Attach files via the files argument to "
+            "deliver them alongside the message."
         ),
-        input_schema="user_id: str, session_id: str, message: str",
+        input_schema="user_id: str, session_id: str, message: str, files: Optional[List[ProxyFile]]",
         output_schema="content: str",
         required_input=["user_id", "session_id", "message"],
     )
@@ -1267,14 +1268,15 @@ async def _handle_direct_message(data: dict[str, Any], payload: dict[str, Any]) 
         await _report_direct_result(task_id, parent_task_id, 403, "user_id does not match session owner")
         return
 
-    await _send_to_chat(details["platform"], details["chat_id"], message)
+    files = payload.get("files")
+    await _send_to_chat(details["platform"], details["chat_id"], message, files=files)
     # Cancel typing indicator — user has received a response via this session.
     tt = _typing_tasks.pop(session_id, None)
     if tt and not tt.done():
         tt.cancel()
     logger.info(
-        "Direct message delivered to user %s via %s (session %s)",
-        user_id, details["platform"], session_id,
+        "Direct message delivered to user %s via %s (session %s, %d file(s))",
+        user_id, details["platform"], session_id, len(files or []),
     )
     await _report_direct_result(task_id, parent_task_id, 200, "Message delivered.")
 
@@ -1626,7 +1628,7 @@ async def refresh_info(request: Request) -> JSONResponse:
                         "chat platform (Telegram or Discord). Requires user_id and session_id "
                         "to identify the recipient."
                     ),
-                    "input_schema": "user_id: str, session_id: str, message: str",
+                    "input_schema": "user_id: str, session_id: str, message: str, files: Optional[List[ProxyFile]]",
                     "output_schema": "content: str",
                     "required_input": ["user_id", "session_id", "message"],
                 },
