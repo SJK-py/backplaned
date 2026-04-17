@@ -245,7 +245,7 @@ async function loadUserJobs(uid){
 
 async function saveSettings(uid){
   const body={timezone:document.getElementById('set-tz').value,nighttime_start:document.getElementById('set-ns').value,nighttime_end:document.getElementById('set-ne').value};
-  const mid=document.getElementById('set-mid').value.trim();if(mid)body.model_id=mid;
+  const mid=document.getElementById('set-mid').value.trim();body.model_id=mid||null;
   await api(`/ui/users/${uid}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   loadUserJobs(uid);
 }
