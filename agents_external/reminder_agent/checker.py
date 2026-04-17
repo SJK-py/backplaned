@@ -111,6 +111,18 @@ def _gather_candidates(
     cutoff = now + timedelta(hours=lookahead_hours)
     candidates: list[dict[str, Any]] = []
 
+    def _localise_last_reminded(iso_str: Optional[str]) -> Optional[str]:
+        """Convert a UTC last_reminded ISO timestamp to user-local format."""
+        if not iso_str:
+            return None
+        try:
+            dt = datetime.fromisoformat(iso_str)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(user_tz).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return iso_str
+
     # Events starting within the lookahead window (with RRULE expansion).
     for eid, ev in events.items():
         if ev.get("status") == "cancelled":
@@ -127,7 +139,7 @@ def _gather_candidates(
                 "start": local_start.strftime("%Y-%m-%d %H:%M"),
                 "description": occ.get("description", ""),
                 "location": occ.get("location", ""),
-                "last_reminded": ev.get("last_reminded"),
+                "last_reminded": _localise_last_reminded(ev.get("last_reminded")),
                 "recurring": bool(ev.get("recurrence")),
             })
 
@@ -158,7 +170,7 @@ def _gather_candidates(
                 "due": due_display,
                 "urgent": is_urgent,
                 "notes": tk.get("notes", ""),
-                "last_reminded": tk.get("last_reminded"),
+                "last_reminded": _localise_last_reminded(tk.get("last_reminded")),
             })
 
     return candidates
