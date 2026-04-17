@@ -183,11 +183,37 @@ def create_ui_router() -> APIRouter:
         _require_auth(reminder_session)
         from agent import reminder_db
         db = await reminder_db.load(user_id)
+
+        # Convert last_reminded from UTC to user timezone for display.
+        settings = db.get("settings", {})
+        tz_str = settings.get("timezone", "UTC")
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import datetime, timezone
+            user_tz = ZoneInfo(tz_str)
+        except Exception:
+            user_tz = None
+
+        def _localise_lr(item: dict) -> dict:
+            lr = item.get("last_reminded")
+            if lr and user_tz:
+                try:
+                    dt = datetime.fromisoformat(lr)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    item["last_reminded"] = dt.astimezone(user_tz).strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
+            return item
+
+        events = {k: _localise_lr(dict(v)) for k, v in db.get("events", {}).items()}
+        tasks = {k: _localise_lr(dict(v)) for k, v in db.get("tasks", {}).items()}
+
         return {
             "user_id": user_id,
-            "settings": db.get("settings", {}),
-            "events": db.get("events", {}),
-            "tasks": db.get("tasks", {}),
+            "settings": settings,
+            "events": events,
+            "tasks": tasks,
         }
 
     @router.get("/ui/users/{user_id}/upcoming")
