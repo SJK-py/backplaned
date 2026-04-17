@@ -240,6 +240,14 @@ async def _execute_tool(
         )
         return "Metadata updated." if ok else "Failed to update metadata."
 
+    if tool_name == "rename_document":
+        result = await kb_db.rename_document(
+            user_id=user_id,
+            old_title=arguments.get("old_title", ""),
+            new_title=arguments.get("new_title", ""),
+        )
+        return json.dumps(result, indent=2)
+
     if tool_name == "read_file":
         fp = arguments.get("file_path", "")
         resolved = _resolve_workspace_path(fp, workspace)

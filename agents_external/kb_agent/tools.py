@@ -139,6 +139,27 @@ KB_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "rename_document",
+            "description": "Change the title of an existing document. The new title is deduplicated if it conflicts with another document.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "old_title": {
+                        "type": "string",
+                        "description": "Current exact title of the document to rename",
+                    },
+                    "new_title": {
+                        "type": "string",
+                        "description": "New title for the document",
+                    },
+                },
+                "required": ["old_title", "new_title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_file",
             "description": "Read the text content of a file in the workspace.",
             "parameters": {
