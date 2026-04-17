@@ -1630,7 +1630,13 @@ async def _handle_list_models(
         identifier=identifier,
         parent_task_id=loop_state.task_id,
         dest=LLM_AGENT_ID,
-        payload={"llmdata": {"prompt": "<list_model_id>"}, "user_id": user_id},
+        payload={
+            "llmcall": {
+                "messages": [{"role": "user", "content": "<list_model_id>"}],
+                "tools": [],
+            },
+            "user_id": user_id,
+        },
         pending=loop_state.pending,
     )
 
@@ -1680,7 +1686,13 @@ async def _handle_set_model(
         identifier=identifier,
         parent_task_id=loop_state.task_id,
         dest=LLM_AGENT_ID,
-        payload={"llmdata": {"prompt": "<list_model_id>"}, "user_id": user_id},
+        payload={
+            "llmcall": {
+                "messages": [{"role": "user", "content": "<list_model_id>"}],
+                "tools": [],
+            },
+            "user_id": user_id,
+        },
         pending=loop_state.pending,
     )
 
