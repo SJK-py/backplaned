@@ -1078,6 +1078,13 @@ def _append_tool_turn(
 # Core agent loop
 # ---------------------------------------------------------------------------
 
+_AGENT_ORIGIN_SYSTEM_PROMPT = (
+    "You are processing an incoming request from another agent in a multi-agent system. "
+    "Handle the request using available tools as instructed. "
+    "You do not have access to the user's conversation history."
+)
+
+
 async def _agent_loop(
     user_message: str,
     user_id: str,
@@ -1086,6 +1093,7 @@ async def _agent_loop(
     loop_state: _LoopState,
     files: Optional[list[dict[str, Any]]] = None,
     session_changed_note: str = "",
+    is_agent_origin: bool = False,
 ) -> str | AgentOutput:
     """
     Run the LLM agent loop for one user message.
@@ -1093,8 +1101,17 @@ async def _agent_loop(
     Handles history overflow, tool-call spawning with parallel asyncio.Futures,
     and persistent session history updates.  When ``files`` are provided,
     augments the user message with attachment info and enables file tools.
+
+    When ``is_agent_origin`` is True (message from another agent, not the
+    user), session history is not loaded or saved during the loop.  A
+    dedicated system prompt is used instead of the user's configured one.
+    After completion, only a clean user-facing notification entry is
+    appended to history.
     """
-    history = _load_history(session_id)
+    if is_agent_origin:
+        history: list[dict] = []
+    else:
+        history = _load_history(session_id)
     tools = _build_tools(available_destinations)
     user_json_cfg = _load_user_json_config(user_id)
     user_config_md = user_json_cfg.get("user_config_md") or ""
@@ -1105,7 +1122,7 @@ async def _agent_loop(
     running_loop = asyncio.get_running_loop()
 
     # --- History overflow: truncate and ingest old portion into memory ---
-    if _history_tokens(history) > user_history_limit:
+    if not is_agent_origin and _history_tokens(history) > user_history_limit:
         half = user_history_limit // 2
         # Find group boundaries.  A "group" starts at a standalone user
         # message (not a tool-result or image-injection user message) and
@@ -1199,9 +1216,12 @@ async def _agent_loop(
         )
 
     # --- Build initial LLM context ---
-    system_parts = [user_system_prompt]
+    if is_agent_origin:
+        system_parts = [_AGENT_ORIGIN_SYSTEM_PROMPT]
+    else:
+        system_parts = [user_system_prompt]
     system_parts.append(f"## Current User\nuser_id: {user_id}\nsession_id: {session_id}")
-    if user_config_md:
+    if not is_agent_origin and user_config_md:
         system_parts.append(f"## User Configuration\n{user_config_md}")
     if session_changed_note:
         system_parts.append(f"## Session Notice\n{session_changed_note}")
@@ -1231,9 +1251,10 @@ async def _agent_loop(
                     last_content = msg["content"]
                     break
             reply = last_content or "(Agent iteration limit reached.)"
-            history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": reply})
-            _save_history(session_id, history)
+            if not is_agent_origin:
+                history.append({"role": "user", "content": user_message})
+                history.append({"role": "assistant", "content": reply})
+                _save_history(session_id, history)
             return AgentOutput(content=reply)
 
         llm_resp = await _llm_call(
@@ -1252,20 +1273,30 @@ async def _agent_loop(
             # Final answer — push progress and persist to session history.
             reply = llm_resp.content or ""
             await _push_progress(loop_state.task_id, "chunk", reply)
-            # Append tool usage summary and file references so next invocation has context
-            history_reply = reply
-            if tools_used:
-                unique_tools = list(dict.fromkeys(tools_used))  # preserve order, deduplicate
-                history_reply += f"\n[Used tools: {', '.join(unique_tools)}]"
-            if result_file_refs:
-                history_reply += "\n[Files received during this turn:\n" + "\n".join(result_file_refs) + "\n]"
-            history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": history_reply})
-            _save_history(session_id, history)
 
-            # Per-turn memory ingestion: only the current exchange, not the
-            # entire history.  Fire-and-forget — don't block the response.
-            _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
+            if is_agent_origin:
+                # Agent-originated: extract user-facing content and append
+                # a clean notification entry (not the raw system instruction).
+                notification_content = user_message
+                for _marker in ("Notification:\n", "Message to deliver:\n"):
+                    if _marker in user_message:
+                        notification_content = user_message.split(_marker, 1)[1].strip()
+                        break
+                real_history = _load_history(session_id)
+                real_history.append({"role": "assistant", "content": f"🔔 {notification_content}"})
+                _save_history(session_id, real_history)
+            else:
+                # User-originated: full history persistence + memory ingestion.
+                history_reply = reply
+                if tools_used:
+                    unique_tools = list(dict.fromkeys(tools_used))
+                    history_reply += f"\n[Used tools: {', '.join(unique_tools)}]"
+                if result_file_refs:
+                    history_reply += "\n[Files received during this turn:\n" + "\n".join(result_file_refs) + "\n]"
+                history.append({"role": "user", "content": user_message})
+                history.append({"role": "assistant", "content": history_reply})
+                _save_history(session_id, history)
+                _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
 
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
@@ -1459,7 +1490,8 @@ async def _agent_loop(
         # Persist tool calls to session tool history.
         tool_turn += 1
         tools_used.extend(tc.name for tc in llm_resp.tool_calls)
-        _append_tool_history(session_id, tool_turn, llm_resp.tool_calls, tc_results)
+        if not is_agent_origin:
+            _append_tool_history(session_id, tool_turn, llm_resp.tool_calls, tc_results)
 
         # Push tool_result progress events.
         for tc in llm_resp.tool_calls:
@@ -2067,6 +2099,7 @@ async def _dispatch(
     loop_state: _LoopState,
     files: Optional[list[dict[str, Any]]] = None,
     session_changed_note: str = "",
+    origin_agent_id: str = "",
 ) -> str | AgentOutput:
     """Route the incoming message to the appropriate handler."""
 
@@ -2180,13 +2213,24 @@ async def _dispatch(
         return await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
 
     # --- Linked-mode intercept: bypass agent loop, route to linked agent ---
+    # Only user-initiated messages (from channel_agent) respect linked mode.
+    # Proactive messages from other agents (reminder_agent, cron_agent, etc.)
+    # must go through the normal orchestrator loop so they can be delivered
+    # to the user via channel_agent, not forwarded to the linked agent.
     link_state = _load_link_state(session_id)
-    if link_state:
+    if link_state and origin_agent_id == "channel_agent":
         return await _handle_linked_message(
             message, user_id, session_id, loop_state, link_state,
             available_destinations=available_destinations,
             files=files,
         )
+
+    # --- Non-user messages flag ---
+    # Messages from other agents (reminder_agent, cron_agent, etc.) reuse
+    # _agent_loop but skip session history loading/saving and use a
+    # dedicated system prompt.  A clean notification entry is appended
+    # to history afterward so the user can reference it.
+    is_agent_origin = bool(origin_agent_id and origin_agent_id != "channel_agent")
 
     return await _agent_loop(
         user_message=message,
@@ -2196,6 +2240,7 @@ async def _dispatch(
         loop_state=loop_state,
         files=files,
         session_changed_note=session_changed_note,
+        is_agent_origin=is_agent_origin,
     )
 
 
@@ -2206,6 +2251,7 @@ async def _dispatch(
 async def _run(data: dict[str, Any]) -> dict[str, Any]:
     task_id: str = data.get("task_id", "")
     parent_task_id: Optional[str] = data.get("parent_task_id")
+    origin_agent_id: str = str(data.get("agent_id") or "")
     payload: dict[str, Any] = data.get("payload", {})
     available_destinations: dict[str, Any] = data.get("available_destinations") or {}
 
@@ -2310,6 +2356,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 available_destinations=available_destinations,
                 loop_state=loop_state,
                 files=files,
+                origin_agent_id=origin_agent_id,
             ),
             timeout=AGENT_TIMEOUT,
         )
