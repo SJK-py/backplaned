@@ -2067,6 +2067,7 @@ async def _dispatch(
     loop_state: _LoopState,
     files: Optional[list[dict[str, Any]]] = None,
     session_changed_note: str = "",
+    origin_agent_id: str = "",
 ) -> str | AgentOutput:
     """Route the incoming message to the appropriate handler."""
 
@@ -2180,8 +2181,12 @@ async def _dispatch(
         return await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
 
     # --- Linked-mode intercept: bypass agent loop, route to linked agent ---
+    # Only user-initiated messages (from channel_agent) respect linked mode.
+    # Proactive messages from other agents (reminder_agent, cron_agent, etc.)
+    # must go through the normal orchestrator loop so they can be delivered
+    # to the user via channel_agent, not forwarded to the linked agent.
     link_state = _load_link_state(session_id)
-    if link_state:
+    if link_state and origin_agent_id == "channel_agent":
         return await _handle_linked_message(
             message, user_id, session_id, loop_state, link_state,
             available_destinations=available_destinations,
@@ -2206,6 +2211,7 @@ async def _dispatch(
 async def _run(data: dict[str, Any]) -> dict[str, Any]:
     task_id: str = data.get("task_id", "")
     parent_task_id: Optional[str] = data.get("parent_task_id")
+    origin_agent_id: str = str(data.get("agent_id") or "")
     payload: dict[str, Any] = data.get("payload", {})
     available_destinations: dict[str, Any] = data.get("available_destinations") or {}
 
@@ -2310,6 +2316,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 available_destinations=available_destinations,
                 loop_state=loop_state,
                 files=files,
+                origin_agent_id=origin_agent_id,
             ),
             timeout=AGENT_TIMEOUT,
         )
