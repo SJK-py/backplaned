@@ -1081,7 +1081,13 @@ def _append_tool_turn(
 _AGENT_ORIGIN_SYSTEM_PROMPT = (
     "You are processing an incoming request from another agent in a multi-agent system. "
     "Handle the request using available tools as instructed. "
-    "You do not have access to the user's conversation history."
+    "You do not have access to the user's conversation history.\n\n"
+    "## Important\n"
+    "- Your results are sent back to the requesting agent, NOT to the user.\n"
+    "- The attach_file tool attaches files to your result for the requesting agent — "
+    "it does NOT send files to the user.\n"
+    "- To communicate with the user (send messages or files), you MUST call "
+    "call_channel_agent with the user_id, session_id, message, and optional files."
 )
 
 
