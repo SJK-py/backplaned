@@ -1086,8 +1086,7 @@ _AGENT_ORIGIN_SYSTEM_PROMPT = (
     "- Your results are sent back to the requesting agent, NOT to the user.\n"
     "- The attach_file tool attaches files to your result for the requesting agent — "
     "it does NOT send files to the user.\n"
-    "- To communicate with the user (send messages or files), you MUST call "
-    "call_channel_agent with the user_id, session_id, message, and optional files."
+    "- To communicate with the user (send messages or files), use call_channel_agent."
 )
 
 
