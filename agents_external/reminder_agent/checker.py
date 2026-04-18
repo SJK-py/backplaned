@@ -288,10 +288,8 @@ async def _send_notification(
         "user_id": user_id,
         "session_id": session_id,
         "message": (
-            f"You have reminder notifications to deliver to the user. "
-            f"Call the channel_agent to send the following message as a direct "
-            f"message to the user. Use the user_id and session_id from your "
-            f"current session context. Do not modify the notification content.\n\n"
+            f"Deliver the following reminder notifications to the user. "
+            f"Do not modify the notification content.\n\n"
             f"Notification:\n{message}"
         ),
     }
