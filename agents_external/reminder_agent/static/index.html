@@ -233,7 +233,8 @@ async function loadStatus() {
         <div class="kv">
           <span class="label">Agent ID</span><span class="mono">${esc(d.agent_id)}</span>
           <span class="label">Router</span><span>${d.router_connected ? '<span class="badge badge-green">Connected</span>' : '<span class="badge badge-red">Disconnected</span>'} <span class="mono">${esc(d.router_url)}</span></span>
-          <span class="label">Checker</span><span>${d.checker_running ? '<span class="badge badge-green">Running</span>' : '<span class="badge badge-red">Stopped</span>'} every ${d.check_interval} min, ${d.check_lookahead_hours}h lookahead</span>
+          <span class="label">Checker</span><span>${d.checker_running ? '<span class="badge badge-green">Running</span>' : '<span class="badge badge-red">Stopped</span>'} every ${d.check_interval} min</span>
+          <span class="label">Notify hours</span><span style="font-size:.78rem">events: ${esc(d.event_notify_hours)} · tasks: ${esc(d.task_notify_hours)} · urgent: ${esc(d.urgent_task_notify_hours)}</span>
           <span class="label">LLM Agent</span><span class="mono">${esc(d.llm_agent_id)}</span>
           <span class="label">Core Agent</span><span class="mono">${esc(d.core_agent_id)}</span>
           <span class="label">Endpoint URL</span><span class="mono">${esc(d.endpoint_url)}</span>
