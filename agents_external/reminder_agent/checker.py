@@ -1,13 +1,18 @@
 """
-reminder_agent/checker.py — Periodic background notification loop.
+reminder_agent/checker.py — Periodic background notification loop (rule-based).
 
 Runs every CHECK_INTERVAL minutes.  For each user:
   1. Checks timezone-aware nighttime window — skips if silent.
-  2. Gathers upcoming events and due/overdue/urgent tasks.
-  3. Filters out recently-reminded items.
-  4. Calls LLM with structured output to decide which items to notify.
-  5. Wrapper updates last_reminded atomically, then spawns notification
-     to core_personal_agent (which forwards via channel_agent DM).
+  2. Determines check mode: morning (first after nighttime),
+     bedtime (last before nighttime), or regular.
+  3. Applies window-based rules to select items for notification:
+     - Regular: notify if item is due/starts within
+       [now + notify_hours, now + notify_hours + check_interval]
+       for each configured notify_hours value.
+     - Morning: all items due today + all no-due tasks.
+     - Bedtime: extended window covering the entire nighttime gap.
+  4. Updates last_reminded atomically, builds a notification message,
+     and spawns it to core_personal_agent.
 """
 
 from __future__ import annotations
@@ -20,236 +25,251 @@ from datetime import datetime, timedelta, time as dt_time, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-
 from db import ReminderDB
-from tools import _parse_dt, _event_start_dt, _tz_for_event_field
+from tools import _parse_dt, _event_start_dt
 from rrule_util import expand_event_occurrences
 
 logger = logging.getLogger("reminder_agent.checker")
 
-# ---------------------------------------------------------------------------
-# Structured output schema for the LLM
-# ---------------------------------------------------------------------------
-
-_NOTIFICATION_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "select_notifications",
-        "description": (
-            "Given a list of upcoming events and pending tasks, decide which ones "
-            "the user should be notified about right now.  Return a list of items "
-            "with their IDs and a concise, friendly notification message for each."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "notifications": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "item_id": {"type": "string", "description": "The ID of the item to notify about"},
-                            "message": {"type": "string", "description": "Friendly notification message for the user"},
-                        },
-                        "required": ["item_id", "message"],
-                    },
-                    "description": "List of items to notify. Empty array if nothing needs notification.",
-                },
-            },
-            "required": ["notifications"],
-        },
-    },
-}
-
 
 # ---------------------------------------------------------------------------
-# Nighttime check
+# Helpers
 # ---------------------------------------------------------------------------
+
+def _parse_hours_list(value: str) -> list[float]:
+    """Parse a comma-separated string of hours into a sorted list of floats."""
+    result = []
+    for part in value.split(","):
+        part = part.strip()
+        if part:
+            try:
+                result.append(float(part))
+            except ValueError:
+                pass
+    return sorted(result)
+
+
+def _parse_time(s: str) -> Optional[dt_time]:
+    try:
+        h, m = map(int, s.split(":"))
+        return dt_time(h, m)
+    except Exception:
+        return None
+
 
 def _is_nighttime(now: datetime, start_str: str, end_str: str) -> bool:
     """Check whether ``now`` falls within the nighttime quiet window."""
-    try:
-        sh, sm = map(int, start_str.split(":"))
-        eh, em = map(int, end_str.split(":"))
-    except (ValueError, AttributeError):
+    start = _parse_time(start_str)
+    end = _parse_time(end_str)
+    if start is None or end is None:
         return False
 
     current = now.time()
-    start = dt_time(sh, sm)
-    end = dt_time(eh, em)
-
     if start <= end:
-        # e.g. 08:00 – 18:00
         return start <= current < end
     else:
-        # Wraps midnight, e.g. 22:00 – 07:00
         return current >= start or current < end
 
 
+def _nighttime_end_dt(now: datetime, end_str: str) -> Optional[datetime]:
+    """Return the next occurrence of nighttime-end as a tz-aware datetime."""
+    end = _parse_time(end_str)
+    if end is None:
+        return None
+    end_dt = now.replace(hour=end.hour, minute=end.minute, second=0, microsecond=0)
+    if end_dt <= now:
+        end_dt += timedelta(days=1)
+    return end_dt
+
+
+def _is_morning_check(now: datetime, check_interval_min: int,
+                      ns: str, ne: str) -> bool:
+    """True if the previous check would have been inside the nighttime window."""
+    prev = now - timedelta(minutes=check_interval_min)
+    return _is_nighttime(prev, ns, ne)
+
+
+def _is_bedtime_check(now: datetime, check_interval_min: int,
+                      ns: str, ne: str) -> bool:
+    """True if the next check would fall inside the nighttime window."""
+    nxt = now + timedelta(minutes=check_interval_min)
+    return _is_nighttime(nxt, ns, ne)
+
+
+def _in_window(dt: datetime, window_start: datetime, window_end: datetime) -> bool:
+    return window_start <= dt < window_end
+
+
+def _end_of_day(now: datetime) -> datetime:
+    """Return 23:59:59 of the same calendar day in the same timezone."""
+    return now.replace(hour=23, minute=59, second=59, microsecond=0)
+
+
 # ---------------------------------------------------------------------------
-# Gather candidates
+# Rule-based notification selection
 # ---------------------------------------------------------------------------
 
-def _gather_candidates(
+def _select_regular(
     events: dict[str, Any],
     tasks: dict[str, Any],
     now: datetime,
-    lookahead_hours: float,
+    check_interval_sec: float,
+    event_hours: list[float],
+    task_hours: list[float],
+    urgent_task_hours: list[float],
     user_tz: ZoneInfo,
 ) -> list[dict[str, Any]]:
-    """
-    Return list of items that might need notification.
+    """Select items for notification using window-based rules."""
+    notifications: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
 
-    last_reminded is included in each candidate so the LLM can decide
-    whether the item warrants another notification (anti-spam).
+    # --- Events ---
+    max_event_h = max(event_hours) if event_hours else 0
+    event_cutoff = now + timedelta(hours=max_event_h) + timedelta(seconds=check_interval_sec)
 
-    All comparisons use timezone-aware datetimes.  Naive datetimes from
-    the DB are localised using the event's ``timeZone`` field (falling
-    back to the user's default timezone).  Candidate times sent to the
-    LLM are converted to the user's local timezone for clarity.
-    """
-    cutoff = now + timedelta(hours=lookahead_hours)
-    candidates: list[dict[str, Any]] = []
-
-    def _localise_last_reminded(iso_str: Optional[str]) -> Optional[str]:
-        """Convert a UTC last_reminded ISO timestamp to user-local format."""
-        if not iso_str:
-            return None
-        try:
-            dt = datetime.fromisoformat(iso_str)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.astimezone(user_tz).strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return iso_str
-
-    # Events starting within the lookahead window (with RRULE expansion).
     for eid, ev in events.items():
         if ev.get("status") == "cancelled":
             continue
-        occurrences = expand_event_occurrences(ev, now, cutoff, default_tz=user_tz)
+        occurrences = expand_event_occurrences(ev, now, event_cutoff, default_tz=user_tz)
         for occ in occurrences:
-            occ_start = occ.get("_start_dt") or _event_start_dt(occ, fallback_tz=user_tz) or now
-            # Show time in user's local timezone for LLM clarity.
-            local_start = occ_start.astimezone(user_tz) if occ_start.tzinfo else occ_start
-            candidates.append({
+            occ_start = occ.get("_start_dt") or _event_start_dt(occ, fallback_tz=user_tz)
+            if not occ_start:
+                continue
+            for h in event_hours:
+                w_start = now + timedelta(hours=h)
+                w_end = w_start + timedelta(seconds=check_interval_sec)
+                if _in_window(occ_start, w_start, w_end) and eid not in seen_ids:
+                    local_start = occ_start.astimezone(user_tz)
+                    hours_until = (occ_start - now).total_seconds() / 3600
+                    if hours_until < 0.5:
+                        time_note = "starting now"
+                    elif hours_until < 1.5:
+                        time_note = "in about 1 hour"
+                    else:
+                        time_note = f"in about {int(hours_until)} hours"
+                    summary = occ.get("summary", "Event")
+                    location = occ.get("location", "")
+                    loc_note = f" at {location}" if location else ""
+                    notifications.append({
+                        "item_id": eid,
+                        "type": "event",
+                        "message": f"📅 {summary}{loc_note} — {time_note} ({local_start.strftime('%H:%M')})",
+                    })
+                    seen_ids.add(eid)
+                    break
+
+    # --- Tasks ---
+    for tid, tk in tasks.items():
+        if tk.get("status") == "completed" or tid in seen_ids:
+            continue
+        due = _parse_dt(tk.get("due"), default_tz=user_tz)
+        if not due:
+            continue
+        is_urgent = tk.get("urgent", False)
+        hours_list = urgent_task_hours if is_urgent else task_hours
+        for h in hours_list:
+            w_start = now + timedelta(hours=h)
+            w_end = w_start + timedelta(seconds=check_interval_sec)
+            if _in_window(due, w_start, w_end) and tid not in seen_ids:
+                local_due = due.astimezone(user_tz)
+                hours_until = (due - now).total_seconds() / 3600
+                title = tk.get("title", "Task")
+                urgent_mark = "🔴 " if is_urgent else ""
+                if hours_until < 0:
+                    time_note = "overdue"
+                elif hours_until < 0.5:
+                    time_note = "due now"
+                elif hours_until < 1.5:
+                    time_note = "due in about 1 hour"
+                else:
+                    time_note = f"due in about {int(hours_until)} hours"
+                notifications.append({
+                    "item_id": tid,
+                    "type": "task",
+                    "message": f"{urgent_mark}📋 {title} — {time_note} ({local_due.strftime('%H:%M')})",
+                })
+                seen_ids.add(tid)
+                break
+
+    return notifications
+
+
+def _select_bedtime(
+    events: dict[str, Any],
+    tasks: dict[str, Any],
+    now: datetime,
+    nighttime_end_dt: datetime,
+    event_hours: list[float],
+    task_hours: list[float],
+    urgent_task_hours: list[float],
+    user_tz: ZoneInfo,
+) -> list[dict[str, Any]]:
+    """Bedtime check: use (nighttime_end - now) as the effective check_interval."""
+    gap_seconds = max((nighttime_end_dt - now).total_seconds(), 0)
+    return _select_regular(
+        events, tasks, now, gap_seconds,
+        event_hours, task_hours, urgent_task_hours, user_tz,
+    )
+
+
+def _select_morning(
+    events: dict[str, Any],
+    tasks: dict[str, Any],
+    now: datetime,
+    user_tz: ZoneInfo,
+) -> list[dict[str, Any]]:
+    """Morning check: all items due today + all no-due tasks."""
+    notifications: list[dict[str, Any]] = []
+    eod = _end_of_day(now)
+
+    # Events starting today
+    for eid, ev in events.items():
+        if ev.get("status") == "cancelled":
+            continue
+        occurrences = expand_event_occurrences(ev, now, eod, default_tz=user_tz)
+        for occ in occurrences:
+            occ_start = occ.get("_start_dt") or _event_start_dt(occ, fallback_tz=user_tz)
+            if not occ_start:
+                continue
+            local_start = occ_start.astimezone(user_tz)
+            summary = occ.get("summary", "Event")
+            location = occ.get("location", "")
+            loc_note = f" at {location}" if location else ""
+            notifications.append({
                 "item_id": eid,
                 "type": "event",
-                "summary": occ.get("summary", ""),
-                "start": local_start.strftime("%Y-%m-%d %H:%M"),
-                "description": occ.get("description", ""),
-                "location": occ.get("location", ""),
-                "last_reminded": _localise_last_reminded(ev.get("last_reminded")),
-                "recurring": bool(ev.get("recurrence")),
+                "message": f"📅 {summary}{loc_note} — today at {local_start.strftime('%H:%M')}",
             })
+            break  # one notification per event
 
-    # All incomplete tasks: overdue, due within lookahead, or no due date.
+    # Tasks due today + overdue + no-due
     for tid, tk in tasks.items():
         if tk.get("status") == "completed":
             continue
-
         due = _parse_dt(tk.get("due"), default_tz=user_tz)
-        is_urgent = tk.get("urgent", False)
-
-        # Include if: overdue, due within lookahead, urgent, or no due date.
-        include = False
+        urgent_mark = "🔴 " if tk.get("urgent", False) else ""
+        title = tk.get("title", "Task")
         if due:
-            if due <= cutoff:
-                include = True      # overdue or due soon
-        if not include and is_urgent:
-            include = True          # urgent (with or without due date)
-        if not include and not due:
-            include = True          # no due date — let LLM decide
-
-        if include:
-            due_display = due.astimezone(user_tz).strftime("%Y-%m-%d %H:%M") if due else None
-            candidates.append({
+            if due <= eod:
+                local_due = due.astimezone(user_tz)
+                if due < now:
+                    time_note = "overdue"
+                else:
+                    time_note = f"due today at {local_due.strftime('%H:%M')}"
+                notifications.append({
+                    "item_id": tid,
+                    "type": "task",
+                    "message": f"{urgent_mark}📋 {title} — {time_note}",
+                })
+        else:
+            # No due date — include for morning awareness
+            notifications.append({
                 "item_id": tid,
                 "type": "task",
-                "title": tk.get("title", ""),
-                "due": due_display,
-                "urgent": is_urgent,
-                "notes": tk.get("notes", ""),
-                "last_reminded": _localise_last_reminded(tk.get("last_reminded")),
+                "message": f"{urgent_mark}📋 {title} — no due date (reminder)",
             })
 
-    return candidates
-
-
-# ---------------------------------------------------------------------------
-# LLM call for notification selection
-# ---------------------------------------------------------------------------
-
-async def _llm_select_notifications(
-    llm_call_fn: Any,
-    candidates: list[dict[str, Any]],
-    now: datetime,
-    user_tz_str: str,
-    model_id: str | None = None,
-) -> list[dict[str, str]]:
-    """Call LLM via llm_agent to get structured notification list."""
-    system_prompt = (
-        f"You are a reminder notification assistant. "
-        f"You are given a list of upcoming events and pending tasks. Decide which "
-        f"ones the user should be notified about RIGHT NOW.\n\n"
-        f"## Selection guidelines\n"
-        f"- Events starting very soon (within 30 min) should definitely be notified.\n"
-        f"- Events starting within 1-2 hours should be notified as a heads-up.\n"
-        f"- Events further out (1-3 days) may deserve a single advance reminder.\n"
-        f"- Overdue tasks should be notified.\n"
-        f"- Urgent tasks should be notified.\n"
-        f"- Tasks due today or tomorrow deserve a reminder.\n"
-        f"- Tasks with no due date are included for awareness — remind occasionally.\n\n"
-        f"## Anti-spam rules (IMPORTANT)\n"
-        f"Each item has a `last_reminded` field (ISO timestamp or null).\n"
-        f"- If `last_reminded` is recent (within the last few hours), do NOT "
-        f"notify again unless the event is imminent (starting within 30 min) or "
-        f"the task is overdue/urgent.\n"
-        f"- For non-urgent tasks with no due date, only remind if `last_reminded` "
-        f"is null or more than 24 hours ago.\n"
-        f"- When in doubt, consider the item's details (location, description, "
-        f"type of event/task) to judge urgency. For example, an event at a "
-        f"distant location may need an earlier heads-up, while a quick online "
-        f"task may not need repeated reminders.\n"
-        f"- If still unclear after considering details, skip the item.\n\n"
-        f"Write a short, friendly notification message for each selected item.\n"
-        f"Use the select_notifications function to return your selections. "
-        f"If nothing needs notification right now, return an empty list.\n\n"
-        f"Current time: {now.strftime('%Y-%m-%d %H:%M %Z')} (timezone: {user_tz_str})"
-    )
-
-    user_content = (
-        f"Here are the candidate items for notification:\n\n"
-        f"```json\n{json.dumps(candidates, indent=2, default=str)}\n```"
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-    tools = [_NOTIFICATION_TOOL]
-
-    try:
-        result = await llm_call_fn(
-            messages, tools,
-            model_id=model_id,
-            tool_choice={"type": "function", "function": {"name": "select_notifications"}},
-        )
-    except Exception as e:
-        logger.exception("LLM call failed during notification check: %s", e)
-        return []
-
-    # Extract structured output from tool calls in the normalized response.
-    tool_calls = result.get("tool_calls", [])
-    if not tool_calls:
-        return []
-
-    try:
-        args = tool_calls[0].get("arguments", {})
-        return args.get("notifications", [])
-    except (IndexError, AttributeError) as e:
-        logger.warning("Failed to parse LLM notification response: %s", e)
-        return []
+    return notifications
 
 
 # ---------------------------------------------------------------------------
@@ -268,12 +288,11 @@ async def _send_notification(
         "user_id": user_id,
         "session_id": session_id,
         "message": (
-            f"You have a reminder notification to deliver to the user. "
-            f"Call the channel_agent to send the following direct message "
-            f"to the user. Use the user_id and session_id from your current "
-            f"session context (do NOT use any session_id mentioned in this text). "
-            f"Then report the result.\n\n"
-            f"Message to deliver:\n{message}"
+            f"You have reminder notifications to deliver to the user. "
+            f"Call the channel_agent to send the following message as a direct "
+            f"message to the user. Use the user_id and session_id from your "
+            f"current session context. Do not modify the notification content.\n\n"
+            f"Notification:\n{message}"
         ),
     }
     try:
@@ -296,20 +315,15 @@ async def _check_user(
     user_id: str,
     db: ReminderDB,
     router_client: Any,
-    llm_call_fn: Any,
     core_agent_id: str,
-    lookahead_hours: float,
-    model_id: str | None = None,
+    check_interval_min: int,
+    event_notify_hours: list[float],
+    task_notify_hours: list[float],
+    urgent_task_notify_hours: list[float],
 ) -> dict[str, Any]:
-    """
-    Run the notification check for a single user.
-
-    Returns a result dict suitable for the checker log.
-    """
+    """Run the notification check for a single user."""
     settings = await db.get_settings(user_id)
     tz_str = settings.get("timezone", "UTC")
-    # Per-user model_id override from settings, falling back to global default
-    user_model_id = settings.get("model_id") or model_id
     try:
         tz = ZoneInfo(tz_str)
     except Exception:
@@ -317,70 +331,76 @@ async def _check_user(
         tz_str = "UTC"
 
     now = datetime.now(tz)
-
-    # Nighttime check.
     ns = settings.get("nighttime_start", "22:00")
     ne = settings.get("nighttime_end", "07:00")
+
     if _is_nighttime(now, ns, ne):
         logger.debug("Skipping user %s — nighttime (%s–%s)", user_id, ns, ne)
         return {"user_id": user_id, "action": "skipped", "reason": "nighttime"}
 
-    # Check for reporting session.
     reporting_sid = settings.get("reporting_session_id")
     if not reporting_sid:
         logger.debug("Skipping user %s — no reporting_session_id", user_id)
         return {"user_id": user_id, "action": "skipped", "reason": "no_reporting_session"}
 
-    # Per-user reporting agent, falling back to the global default.
     user_core_agent = settings.get("reporting_agent_id") or core_agent_id
-
-    # Gather candidates.
     events = await db.get_all_events(user_id)
     tasks = await db.get_all_tasks(user_id)
-    candidates = _gather_candidates(events, tasks, now, lookahead_hours, user_tz=tz)
 
-    if not candidates:
-        logger.debug("No notification candidates for user %s", user_id)
-        return {"user_id": user_id, "action": "skipped", "reason": "no_candidates"}
+    morning = _is_morning_check(now, check_interval_min, ns, ne)
+    bedtime = _is_bedtime_check(now, check_interval_min, ns, ne)
 
-    logger.info("Found %d candidates for user %s — calling LLM", len(candidates), user_id)
-
-    # LLM decides which to notify.
-    notifications = await _llm_select_notifications(
-        llm_call_fn, candidates, now, tz_str, model_id=user_model_id,
-    )
+    if morning:
+        mode = "morning"
+        notifications = _select_morning(events, tasks, now, user_tz=tz)
+    elif bedtime:
+        ne_dt = _nighttime_end_dt(now, ne)
+        if ne_dt is None:
+            ne_dt = now + timedelta(hours=9)
+        mode = "bedtime"
+        notifications = _select_bedtime(
+            events, tasks, now, ne_dt,
+            event_notify_hours, task_notify_hours, urgent_task_notify_hours,
+            user_tz=tz,
+        )
+    else:
+        mode = "regular"
+        check_interval_sec = check_interval_min * 60
+        notifications = _select_regular(
+            events, tasks, now, check_interval_sec,
+            event_notify_hours, task_notify_hours, urgent_task_notify_hours,
+            user_tz=tz,
+        )
 
     if not notifications:
-        logger.debug("LLM returned no notifications for user %s", user_id)
-        return {
-            "user_id": user_id,
-            "action": "checked",
-            "candidates": len(candidates),
-            "notified": 0,
-        }
+        logger.debug("No notifications for user %s (mode=%s)", user_id, mode)
+        return {"user_id": user_id, "action": "checked", "mode": mode, "notified": 0}
 
-    # Update last_reminded atomically, then send notifications.
-    notified_ids = [n["item_id"] for n in notifications]
+    # Update last_reminded
+    notified_ids = list({n["item_id"] for n in notifications})
     await db.update_last_reminded(user_id, notified_ids)
 
-    # Combine all messages into one notification.
-    combined_parts = []
-    for n in notifications:
-        combined_parts.append(n["message"])
-    combined_message = "\n\n".join(combined_parts)
+    # Build combined message with mode-appropriate header
+    parts = [n["message"] for n in notifications]
+    if morning:
+        header = f"☀️ Good morning! Here's your schedule for today ({now.strftime('%A, %b %d')}):\n"
+        combined = header + "\n".join(parts)
+    elif bedtime:
+        header = "🌙 Before you go — upcoming reminders for overnight and tomorrow morning:\n"
+        combined = header + "\n".join(parts)
+    else:
+        combined = "\n".join(parts)
 
     await _send_notification(
-        router_client, user_core_agent, user_id, reporting_sid, combined_message,
+        router_client, user_core_agent, user_id, reporting_sid, combined,
     )
 
     return {
         "user_id": user_id,
         "action": "notified",
-        "candidates": len(candidates),
+        "mode": mode,
         "notified": len(notifications),
         "notified_ids": notified_ids,
-        "reporting_session_id": reporting_sid,
-        "reporting_agent_id": user_core_agent,
     }
 
 
@@ -389,7 +409,6 @@ async def _check_user(
 # ---------------------------------------------------------------------------
 
 def _save_checker_log(log_dir: str, log_entry: dict[str, Any]) -> None:
-    """Write a checker cycle log to the same logs directory used by the web UI."""
     from pathlib import Path as _Path
     d = _Path(log_dir)
     d.mkdir(parents=True, exist_ok=True)
@@ -406,23 +425,24 @@ def _save_checker_log(log_dir: str, log_entry: dict[str, Any]) -> None:
 async def periodic_check_loop(
     db: ReminderDB,
     router_client: Any,
-    llm_call_fn: Any,
     core_agent_id: str,
     check_interval: int,
-    lookahead_hours: float,
+    event_notify_hours: list[float],
+    task_notify_hours: list[float],
+    urgent_task_notify_hours: list[float],
     log_dir: str = "data/logs",
-    model_id: str | None = None,
 ) -> None:
     """
     Background loop that checks all users for pending notifications.
 
     Runs a check immediately on startup, then sleeps ``check_interval``
-    minutes between subsequent cycles.  Each cycle writes a log entry to
-    ``log_dir`` so it appears in the web UI Logs tab.
+    minutes between subsequent cycles.
     """
     logger.info(
-        "Periodic checker started: interval=%d min, lookahead=%.1f h",
-        check_interval, lookahead_hours,
+        "Periodic checker started: interval=%d min, event_hours=%s, "
+        "task_hours=%s, urgent_task_hours=%s",
+        check_interval, event_notify_hours, task_notify_hours,
+        urgent_task_notify_hours,
     )
 
     first_run = True
@@ -430,7 +450,6 @@ async def periodic_check_loop(
 
     while True:
         if first_run:
-            # Short delay on first run to let the agent finish startup.
             await asyncio.sleep(5)
             first_run = False
         else:
@@ -438,14 +457,13 @@ async def periodic_check_loop(
 
         cycle_count += 1
         cycle_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{cycle_count}"
-        cycle_start = datetime.now(timezone.utc).isoformat()
 
         log_entry: dict[str, Any] = {
             "task_id": f"checker_{cycle_id}",
             "cycle_id": cycle_id,
             "type": "checker_cycle",
             "cycle": cycle_count,
-            "started_at": cycle_start,
+            "started_at": datetime.now(timezone.utc).isoformat(),
             "status": "running",
         }
 
@@ -460,10 +478,11 @@ async def periodic_check_loop(
                         user_id=user_id,
                         db=db,
                         router_client=router_client,
-                        llm_call_fn=llm_call_fn,
                         core_agent_id=core_agent_id,
-                        lookahead_hours=lookahead_hours,
-                        model_id=model_id,
+                        check_interval_min=check_interval,
+                        event_notify_hours=event_notify_hours,
+                        task_notify_hours=task_notify_hours,
+                        urgent_task_notify_hours=urgent_task_notify_hours,
                     )
                     user_results.append(result)
                 except Exception as exc:

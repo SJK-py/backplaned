@@ -47,7 +47,9 @@ class AgentConfig(BaseModel):
     llm_timeout: int = 120
     tool_timeout: int = 60
     check_interval: int = 30
-    check_lookahead_hours: float = 72
+    event_notify_hours: str = "0,3"
+    task_notify_hours: str = "0,3,72"
+    urgent_task_notify_hours: str = "0,1,2,4,8,12,24,36,48,72"
     core_agent_id: str = "core_personal_agent"
     llm_agent_id: str = "llm_agent"
 
@@ -85,7 +87,9 @@ class AgentConfig(BaseModel):
             llm_timeout=int(_get("LLM_TIMEOUT", default=cls.model_fields["llm_timeout"].default)),
             tool_timeout=int(_get("TOOL_TIMEOUT", default=cls.model_fields["tool_timeout"].default)),
             check_interval=int(_get("CHECK_INTERVAL", default=cls.model_fields["check_interval"].default)),
-            check_lookahead_hours=float(_get("CHECK_LOOKAHEAD_HOURS", default=cls.model_fields["check_lookahead_hours"].default)),
+            event_notify_hours=str(_get("EVENT_NOTIFY_HOURS", default=cls.model_fields["event_notify_hours"].default)),
+            task_notify_hours=str(_get("TASK_NOTIFY_HOURS", default=cls.model_fields["task_notify_hours"].default)),
+            urgent_task_notify_hours=str(_get("URGENT_TASK_NOTIFY_HOURS", default=cls.model_fields["urgent_task_notify_hours"].default)),
             core_agent_id=_get("CORE_AGENT_ID", default=cls.model_fields["core_agent_id"].default),
             llm_agent_id=_get("LLM_AGENT_ID", default=cls.model_fields["llm_agent_id"].default),
         )
