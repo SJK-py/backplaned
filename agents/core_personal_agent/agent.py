@@ -2074,6 +2074,7 @@ async def _handle_agent_message(
     session_id: str,
     available_destinations: dict[str, Any],
     loop_state: _LoopState,
+    files: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Process a message from another agent (not the user).
 
@@ -2082,6 +2083,23 @@ async def _handle_agent_message(
     and appends it to session history so the user can reference it
     in future conversation.
     """
+    # Set up ProxyFileManager for file handling (embedded agent — no agent_url)
+    inbox_dir = _session_inbox(session_id)
+    pfm = ProxyFileManager(
+        inbox_dir=inbox_dir,
+        router_url=ROUTER_URL,
+    )
+
+    # Fetch inbound files
+    local_paths: list[str] = []
+    if files:
+        for f in files:
+            try:
+                lp = await pfm.fetch(f, session_id)
+                local_paths.append(lp)
+            except Exception as exc:
+                logger.warning("Agent-message: failed to fetch file %s: %s", f.get("path"), exc)
+
     system_prompt = (
         f"{_AGENT_MSG_SYSTEM_PROMPT}\n\n"
         f"## Current session\n"
@@ -2089,9 +2107,15 @@ async def _handle_agent_message(
         f"session_id: {session_id}"
     )
 
+    # Augment message with file info if files were attached
+    user_content = message
+    if local_paths:
+        file_lines = [f"  - {Path(lp).name}" for lp in local_paths]
+        user_content += "\n\n[Attached files:\n" + "\n".join(file_lines) + "\n]"
+
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": message},
+        {"role": "user", "content": user_content},
     ]
 
     # Only remote agent tools (no local file/memory/image tools)
@@ -2131,7 +2155,7 @@ async def _handle_agent_message(
         if not llm_resp.tool_calls:
             break
 
-        # Execute tool calls — only remote agent calls + fetch_agent_documentation
+        # Execute tool calls — remote agent calls + fetch_agent_documentation
         for tc in llm_resp.tool_calls:
             if tc.name == "fetch_agent_documentation":
                 doc_result = await handle_fetch_agent_documentation(
@@ -2149,7 +2173,7 @@ async def _handle_agent_message(
                 fut: asyncio.Future[dict[str, Any]] = running_loop.create_future()
                 loop_state.pending[identifier] = fut
 
-                rewritten = dict(tc.arguments)
+                rewritten = pfm.resolve_in_args(tc.arguments)
                 dest_info = available_destinations.get(dest, {})
                 dest_schema = dest_info.get("input_schema", "")
                 if "user_id" in dest_schema:
@@ -2167,7 +2191,10 @@ async def _handle_agent_message(
 
                 try:
                     result_data = await asyncio.wait_for(fut, timeout=TOOL_TIMEOUT)
-                    result_text = result_data.get("payload", {}).get("content", "") or "(no content)"
+                    result_text = await extract_result_text(
+                        result_data, pfm, loop_state.task_id,
+                        path_display_base=inbox_dir,
+                    )
                     sc = result_data.get("status_code")
                     if sc and sc >= 400:
                         result_text = f"Error ({sc}): {result_text}"
@@ -2345,6 +2372,7 @@ async def _dispatch(
     if origin_agent_id and origin_agent_id != "channel_agent":
         return await _handle_agent_message(
             message, user_id, session_id, available_destinations, loop_state,
+            files=files,
         )
 
     return await _agent_loop(
