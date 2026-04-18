@@ -265,6 +265,7 @@ async def _call_openai_compat(
     }
     if tools:
         kwargs["tools"] = tools
+        kwargs["parallel_tool_calls"] = True
         if tool_choice is not None:
             # openai_compat backends (e.g. llama.cpp) only accept string
             # values for tool_choice.  Convert the object form to "required".
