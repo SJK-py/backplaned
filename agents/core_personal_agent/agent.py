@@ -12,7 +12,7 @@ Input payload schema:
 
 Control tokens (message field):
     <new_session> [sid]     Archive history and reset session.
-                            Optional sid records sequel session mapping.
+                            Optional sid records new active session for user.
     <token_info>            Return estimated token usage for this session.
     <agents_info>           Return descriptions of available agents.
     <user_config> <text>    Write <text> to user_id.md for this user.
@@ -384,50 +384,46 @@ def _clear_link_state(session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Session sequel map — tracks old_session_id → new_session_id
+# Active session tracking — maps user_id → most recent session_id
 # ---------------------------------------------------------------------------
 
-_SEQUEL_MAP_PATH = Path(HISTORY_DIR) / "sequel_map.json"
+_ACTIVE_SESSIONS_PATH = Path(HISTORY_DIR) / "active_sessions.json"
 
 
-def _load_sequel_map() -> dict[str, str]:
-    if _SEQUEL_MAP_PATH.exists():
+def _load_active_sessions() -> dict[str, str]:
+    if _ACTIVE_SESSIONS_PATH.exists():
         try:
-            return json.loads(_SEQUEL_MAP_PATH.read_text(encoding="utf-8"))
+            return json.loads(_ACTIVE_SESSIONS_PATH.read_text(encoding="utf-8"))
         except Exception:
             return {}
     return {}
 
 
-def _save_sequel_map(m: dict[str, str]) -> None:
-    _SEQUEL_MAP_PATH.write_text(
+def _save_active_sessions(m: dict[str, str]) -> None:
+    _ACTIVE_SESSIONS_PATH.write_text(
         json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
 
-def _record_sequel(old_session_id: str, new_session_id: str) -> None:
-    """Record that old_session_id is succeeded by new_session_id."""
-    m = _load_sequel_map()
-    m[old_session_id] = new_session_id
-    _save_sequel_map(m)
+def _set_active_session(user_id: str, session_id: str) -> None:
+    """Record that session_id is the most recent session for user_id."""
+    m = _load_active_sessions()
+    m[user_id] = session_id
+    _save_active_sessions(m)
 
 
-def _resolve_session(session_id: str) -> tuple[str, Optional[str]]:
+def _resolve_session(user_id: str, session_id: str) -> tuple[str, Optional[str]]:
     """
-    Follow the sequel chain to find the active session.
+    If session_id is not the user's active session, return the active one.
 
     Returns (resolved_session_id, original_session_id_if_changed).
-    If the session_id is already active (not in the map), returns
-    (session_id, None).
+    If the session_id is already active (or no active session is recorded),
+    returns (session_id, None).
     """
-    m = _load_sequel_map()
-    original = session_id
-    visited: set[str] = set()
-    while session_id in m and session_id not in visited:
-        visited.add(session_id)
-        session_id = m[session_id]
-    if session_id != original:
-        return session_id, original
+    m = _load_active_sessions()
+    active = m.get(user_id)
+    if active and active != session_id:
+        return active, session_id
     return session_id, None
 
 
@@ -2117,7 +2113,7 @@ async def _dispatch(
             await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
         _archive_and_clear(session_id)
         if new_sid:
-            _record_sequel(session_id, new_sid)
+            _set_active_session(user_id, new_sid)
         return "Session archived."
 
     if message == "<token_info>":
@@ -2317,7 +2313,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
-    # Resolve session sequel chain for non-control-token messages.
+    # Resolve session: redirect stale session_ids to the user's active session.
     # Control tokens (<new_session>, etc.) operate on the session_id as-given
     # and must NOT be redirected or prefixed.
     _CONTROL_PREFIXES = ("<new_session>", "<stop_session>",
@@ -2330,10 +2326,10 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
 
     session_changed_note = ""
     if not is_control:
-        resolved_sid, original_sid = _resolve_session(session_id)
+        resolved_sid, original_sid = _resolve_session(user_id, session_id)
         if original_sid is not None:
             logger.info(
-                "Session sequel resolved: %s → %s (task %s)",
+                "Session resolved: %s → %s (task %s)",
                 original_sid, resolved_sid, task_id,
             )
             session_id = resolved_sid
