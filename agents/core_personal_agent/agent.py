@@ -1078,6 +1078,13 @@ def _append_tool_turn(
 # Core agent loop
 # ---------------------------------------------------------------------------
 
+_AGENT_ORIGIN_SYSTEM_PROMPT = (
+    "You are processing an incoming request from another agent in a multi-agent system. "
+    "Handle the request using available tools as instructed. "
+    "You do not have access to the user's conversation history."
+)
+
+
 async def _agent_loop(
     user_message: str,
     user_id: str,
@@ -1086,6 +1093,7 @@ async def _agent_loop(
     loop_state: _LoopState,
     files: Optional[list[dict[str, Any]]] = None,
     session_changed_note: str = "",
+    is_agent_origin: bool = False,
 ) -> str | AgentOutput:
     """
     Run the LLM agent loop for one user message.
@@ -1093,8 +1101,17 @@ async def _agent_loop(
     Handles history overflow, tool-call spawning with parallel asyncio.Futures,
     and persistent session history updates.  When ``files`` are provided,
     augments the user message with attachment info and enables file tools.
+
+    When ``is_agent_origin`` is True (message from another agent, not the
+    user), session history is not loaded or saved during the loop.  A
+    dedicated system prompt is used instead of the user's configured one.
+    After completion, only a clean user-facing notification entry is
+    appended to history.
     """
-    history = _load_history(session_id)
+    if is_agent_origin:
+        history: list[dict] = []
+    else:
+        history = _load_history(session_id)
     tools = _build_tools(available_destinations)
     user_json_cfg = _load_user_json_config(user_id)
     user_config_md = user_json_cfg.get("user_config_md") or ""
@@ -1105,7 +1122,7 @@ async def _agent_loop(
     running_loop = asyncio.get_running_loop()
 
     # --- History overflow: truncate and ingest old portion into memory ---
-    if _history_tokens(history) > user_history_limit:
+    if not is_agent_origin and _history_tokens(history) > user_history_limit:
         half = user_history_limit // 2
         # Find group boundaries.  A "group" starts at a standalone user
         # message (not a tool-result or image-injection user message) and
@@ -1199,9 +1216,12 @@ async def _agent_loop(
         )
 
     # --- Build initial LLM context ---
-    system_parts = [user_system_prompt]
+    if is_agent_origin:
+        system_parts = [_AGENT_ORIGIN_SYSTEM_PROMPT]
+    else:
+        system_parts = [user_system_prompt]
     system_parts.append(f"## Current User\nuser_id: {user_id}\nsession_id: {session_id}")
-    if user_config_md:
+    if not is_agent_origin and user_config_md:
         system_parts.append(f"## User Configuration\n{user_config_md}")
     if session_changed_note:
         system_parts.append(f"## Session Notice\n{session_changed_note}")
@@ -1231,9 +1251,10 @@ async def _agent_loop(
                     last_content = msg["content"]
                     break
             reply = last_content or "(Agent iteration limit reached.)"
-            history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": reply})
-            _save_history(session_id, history)
+            if not is_agent_origin:
+                history.append({"role": "user", "content": user_message})
+                history.append({"role": "assistant", "content": reply})
+                _save_history(session_id, history)
             return AgentOutput(content=reply)
 
         llm_resp = await _llm_call(
@@ -1252,20 +1273,30 @@ async def _agent_loop(
             # Final answer — push progress and persist to session history.
             reply = llm_resp.content or ""
             await _push_progress(loop_state.task_id, "chunk", reply)
-            # Append tool usage summary and file references so next invocation has context
-            history_reply = reply
-            if tools_used:
-                unique_tools = list(dict.fromkeys(tools_used))  # preserve order, deduplicate
-                history_reply += f"\n[Used tools: {', '.join(unique_tools)}]"
-            if result_file_refs:
-                history_reply += "\n[Files received during this turn:\n" + "\n".join(result_file_refs) + "\n]"
-            history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": history_reply})
-            _save_history(session_id, history)
 
-            # Per-turn memory ingestion: only the current exchange, not the
-            # entire history.  Fire-and-forget — don't block the response.
-            _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
+            if is_agent_origin:
+                # Agent-originated: extract user-facing content and append
+                # a clean notification entry (not the raw system instruction).
+                notification_content = user_message
+                for _marker in ("Notification:\n", "Message to deliver:\n"):
+                    if _marker in user_message:
+                        notification_content = user_message.split(_marker, 1)[1].strip()
+                        break
+                real_history = _load_history(session_id)
+                real_history.append({"role": "assistant", "content": f"🔔 {notification_content}"})
+                _save_history(session_id, real_history)
+            else:
+                # User-originated: full history persistence + memory ingestion.
+                history_reply = reply
+                if tools_used:
+                    unique_tools = list(dict.fromkeys(tools_used))
+                    history_reply += f"\n[Used tools: {', '.join(unique_tools)}]"
+                if result_file_refs:
+                    history_reply += "\n[Files received during this turn:\n" + "\n".join(result_file_refs) + "\n]"
+                history.append({"role": "user", "content": user_message})
+                history.append({"role": "assistant", "content": history_reply})
+                _save_history(session_id, history)
+                _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
 
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
@@ -1459,7 +1490,8 @@ async def _agent_loop(
         # Persist tool calls to session tool history.
         tool_turn += 1
         tools_used.extend(tc.name for tc in llm_resp.tool_calls)
-        _append_tool_history(session_id, tool_turn, llm_resp.tool_calls, tc_results)
+        if not is_agent_origin:
+            _append_tool_history(session_id, tool_turn, llm_resp.tool_calls, tc_results)
 
         # Push tool_result progress events.
         for tc in llm_resp.tool_calls:
@@ -2056,178 +2088,6 @@ async def _handle_linked_message(
 
 
 # ---------------------------------------------------------------------------
-# Lightweight processor for non-user-initiated messages
-# ---------------------------------------------------------------------------
-
-_AGENT_MSG_SYSTEM_PROMPT = (
-    "You are processing an incoming request from another agent in a multi-agent system. "
-    "Handle the request using available tools as instructed. "
-    "You do not have access to the user's conversation history."
-)
-
-_AGENT_MSG_MAX_ITERATIONS = 5
-
-
-async def _handle_agent_message(
-    message: str,
-    user_id: str,
-    session_id: str,
-    available_destinations: dict[str, Any],
-    loop_state: _LoopState,
-    files: Optional[list[dict[str, Any]]] = None,
-) -> str:
-    """Process a message from another agent (not the user).
-
-    Runs a short LLM loop without loading/saving session history.
-    After completion, extracts user-facing content from the message
-    and appends it to session history so the user can reference it
-    in future conversation.
-    """
-    # Set up ProxyFileManager for file handling (embedded agent — no agent_url)
-    inbox_dir = _session_inbox(session_id)
-    pfm = ProxyFileManager(
-        inbox_dir=inbox_dir,
-        router_url=ROUTER_URL,
-    )
-
-    # Fetch inbound files
-    local_paths: list[str] = []
-    if files:
-        for f in files:
-            try:
-                lp = await pfm.fetch(f, session_id)
-                local_paths.append(lp)
-            except Exception as exc:
-                logger.warning("Agent-message: failed to fetch file %s: %s", f.get("path"), exc)
-
-    system_prompt = (
-        f"{_AGENT_MSG_SYSTEM_PROMPT}\n\n"
-        f"## Current session\n"
-        f"user_id: {user_id}\n"
-        f"session_id: {session_id}"
-    )
-
-    # Augment message with file info if files were attached
-    user_content = message
-    if local_paths:
-        file_lines = [f"  - {Path(lp).name}" for lp in local_paths]
-        user_content += "\n\n[Attached files:\n" + "\n".join(file_lines) + "\n]"
-
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-
-    # Only remote agent tools (no local file/memory/image tools)
-    remote_tools = build_openai_tools(
-        {k: v for k, v in available_destinations.items() if k != MEMORY_AGENT_ID}
-    )
-
-    llm_content: Optional[str] = None
-
-    for iteration in range(_AGENT_MSG_MAX_ITERATIONS):
-        try:
-            llm_resp = await _llm_call(messages, remote_tools, loop_state)
-        except RuntimeError as exc:
-            logger.error("Agent-message LLM call failed: %s", exc)
-            break
-
-        llm_content = llm_resp.content
-
-        # Build assistant message for the LLM context
-        assistant_dict: dict[str, Any] = {"role": "assistant"}
-        if llm_content:
-            assistant_dict["content"] = llm_content
-        if llm_resp.tool_calls:
-            assistant_dict["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.name,
-                        "arguments": json.dumps(tc.arguments),
-                    },
-                }
-                for tc in llm_resp.tool_calls
-            ]
-        messages.append(assistant_dict)
-
-        if not llm_resp.tool_calls:
-            break
-
-        # Execute tool calls — remote agent calls + fetch_agent_documentation
-        for tc in llm_resp.tool_calls:
-            if tc.name == "fetch_agent_documentation":
-                doc_result = await handle_fetch_agent_documentation(
-                    tc.arguments.get("agent_id", ""),
-                    available_destinations,
-                    ROUTER_URL,
-                )
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": doc_result})
-                continue
-
-            if tc.name.startswith("call_"):
-                dest = tc.name[5:]
-                identifier = f"am_{uuid.uuid4().hex[:12]}"
-                running_loop = asyncio.get_running_loop()
-                fut: asyncio.Future[dict[str, Any]] = running_loop.create_future()
-                loop_state.pending[identifier] = fut
-
-                rewritten = pfm.resolve_in_args(tc.arguments)
-                dest_info = available_destinations.get(dest, {})
-                dest_schema = dest_info.get("input_schema", "")
-                if "user_id" in dest_schema:
-                    rewritten["user_id"] = user_id
-                if "session_id" in dest_schema:
-                    rewritten["session_id"] = session_id
-
-                await _spawn_via_http(
-                    identifier=identifier,
-                    parent_task_id=loop_state.task_id,
-                    dest=dest,
-                    payload=rewritten,
-                    pending=loop_state.pending,
-                )
-
-                try:
-                    result_data = await asyncio.wait_for(fut, timeout=TOOL_TIMEOUT)
-                    result_text = await extract_result_text(
-                        result_data, pfm, loop_state.task_id,
-                        path_display_base=inbox_dir,
-                    )
-                    sc = result_data.get("status_code")
-                    if sc and sc >= 400:
-                        result_text = f"Error ({sc}): {result_text}"
-                except asyncio.TimeoutError:
-                    result_text = f"Agent '{dest}' timed out."
-                finally:
-                    loop_state.pending.pop(identifier, None)
-
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_text})
-                continue
-
-            messages.append({
-                "role": "tool", "tool_call_id": tc.id,
-                "content": f"Tool '{tc.name}' is not available in this context.",
-            })
-
-    # Append user-facing notification content to session history.
-    # Extract the actual notification text from the agent's instruction
-    # message (after "Notification:\n" or "Message to deliver:\n").
-    notification_content = message
-    for marker in ("Notification:\n", "Message to deliver:\n"):
-        if marker in message:
-            notification_content = message.split(marker, 1)[1].strip()
-            break
-
-    history = _load_history(session_id)
-    history.append({"role": "assistant", "content": f"🔔 {notification_content}"})
-    _save_history(session_id, history)
-
-    return llm_content or "Processed."
-
-
-# ---------------------------------------------------------------------------
 # Message dispatch (special tokens + normal agent loop)
 # ---------------------------------------------------------------------------
 
@@ -2365,15 +2225,12 @@ async def _dispatch(
             files=files,
         )
 
-    # --- Non-user messages: lightweight processor ---
-    # Messages from other agents (reminder_agent, cron_agent, etc.) go
-    # through a short LLM loop that doesn't load/save session history
-    # and appends only the user-facing content to history afterward.
-    if origin_agent_id and origin_agent_id != "channel_agent":
-        return await _handle_agent_message(
-            message, user_id, session_id, available_destinations, loop_state,
-            files=files,
-        )
+    # --- Non-user messages flag ---
+    # Messages from other agents (reminder_agent, cron_agent, etc.) reuse
+    # _agent_loop but skip session history loading/saving and use a
+    # dedicated system prompt.  A clean notification entry is appended
+    # to history afterward so the user can reference it.
+    is_agent_origin = bool(origin_agent_id and origin_agent_id != "channel_agent")
 
     return await _agent_loop(
         user_message=message,
@@ -2383,6 +2240,7 @@ async def _dispatch(
         loop_state=loop_state,
         files=files,
         session_changed_note=session_changed_note,
+        is_agent_origin=is_agent_origin,
     )
 
 
