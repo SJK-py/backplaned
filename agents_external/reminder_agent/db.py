@@ -35,10 +35,19 @@ _DEFAULT_SETTINGS: dict[str, Any] = {
     "model_id": None,
     "google_sync": {
         "enabled": False,
-        "calendar_api_key": None,
-        "tasks_api_key": None,
-        "sync_interval": 15,
-        "conflict_rule": "local_wins",
+        "status": "disconnected",            # disconnected | connected | error
+        "google_account_email": None,
+        "refresh_token": None,
+        "access_token": None,
+        "token_expires_at": None,            # ISO8601
+        "calendar_id": "primary",
+        "tasklist_id": "@default",
+        "calendar_sync_token": None,         # opaque token from events.list
+        "tasks_updated_min": None,           # ISO8601 high-watermark for tasks
+        "sync_interval": 15,                 # minutes
+        "conflict_rule": "newest_wins",      # local_wins | remote_wins | newest_wins
+        "last_sync_at": None,
+        "last_error": None,
     },
 }
 
@@ -180,7 +189,9 @@ class ReminderDB:
             "last_reminded": None,
             "created_at": now,
             "updated_at": now,
-            "google_id": None,
+            "google_id": event.get("google_id"),
+            "etag": event.get("etag"),
+            "last_synced_at": None,
         }
         async with self._lock_for(user_id):
             db = self._load_raw(user_id)
@@ -228,7 +239,9 @@ class ReminderDB:
             "urgent": task.get("urgent", False),
             "created_at": now,
             "updated_at": now,
-            "google_id": None,
+            "google_id": task.get("google_id"),
+            "etag": task.get("etag"),
+            "last_synced_at": None,
         }
         async with self._lock_for(user_id):
             db = self._load_raw(user_id)
@@ -295,3 +308,199 @@ class ReminderDB:
             if d.is_dir() and (d / "reminders.json").exists():
                 result.append(d.name)
         return result
+
+    # -- Google sync helpers ------------------------------------------------
+
+    async def update_google_sync(
+        self, user_id: str, updates: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge-update the settings.google_sync sub-dict."""
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            settings = db.setdefault("settings", copy.deepcopy(_DEFAULT_SETTINGS))
+            gs = settings.setdefault(
+                "google_sync", copy.deepcopy(_DEFAULT_SETTINGS["google_sync"]),
+            )
+            gs.update(updates)
+            self._save_raw(user_id, db)
+            return gs
+
+    async def find_event_by_google_id(
+        self, user_id: str, google_id: str,
+    ) -> Optional[tuple[str, dict[str, Any]]]:
+        events = await self.get_all_events(user_id)
+        for eid, ev in events.items():
+            if ev.get("google_id") == google_id:
+                return eid, ev
+        return None
+
+    async def find_task_by_google_id(
+        self, user_id: str, google_id: str,
+    ) -> Optional[tuple[str, dict[str, Any]]]:
+        tasks = await self.get_all_tasks(user_id)
+        for tid, tk in tasks.items():
+            if tk.get("google_id") == google_id:
+                return tid, tk
+        return None
+
+    async def apply_remote_event(
+        self, user_id: str, record: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Upsert an event keyed by google_id with sync metadata attached.
+
+        ``record`` must contain ``google_id``.  Local fields (id, created_at,
+        last_reminded) are preserved when matching an existing event.
+        """
+        google_id = record.get("google_id")
+        if not google_id:
+            raise ValueError("apply_remote_event requires google_id")
+        now = _now_iso()
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            events = db.setdefault("events", {})
+            match_id = None
+            for eid, ev in events.items():
+                if ev.get("google_id") == google_id:
+                    match_id = eid
+                    break
+            if match_id is None:
+                eid = record.get("id") or _generate_id()
+                merged = {
+                    "id": eid,
+                    "last_reminded": None,
+                    "created_at": now,
+                    **record,
+                    "updated_at": record.get("updated_at") or now,
+                    "last_synced_at": now,
+                }
+                events[eid] = merged
+            else:
+                existing = events[match_id]
+                merged = dict(existing)
+                for k, v in record.items():
+                    if k in ("id", "created_at", "last_reminded"):
+                        continue
+                    merged[k] = v
+                merged["last_synced_at"] = now
+                events[match_id] = merged
+            self._save_raw(user_id, db)
+            return merged
+
+    async def apply_remote_task(
+        self, user_id: str, record: dict[str, Any],
+    ) -> dict[str, Any]:
+        google_id = record.get("google_id")
+        if not google_id:
+            raise ValueError("apply_remote_task requires google_id")
+        now = _now_iso()
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            tasks = db.setdefault("tasks", {})
+            match_id = None
+            for tid, tk in tasks.items():
+                if tk.get("google_id") == google_id:
+                    match_id = tid
+                    break
+            if match_id is None:
+                tid = record.get("id") or _generate_id()
+                merged = {
+                    "id": tid,
+                    "last_reminded": None,
+                    "urgent": False,
+                    "created_at": now,
+                    **record,
+                    "updated_at": record.get("updated_at") or now,
+                    "last_synced_at": now,
+                }
+                tasks[tid] = merged
+            else:
+                existing = tasks[match_id]
+                merged = dict(existing)
+                for k, v in record.items():
+                    if k in ("id", "created_at", "last_reminded", "urgent"):
+                        continue
+                    merged[k] = v
+                merged["last_synced_at"] = now
+                tasks[match_id] = merged
+            self._save_raw(user_id, db)
+            return merged
+
+    async def delete_event_by_google_id(
+        self, user_id: str, google_id: str,
+    ) -> bool:
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            events = db.get("events", {})
+            for eid, ev in list(events.items()):
+                if ev.get("google_id") == google_id:
+                    del events[eid]
+                    self._save_raw(user_id, db)
+                    return True
+            return False
+
+    async def delete_task_by_google_id(
+        self, user_id: str, google_id: str,
+    ) -> bool:
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            tasks = db.get("tasks", {})
+            for tid, tk in list(tasks.items()):
+                if tk.get("google_id") == google_id:
+                    del tasks[tid]
+                    self._save_raw(user_id, db)
+                    return True
+            return False
+
+    async def set_event_sync_metadata(
+        self,
+        user_id: str,
+        event_id: str,
+        *,
+        google_id: Optional[str] = None,
+        etag: Optional[str] = None,
+        mark_synced: bool = True,
+    ) -> Optional[dict[str, Any]]:
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            events = db.get("events", {})
+            if event_id not in events:
+                return None
+            if google_id is not None:
+                events[event_id]["google_id"] = google_id
+            if etag is not None:
+                events[event_id]["etag"] = etag
+            if mark_synced:
+                events[event_id]["last_synced_at"] = _now_iso()
+            self._save_raw(user_id, db)
+            return events[event_id]
+
+    async def set_task_sync_metadata(
+        self,
+        user_id: str,
+        task_id: str,
+        *,
+        google_id: Optional[str] = None,
+        etag: Optional[str] = None,
+        mark_synced: bool = True,
+    ) -> Optional[dict[str, Any]]:
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            tasks = db.get("tasks", {})
+            if task_id not in tasks:
+                return None
+            if google_id is not None:
+                tasks[task_id]["google_id"] = google_id
+            if etag is not None:
+                tasks[task_id]["etag"] = etag
+            if mark_synced:
+                tasks[task_id]["last_synced_at"] = _now_iso()
+            self._save_raw(user_id, db)
+            return tasks[task_id]
+
+    @staticmethod
+    def is_dirty(record: dict[str, Any]) -> bool:
+        """True if local record has been modified since last successful sync."""
+        last = record.get("last_synced_at")
+        if not last:
+            return True
+        return (record.get("updated_at") or "") > last

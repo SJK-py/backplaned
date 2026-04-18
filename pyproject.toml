@@ -40,6 +40,11 @@ dependencies = [
     "python-dateutil>=2.9",
     "croniter>=6.0",
 
+    # Google Calendar + Tasks sync (reminder_agent)
+    "google-api-python-client>=2.130",
+    "google-auth>=2.34",
+    "google-auth-oauthlib>=1.2",
+
     # SSE streaming
     "sse-starlette>=3.3",
 ]

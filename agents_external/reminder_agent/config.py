@@ -42,6 +42,9 @@ class AgentConfig(BaseModel):
     credentials_path: str = "data/credentials.json"
     admin_password: str = ""
     session_secret: str = ""
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_redirect_uri: str = ""
 
     # --- Runtime (from data/config.json) ---
     llm_timeout: int = 120
@@ -83,6 +86,9 @@ class AgentConfig(BaseModel):
             credentials_path=os.environ.get("CREDENTIALS_PATH", cls.model_fields["credentials_path"].default),
             admin_password=os.environ.get("ADMIN_PASSWORD", cls.model_fields["admin_password"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _s.token_hex(32),
+            google_oauth_client_id=os.environ.get("GOOGLE_OAUTH_CLIENT_ID", ""),
+            google_oauth_client_secret=os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", ""),
+            google_oauth_redirect_uri=os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", ""),
             # Runtime (config.json > env fallback > default)
             llm_timeout=int(_get("LLM_TIMEOUT", default=cls.model_fields["llm_timeout"].default)),
             tool_timeout=int(_get("TOOL_TIMEOUT", default=cls.model_fields["tool_timeout"].default)),
