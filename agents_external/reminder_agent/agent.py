@@ -552,16 +552,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Start periodic checker if router is connected.
     if router_client:
+        from checker import _parse_hours_list
         _checker_task = asyncio.create_task(
             periodic_check_loop(
                 db=reminder_db,
                 router_client=router_client,
-                llm_call_fn=_llm_call,
                 core_agent_id=agent_config.core_agent_id,
                 check_interval=agent_config.check_interval,
-                lookahead_hours=agent_config.check_lookahead_hours,
+                event_notify_hours=_parse_hours_list(agent_config.event_notify_hours),
+                task_notify_hours=_parse_hours_list(agent_config.task_notify_hours),
+                urgent_task_notify_hours=_parse_hours_list(agent_config.urgent_task_notify_hours),
                 log_dir=agent_config.log_dir,
-                model_id=_get_default_model_id() or None,
             )
         )
         logger.info("Periodic checker started (interval: %d min).", agent_config.check_interval)

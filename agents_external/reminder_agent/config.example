@@ -5,5 +5,7 @@
     "LLM_TIMEOUT": "LLM call timeout in seconds (default: 120)",
     "TOOL_TIMEOUT": "Tool execution timeout in seconds (default: 60)",
     "CHECK_INTERVAL": "Periodic notification check interval in minutes (default: 30)",
-    "CHECK_LOOKAHEAD_HOURS": "How far ahead to check for upcoming events in hours (default: 72)"
+    "EVENT_NOTIFY_HOURS": "Comma-separated hours before event start to notify (default: 0,3). E.g. '0,3' means notify at event time and 3 hours before.",
+    "TASK_NOTIFY_HOURS": "Comma-separated hours before task due to notify (default: 0,3,72). E.g. '0,3,72' means notify at due time, 3 hours before, and 3 days before.",
+    "URGENT_TASK_NOTIFY_HOURS": "Comma-separated hours before urgent task due to notify (default: 0,1,2,4,8,12,24,36,48,72). More frequent than regular tasks."
 }
