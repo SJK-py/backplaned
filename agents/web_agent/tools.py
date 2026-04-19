@@ -336,8 +336,7 @@ async def _geocode(location: str, timeout: float = 10.0) -> tuple[float, float]:
 async def weather(
     location: str,
     mode: str = "now",
-    forecast_type: str = "hourly",
-    forecast_count: int = 4,
+    count: int = 4,
     imperial: bool = False,
     timeout: float = 10.0,
 ) -> str:
@@ -356,17 +355,14 @@ async def weather(
     elif mode == "today":
         params = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset"
         url = f"{base}&daily={params}&forecast_days=1"
-    elif mode == "forecast":
-        if forecast_type == "hourly":
-            params = "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
-            url = f"{base}&hourly={params}&forecast_hours={forecast_count}"
-        elif forecast_type == "daily":
-            params = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
-            url = f"{base}&daily={params}&forecast_days={forecast_count}"
-        else:
-            return json.dumps({"error": f"Unknown forecast_type: {forecast_type}. Use 'hourly' or 'daily'."})
+    elif mode == "hourly_forecast":
+        params = "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
+        url = f"{base}&hourly={params}&forecast_hours={count}"
+    elif mode == "daily_forecast":
+        params = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
+        url = f"{base}&daily={params}&forecast_days={count}"
     else:
-        return json.dumps({"error": f"Unknown mode: {mode}. Use 'now', 'today', or 'forecast'."})
+        return json.dumps({"error": f"Unknown mode: {mode}. Use 'now', 'today', 'hourly_forecast', or 'daily_forecast'."})
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -445,33 +441,32 @@ WEB_TOOLS: list[dict[str, Any]] = [
             "name": "weather",
             "description": (
                 "Get weather data from Open-Meteo (free, no API key). "
-                "Supports current conditions, today's summary, and forecasts. "
-                "Use this instead of web_search for weather queries."
+                "Always use this tool instead of web_search for weather queries.\n"
+                "Examples:\n"
+                '  weather(location="Seoul", mode="now") → current temperature, humidity, wind\n'
+                '  weather(location="Riverside, CA", mode="today") → today\'s high/low, sunrise/sunset\n'
+                '  weather(location="Tokyo", mode="hourly_forecast", count=12) → next 12 hours\n'
+                '  weather(location="London", mode="daily_forecast", count=7) → 7-day forecast'
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "Location name (e.g. 'Riverside, CA', 'Seoul', 'Tokyo, Japan')",
+                        "description": "City or place name. Examples: 'Seoul', 'Riverside, CA', 'Tokyo, Japan', 'Paris, France'",
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["now", "today", "forecast"],
-                        "description": "now=current conditions, today=daily summary, forecast=multi-period prediction (default: now)",
+                        "enum": ["now", "today", "hourly_forecast", "daily_forecast"],
+                        "description": "What to fetch: 'now' for current conditions, 'today' for daily summary with sunrise/sunset, 'hourly_forecast' for hour-by-hour prediction, 'daily_forecast' for multi-day prediction. Default: 'now'",
                     },
-                    "forecast_type": {
-                        "type": "string",
-                        "enum": ["hourly", "daily"],
-                        "description": "Forecast interval (only used when mode=forecast, default: hourly)",
-                    },
-                    "forecast_count": {
+                    "count": {
                         "type": "integer",
-                        "description": "Number of forecast periods (only used when mode=forecast, default: 4)",
+                        "description": "Number of forecast periods. Only used with hourly_forecast or daily_forecast. Examples: 12 for next 12 hours, 7 for 7-day forecast. Default: 4",
                     },
                     "imperial": {
                         "type": "boolean",
-                        "description": "Use imperial units (°F, mph, inches) instead of metric (default: false)",
+                        "description": "Set true for °F/mph/inches, false for °C/km·h/mm. Default: false (metric)",
                     },
                 },
                 "required": ["location"],
