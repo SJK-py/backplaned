@@ -307,11 +307,19 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             timeout=FETCH_TIMEOUT,
         )
     if name == "weather":
+        raw_count = args.get("count")
+        try:
+            count = int(raw_count) if raw_count is not None else 7
+        except (ValueError, TypeError):
+            count = 7
+        raw_imperial = args.get("imperial", False)
+        if isinstance(raw_imperial, str):
+            raw_imperial = raw_imperial.lower() in ("true", "1", "yes")
         return await weather(
-            location=args.get("location", ""),
-            mode=args.get("mode", "now"),
-            count=args.get("count", 4),
-            imperial=args.get("imperial", False),
+            location=str(args.get("location", "")),
+            mode=str(args.get("mode", "now")),
+            count=count,
+            imperial=bool(raw_imperial),
             timeout=FETCH_TIMEOUT,
         )
     return f"Error: unknown tool '{name}'"
