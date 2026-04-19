@@ -211,6 +211,29 @@ async def _calendar_sync(
 
     from googleapiclient.errors import HttpError
 
+    # --- TOMBSTONES: push local deletions first ---------------------------
+    tombstones_pushed = 0
+    pending = await db.get_pending_deletes(user_id)
+    for gid in pending.get("events", []):
+        try:
+            await asyncio.to_thread(
+                lambda gid=gid: service.events().delete(
+                    calendarId=calendar_id, eventId=gid,
+                ).execute()
+            )
+            await db.clear_pending_delete(user_id, "events", gid)
+            tombstones_pushed += 1
+        except HttpError as e:
+            status = getattr(e, "resp", None) and e.resp.status
+            if status in (404, 410):
+                # Already gone on Google's side — clear locally too.
+                await db.clear_pending_delete(user_id, "events", gid)
+                tombstones_pushed += 1
+            else:
+                logger.warning(
+                    "Calendar tombstone push failed for %s/%s: %s", user_id, gid, e,
+                )
+
     # --- PULL: fetch remote deltas ----------------------------------------
     applied = 0
     deleted = 0
@@ -303,6 +326,7 @@ async def _calendar_sync(
     return {
         "calendar_applied": applied,
         "calendar_deleted": deleted,
+        "calendar_tombstones_pushed": tombstones_pushed,
         "calendar_pushed_created": pushed_created,
         "calendar_pushed_updated": pushed_updated,
     }
@@ -323,6 +347,28 @@ async def _tasks_sync(
 
     applied = 0
     deleted = 0
+
+    # --- TOMBSTONES: push local deletions first ---------------------------
+    tombstones_pushed = 0
+    pending = await db.get_pending_deletes(user_id)
+    for gid in pending.get("tasks", []):
+        try:
+            await asyncio.to_thread(
+                lambda gid=gid: service.tasks().delete(
+                    tasklist=tasklist_id, task=gid,
+                ).execute()
+            )
+            await db.clear_pending_delete(user_id, "tasks", gid)
+            tombstones_pushed += 1
+        except HttpError as e:
+            status = getattr(e, "resp", None) and e.resp.status
+            if status in (404, 410):
+                await db.clear_pending_delete(user_id, "tasks", gid)
+                tombstones_pushed += 1
+            else:
+                logger.warning(
+                    "Tasks tombstone push failed for %s/%s: %s", user_id, gid, e,
+                )
 
     # Record "now" before we start — use as the new high-watermark after success.
     poll_started_at = _now_iso()
@@ -406,6 +452,7 @@ async def _tasks_sync(
     return {
         "tasks_applied": applied,
         "tasks_deleted": deleted,
+        "tasks_tombstones_pushed": tombstones_pushed,
         "tasks_pushed_created": pushed_created,
         "tasks_pushed_updated": pushed_updated,
     }

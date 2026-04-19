@@ -58,6 +58,7 @@ def _empty_db() -> dict[str, Any]:
         "settings": copy.deepcopy(_DEFAULT_SETTINGS),
         "events": {},
         "tasks": {},
+        "pending_deletes": {"events": [], "tasks": []},
     }
 
 
@@ -215,11 +216,18 @@ class ReminderDB:
     async def remove_event(self, user_id: str, event_id: str) -> bool:
         async with self._lock_for(user_id):
             db = self._load_raw(user_id)
-            if event_id in db.get("events", {}):
-                del db["events"][event_id]
-                self._save_raw(user_id, db)
-                return True
-            return False
+            events = db.get("events", {})
+            if event_id not in events:
+                return False
+            gid = events[event_id].get("google_id")
+            if gid:
+                pd = db.setdefault("pending_deletes", {"events": [], "tasks": []})
+                pd.setdefault("events", [])
+                if gid not in pd["events"]:
+                    pd["events"].append(gid)
+            del events[event_id]
+            self._save_raw(user_id, db)
+            return True
 
     # -- Tasks --------------------------------------------------------------
 
@@ -271,11 +279,18 @@ class ReminderDB:
     async def remove_task(self, user_id: str, task_id: str) -> bool:
         async with self._lock_for(user_id):
             db = self._load_raw(user_id)
-            if task_id in db.get("tasks", {}):
-                del db["tasks"][task_id]
-                self._save_raw(user_id, db)
-                return True
-            return False
+            tasks = db.get("tasks", {})
+            if task_id not in tasks:
+                return False
+            gid = tasks[task_id].get("google_id")
+            if gid:
+                pd = db.setdefault("pending_deletes", {"events": [], "tasks": []})
+                pd.setdefault("tasks", [])
+                if gid not in pd["tasks"]:
+                    pd["tasks"].append(gid)
+            del tasks[task_id]
+            self._save_raw(user_id, db)
+            return True
 
     # -- Bulk helpers (used by checker) -------------------------------------
 
@@ -504,3 +519,29 @@ class ReminderDB:
         if not last:
             return True
         return (record.get("updated_at") or "") > last
+
+    async def get_pending_deletes(self, user_id: str) -> dict[str, list[str]]:
+        """Return tombstone google_ids awaiting remote deletion."""
+        db = await self.load(user_id)
+        pd = db.get("pending_deletes") or {}
+        return {
+            "events": list(pd.get("events") or []),
+            "tasks": list(pd.get("tasks") or []),
+        }
+
+    async def clear_pending_delete(
+        self, user_id: str, kind: str, google_id: str,
+    ) -> None:
+        """Remove a single google_id tombstone after successful remote delete.
+
+        ``kind`` must be ``"events"`` or ``"tasks"``.
+        """
+        if kind not in ("events", "tasks"):
+            raise ValueError(f"Invalid kind: {kind}")
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            pd = db.setdefault("pending_deletes", {"events": [], "tasks": []})
+            lst = pd.setdefault(kind, [])
+            if google_id in lst:
+                lst.remove(google_id)
+                self._save_raw(user_id, db)

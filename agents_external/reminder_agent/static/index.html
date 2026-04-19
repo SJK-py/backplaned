@@ -495,9 +495,11 @@ async function syncNow(uid) {
       if (r.calendar_applied != null) parts.push(`cal pulled ${r.calendar_applied}`);
       if (r.calendar_pushed_created != null) parts.push(`cal created ${r.calendar_pushed_created}`);
       if (r.calendar_pushed_updated != null) parts.push(`cal updated ${r.calendar_pushed_updated}`);
+      if (r.calendar_tombstones_pushed) parts.push(`cal deleted ${r.calendar_tombstones_pushed}`);
       if (r.tasks_applied != null) parts.push(`tasks pulled ${r.tasks_applied}`);
       if (r.tasks_pushed_created != null) parts.push(`tasks created ${r.tasks_pushed_created}`);
       if (r.tasks_pushed_updated != null) parts.push(`tasks updated ${r.tasks_pushed_updated}`);
+      if (r.tasks_tombstones_pushed) parts.push(`tasks deleted ${r.tasks_tombstones_pushed}`);
       msg.textContent = `${r.status}: ${parts.join(', ') || '(no changes)'}`;
     }
     setTimeout(() => loadUserReminders(uid), 800);
