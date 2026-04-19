@@ -7,6 +7,7 @@ Provides /ui/* endpoints for the SPA frontend.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Cookie, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
@@ -49,6 +50,40 @@ def _get_admin_pw() -> PasswordFile:
 def _get_signer() -> URLSafeTimedSerializer:
     from agent import agent_config
     return URLSafeTimedSerializer(agent_config.session_secret)
+
+
+def _connect_link_signer() -> URLSafeTimedSerializer:
+    from agent import agent_config
+    return URLSafeTimedSerializer(agent_config.session_secret, salt="google_connect_link")
+
+
+def _oauth_state_signer() -> URLSafeTimedSerializer:
+    from agent import agent_config
+    return URLSafeTimedSerializer(agent_config.session_secret, salt="google_oauth_state")
+
+
+_CONNECT_LINK_MAX_AGE = 3600          # 1 hour
+_OAUTH_STATE_MAX_AGE = 600            # 10 min
+
+
+def _redirect_uri() -> str:
+    from agent import agent_config
+    if agent_config.google_oauth_redirect_uri:
+        return agent_config.google_oauth_redirect_uri
+    base = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
+    return f"{base.rstrip('/')}/oauth/google/callback"
+
+
+def _oauth_html_response(title: str, message: str, *, ok: bool = True) -> HTMLResponse:
+    color = "#16a34a" if ok else "#dc2626"
+    body = f"""
+<!doctype html><html><head><meta charset='utf-8'><title>{title}</title>
+<style>body{{font-family:system-ui,sans-serif;max-width:480px;margin:80px auto;padding:24px;
+text-align:center}}h1{{color:{color}}}p{{color:#475569}}</style></head>
+<body><h1>{title}</h1><p>{message}</p>
+<p><small>You may close this tab.</small></p></body></html>
+"""
+    return HTMLResponse(body, status_code=200 if ok else 400)
 
 
 def _check_session(token: Optional[str]) -> bool:
@@ -165,6 +200,7 @@ def create_ui_router() -> APIRouter:
             settings = await reminder_db.get_settings(uid)
             events = await reminder_db.get_all_events(uid)
             tasks = await reminder_db.get_all_tasks(uid)
+            gs = settings.get("google_sync", {}) or {}
             result.append({
                 "user_id": uid,
                 "event_count": len(events),
@@ -174,6 +210,13 @@ def create_ui_router() -> APIRouter:
                 "reporting_session_id": settings.get("reporting_session_id"),
                 "reporting_agent_id": settings.get("reporting_agent_id"),
                 "nighttime": f"{settings.get('nighttime_start', '?')}–{settings.get('nighttime_end', '?')}",
+                "google_sync": {
+                    "enabled": gs.get("enabled", False),
+                    "status": gs.get("status", "disconnected"),
+                    "google_account_email": gs.get("google_account_email"),
+                    "last_sync_at": gs.get("last_sync_at"),
+                    "last_error": gs.get("last_error"),
+                },
             })
         return {"users": result}
 
@@ -424,6 +467,194 @@ def create_ui_router() -> APIRouter:
             return {"status": "ok", "agent_id": resp.agent_id}
         except Exception as e:
             return {"status": "error", "detail": str(e)}
+
+    # ------------------------------------------------------------------
+    # Google Calendar + Tasks sync
+    # ------------------------------------------------------------------
+
+    @router.post("/ui/users/{user_id}/google/connect-link")
+    async def google_connect_link(
+        user_id: str,
+        reminder_session: Optional[str] = Cookie(default=None),
+    ) -> dict:
+        """Admin: mint a one-time signed URL for the user to authorize Google."""
+        _require_auth(reminder_session)
+        from agent import agent_config, reminder_db
+        if not agent_config.google_oauth_client_id or not agent_config.google_oauth_client_secret:
+            raise HTTPException(
+                status_code=400,
+                detail="GOOGLE_OAUTH_CLIENT_ID/SECRET not configured on the server",
+            )
+        if user_id not in reminder_db.list_user_ids():
+            raise HTTPException(status_code=404, detail="Unknown user_id")
+
+        token = _connect_link_signer().dumps({"user_id": user_id})
+        base = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
+        connect_url = f"{base.rstrip('/')}/google/connect/{token}"
+        return {
+            "connect_url": connect_url,
+            "expires_in": _CONNECT_LINK_MAX_AGE,
+            "user_id": user_id,
+        }
+
+    @router.get("/google/connect/{token}")
+    async def google_connect_redirect(token: str):
+        """Public (token-protected): redirect the user to Google's OAuth consent."""
+        from agent import agent_config
+        from oauth import build_authorization_url
+        try:
+            payload = _connect_link_signer().loads(token, max_age=_CONNECT_LINK_MAX_AGE)
+        except SignatureExpired:
+            return _oauth_html_response(
+                "Link expired",
+                "This connection link has expired. Please request a new one.",
+                ok=False,
+            )
+        except BadSignature:
+            return _oauth_html_response(
+                "Invalid link",
+                "This connection link is invalid.",
+                ok=False,
+            )
+
+        user_id = payload.get("user_id")
+        if not user_id:
+            return _oauth_html_response("Invalid link", "Missing user_id.", ok=False)
+
+        state = _oauth_state_signer().dumps({"user_id": user_id, "n": secrets.token_hex(8)})
+        try:
+            auth_url = await asyncio.to_thread(
+                build_authorization_url,
+                agent_config.google_oauth_client_id,
+                agent_config.google_oauth_client_secret,
+                _redirect_uri(),
+                state,
+            )
+        except Exception as exc:
+            return _oauth_html_response("Configuration error", str(exc), ok=False)
+        return RedirectResponse(auth_url, status_code=302)
+
+    @router.get("/oauth/google/callback")
+    async def google_oauth_callback(request: Request):
+        """Public (state-protected): handle Google's redirect after consent."""
+        from agent import agent_config, reminder_db
+        from oauth import exchange_code, fetch_userinfo
+
+        code = request.query_params.get("code")
+        state = request.query_params.get("state")
+        error = request.query_params.get("error")
+
+        if error:
+            return _oauth_html_response(
+                "Authorization denied", f"Google reported: {error}", ok=False,
+            )
+        if not code or not state:
+            return _oauth_html_response(
+                "Invalid callback", "Missing code or state.", ok=False,
+            )
+        try:
+            payload = _oauth_state_signer().loads(state, max_age=_OAUTH_STATE_MAX_AGE)
+        except SignatureExpired:
+            return _oauth_html_response(
+                "Session expired",
+                "The authorization took too long. Please try again from a fresh link.",
+                ok=False,
+            )
+        except BadSignature:
+            return _oauth_html_response(
+                "Invalid state", "The OAuth state could not be verified.", ok=False,
+            )
+
+        user_id = payload.get("user_id")
+        if not user_id:
+            return _oauth_html_response("Invalid state", "Missing user_id.", ok=False)
+
+        try:
+            tokens = await asyncio.to_thread(
+                exchange_code,
+                agent_config.google_oauth_client_id,
+                agent_config.google_oauth_client_secret,
+                _redirect_uri(),
+                code,
+            )
+        except Exception as exc:
+            return _oauth_html_response(
+                "Token exchange failed", str(exc), ok=False,
+            )
+
+        if not tokens.get("refresh_token"):
+            return _oauth_html_response(
+                "No refresh token returned",
+                "Google did not return a refresh token. Revoke this app at "
+                "myaccount.google.com/permissions and try again.",
+                ok=False,
+            )
+
+        email = None
+        try:
+            info = await asyncio.to_thread(fetch_userinfo, tokens["access_token"])
+            email = info.get("email")
+        except Exception:
+            pass
+
+        await reminder_db.update_google_sync(user_id, {
+            "enabled": True,
+            "status": "connected",
+            "google_account_email": email,
+            "refresh_token": tokens["refresh_token"],
+            "access_token": tokens.get("access_token"),
+            "token_expires_at": tokens.get("token_expires_at"),
+            "last_error": None,
+        })
+
+        return _oauth_html_response(
+            "Google connected",
+            f"Calendar and Tasks sync is now enabled for "
+            f"<strong>{email or user_id}</strong>.",
+            ok=True,
+        )
+
+    @router.post("/ui/users/{user_id}/google/disconnect")
+    async def google_disconnect(
+        user_id: str,
+        reminder_session: Optional[str] = Cookie(default=None),
+    ) -> dict:
+        _require_auth(reminder_session)
+        from agent import reminder_db
+        from oauth import revoke_token
+        settings = await reminder_db.get_settings(user_id)
+        gs = settings.get("google_sync", {}) or {}
+        token = gs.get("refresh_token") or gs.get("access_token")
+        if token:
+            await asyncio.to_thread(revoke_token, token)
+        await reminder_db.update_google_sync(user_id, {
+            "enabled": False,
+            "status": "disconnected",
+            "google_account_email": None,
+            "refresh_token": None,
+            "access_token": None,
+            "token_expires_at": None,
+            "calendar_sync_token": None,
+            "tasks_updated_min": None,
+            "last_sync_at": None,
+            "last_error": None,
+        })
+        return {"status": "ok"}
+
+    @router.post("/ui/users/{user_id}/google/sync-now")
+    async def google_sync_now(
+        user_id: str,
+        reminder_session: Optional[str] = Cookie(default=None),
+    ) -> dict:
+        _require_auth(reminder_session)
+        from agent import agent_config, reminder_db
+        from sync import sync_user
+        result = await sync_user(
+            user_id, reminder_db,
+            client_id=agent_config.google_oauth_client_id,
+            client_secret=agent_config.google_oauth_client_secret,
+        )
+        return result
 
     add_config_routes(router, Path(__file__).resolve().parent, _require_auth, cookie_name="reminder_session")
 

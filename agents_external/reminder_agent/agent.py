@@ -51,6 +51,7 @@ from config import AgentConfig
 from db import ReminderDB
 from tools import ToolEngine, get_tool_definitions
 from checker import periodic_check_loop
+from sync import periodic_sync_loop
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -73,6 +74,7 @@ reminder_db: ReminderDB = None  # type: ignore[assignment]
 available_destinations: dict[str, Any] = {}
 
 _checker_task: Optional[asyncio.Task] = None
+_sync_task: Optional[asyncio.Task] = None
 
 # Identifier → Future for pending LLM call results
 _pending_llm: dict[str, asyncio.Future] = {}
@@ -456,7 +458,7 @@ _AGENT_DOC_PATH = Path(__file__).parent / "AGENT.md"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize agent on startup."""
-    global agent_config, agent_info, router_client, reminder_db, available_destinations, _checker_task
+    global agent_config, agent_info, router_client, reminder_db, available_destinations, _checker_task, _sync_task
 
     agent_config = AgentConfig.from_env()
 
@@ -567,16 +569,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         logger.info("Periodic checker started (interval: %d min).", agent_config.check_interval)
 
+    # Start Google sync loop if OAuth client is configured.
+    if agent_config.google_oauth_client_id and agent_config.google_oauth_client_secret:
+        _sync_task = asyncio.create_task(
+            periodic_sync_loop(
+                db=reminder_db,
+                client_id=agent_config.google_oauth_client_id,
+                client_secret=agent_config.google_oauth_client_secret,
+                interval_min=agent_config.check_interval,
+            )
+        )
+        logger.info("Google sync loop started (interval: %d min).", agent_config.check_interval)
+
     logger.info("Reminder agent started on %s:%d", agent_config.agent_host, agent_config.agent_port)
     yield
 
     # Shutdown.
-    if _checker_task:
-        _checker_task.cancel()
-        try:
-            await _checker_task
-        except asyncio.CancelledError:
-            pass
+    for _t in (_checker_task, _sync_task):
+        if _t:
+            _t.cancel()
+            try:
+                await _t
+            except asyncio.CancelledError:
+                pass
     if router_client:
         await router_client.aclose()
     pass

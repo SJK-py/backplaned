@@ -501,3 +501,36 @@ async def sync_all_users(
             result = {"status": "error", "user_id": user_id, "error": str(exc)}
         results.append(result)
     return results
+
+
+async def periodic_sync_loop(
+    db: ReminderDB,
+    *,
+    client_id: str,
+    client_secret: str,
+    interval_min: int = 15,
+) -> None:
+    """Background loop that calls sync_all_users on a fixed interval.
+
+    Skips entirely if OAuth client credentials are not configured.
+    """
+    if not client_id or not client_secret:
+        logger.info("Google sync loop disabled — OAuth client not configured.")
+        return
+
+    logger.info("Google sync loop started: every %d min", interval_min)
+    # Small initial delay so startup isn't blocked by API calls.
+    await asyncio.sleep(10)
+    while True:
+        try:
+            results = await sync_all_users(
+                db, client_id=client_id, client_secret=client_secret,
+            )
+            active = [r for r in results if r.get("status") not in ("disabled", "unauthorized")]
+            if active:
+                logger.info(
+                    "Google sync cycle: %d user(s) synced", len(active),
+                )
+        except Exception:
+            logger.exception("periodic_sync_loop iteration failed")
+        await asyncio.sleep(max(60, interval_min * 60))
