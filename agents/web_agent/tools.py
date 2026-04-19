@@ -336,7 +336,7 @@ async def _geocode(location: str, timeout: float = 10.0) -> tuple[float, float]:
 async def weather(
     location: str,
     mode: str = "now",
-    count: int = 4,
+    count: int = 7,
     imperial: bool = False,
     timeout: float = 10.0,
 ) -> str:
@@ -462,7 +462,7 @@ WEB_TOOLS: list[dict[str, Any]] = [
                     },
                     "count": {
                         "type": "integer",
-                        "description": "Number of forecast periods. Only used with hourly_forecast or daily_forecast. Examples: 12 for next 12 hours, 7 for 7-day forecast. Default: 4",
+                        "description": "Number of forecast periods. Only used with hourly_forecast or daily_forecast. Examples: 12 for next 12 hours, 7 for 7-day forecast. Default: 7",
                     },
                     "imperial": {
                         "type": "boolean",
