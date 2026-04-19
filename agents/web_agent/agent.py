@@ -38,7 +38,7 @@ from helper import (
     build_spawn_request,
 )
 
-from tools import WEB_TOOLS, web_search, web_fetch
+from tools import WEB_TOOLS, web_search, web_fetch, weather
 
 logger = logging.getLogger("web_agent")
 
@@ -304,6 +304,15 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         return await web_fetch(
             url=args.get("url", ""),
             max_chars=FETCH_MAX_CHARS,
+            timeout=FETCH_TIMEOUT,
+        )
+    if name == "weather":
+        return await weather(
+            location=args.get("location", ""),
+            mode=args.get("mode", "now"),
+            forecast_type=args.get("forecast_type", "hourly"),
+            forecast_count=args.get("forecast_count", 4),
+            imperial=args.get("imperial", False),
             timeout=FETCH_TIMEOUT,
         )
     return f"Error: unknown tool '{name}'"

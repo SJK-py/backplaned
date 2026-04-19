@@ -285,6 +285,100 @@ async def web_fetch(
 
 
 # ---------------------------------------------------------------------------
+# Weather (Open-Meteo — free, no API key)
+# ---------------------------------------------------------------------------
+
+_WMO_WEATHER_CODES: dict[int, str] = {
+    0: "Clear sky",
+    1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Depositing rime fog",
+    51: "Drizzle: Light", 53: "Drizzle: Moderate", 55: "Drizzle: Dense",
+    56: "Freezing drizzle: Light", 57: "Freezing drizzle: Dense",
+    61: "Rain: Slight", 63: "Rain: Moderate", 65: "Rain: Heavy",
+    66: "Freezing rain: Light", 67: "Freezing rain: Heavy",
+    71: "Snow: Slight", 73: "Snow: Moderate", 75: "Snow: Heavy",
+    77: "Snow grains",
+    80: "Rain showers: Slight", 81: "Rain showers: Moderate", 82: "Rain showers: Violent",
+    85: "Snow showers: Slight", 86: "Snow showers: Heavy",
+    95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail",
+}
+
+
+def _translate_weather_codes(data: Any) -> Any:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in ("weather_code", "weathercode"):
+                if isinstance(value, list):
+                    data[key] = [_WMO_WEATHER_CODES.get(int(c), f"Unknown ({c})") for c in value]
+                elif isinstance(value, (int, float)):
+                    data[key] = _WMO_WEATHER_CODES.get(int(value), f"Unknown ({value})")
+            else:
+                _translate_weather_codes(value)
+    elif isinstance(data, list):
+        for item in data:
+            _translate_weather_codes(item)
+    return data
+
+
+async def _geocode(location: str, timeout: float = 10.0) -> tuple[float, float]:
+    headers = {"User-Agent": "Backplaned-WebAgent/1.0"}
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": location, "format": "json", "limit": "1"}
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.get(url, params=params, headers=headers)
+        r.raise_for_status()
+    data = r.json()
+    if not data:
+        raise ValueError(f"Could not resolve location: {location}")
+    return float(data[0]["lat"]), float(data[0]["lon"])
+
+
+async def weather(
+    location: str,
+    mode: str = "now",
+    forecast_type: str = "hourly",
+    forecast_count: int = 4,
+    imperial: bool = False,
+    timeout: float = 10.0,
+) -> str:
+    """Fetch weather from Open-Meteo (free, no API key)."""
+    try:
+        lat, lon = await _geocode(location, timeout)
+    except Exception as e:
+        return json.dumps({"error": f"Geocoding failed: {e}"})
+
+    units = "&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch" if imperial else ""
+    base = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&timezone=auto{units}"
+
+    if mode == "now":
+        params = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m"
+        url = f"{base}&current={params}"
+    elif mode == "today":
+        params = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset"
+        url = f"{base}&daily={params}&forecast_days=1"
+    elif mode == "forecast":
+        if forecast_type == "hourly":
+            params = "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
+            url = f"{base}&hourly={params}&forecast_hours={forecast_count}"
+        elif forecast_type == "daily":
+            params = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
+            url = f"{base}&daily={params}&forecast_days={forecast_count}"
+        else:
+            return json.dumps({"error": f"Unknown forecast_type: {forecast_type}. Use 'hourly' or 'daily'."})
+    else:
+        return json.dumps({"error": f"Unknown mode: {mode}. Use 'now', 'today', or 'forecast'."})
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+        data = _translate_weather_codes(r.json())
+        return json.dumps(data, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": f"Open-Meteo request failed: {e}"})
+
+
+# ---------------------------------------------------------------------------
 # Tool definitions (OpenAI function-tool format)
 # ---------------------------------------------------------------------------
 
@@ -342,6 +436,45 @@ WEB_TOOLS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "weather",
+            "description": (
+                "Get weather data from Open-Meteo (free, no API key). "
+                "Supports current conditions, today's summary, and forecasts. "
+                "Use this instead of web_search for weather queries."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "Location name (e.g. 'Riverside, CA', 'Seoul', 'Tokyo, Japan')",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["now", "today", "forecast"],
+                        "description": "now=current conditions, today=daily summary, forecast=multi-period prediction (default: now)",
+                    },
+                    "forecast_type": {
+                        "type": "string",
+                        "enum": ["hourly", "daily"],
+                        "description": "Forecast interval (only used when mode=forecast, default: hourly)",
+                    },
+                    "forecast_count": {
+                        "type": "integer",
+                        "description": "Number of forecast periods (only used when mode=forecast, default: 4)",
+                    },
+                    "imperial": {
+                        "type": "boolean",
+                        "description": "Use imperial units (°F, mph, inches) instead of metric (default: false)",
+                    },
+                },
+                "required": ["location"],
             },
         },
     },
