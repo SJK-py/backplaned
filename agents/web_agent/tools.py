@@ -336,7 +336,6 @@ async def _geocode(location: str, timeout: float = 10.0) -> tuple[float, float]:
 async def weather(
     location: str,
     mode: str = "now",
-    count: int = 7,
     imperial: bool = False,
     timeout: float = 10.0,
 ) -> str:
@@ -349,20 +348,22 @@ async def weather(
     units = "&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch" if imperial else ""
     base = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&timezone=auto{units}"
 
-    if mode == "now":
-        params = "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m"
-        url = f"{base}&current={params}"
-    elif mode == "today":
-        params = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset"
-        url = f"{base}&daily={params}&forecast_days=1"
-    elif mode == "hourly_forecast":
-        params = "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
-        url = f"{base}&hourly={params}&forecast_hours={count}"
-    elif mode == "daily_forecast":
-        params = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max"
-        url = f"{base}&daily={params}&forecast_days={count}"
-    else:
-        return json.dumps({"error": f"Unknown mode: {mode}. Use 'now', 'today', 'hourly_forecast', or 'daily_forecast'."})
+    daily_params = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset"
+    hourly_params = "temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m"
+
+    mode_map: dict[str, str] = {
+        "now":      f"{base}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m",
+        "today":    f"{base}&daily={daily_params}&forecast_days=1",
+        "tomorrow": f"{base}&daily={daily_params}&forecast_days=2",
+        "8hourly":  f"{base}&hourly={hourly_params}&forecast_hours=8",
+        "24hourly": f"{base}&hourly={hourly_params}&forecast_hours=24",
+        "7days":    f"{base}&daily={daily_params}&forecast_days=7",
+        "16days":   f"{base}&daily={daily_params}&forecast_days=16",
+    }
+
+    url = mode_map.get(mode)
+    if not url:
+        return json.dumps({"error": f"Unknown mode: {mode}. Use: now, today, tomorrow, 8hourly, 24hourly, 7days, 16days"})
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -443,26 +444,25 @@ WEB_TOOLS: list[dict[str, Any]] = [
                 "Get weather data from Open-Meteo (free, no API key). "
                 "Always use this tool instead of web_search for weather queries.\n"
                 "Examples:\n"
-                '  weather(location="Seoul", mode="now") → current temperature, humidity, wind\n'
-                '  weather(location="Riverside, CA", mode="today") → today\'s high/low, sunrise/sunset\n'
-                '  weather(location="Tokyo", mode="hourly_forecast", count=12) → next 12 hours\n'
-                '  weather(location="London", mode="daily_forecast", count=7) → 7-day forecast'
+                '  weather(location="Seoul", mode="now") → current conditions\n'
+                '  weather(location="Riverside, CA", mode="today") → today\'s summary\n'
+                '  weather(location="Riverside, CA", mode="tomorrow") → tomorrow\'s summary\n'
+                '  weather(location="Tokyo", mode="8hourly") → next 8 hours\n'
+                '  weather(location="Tokyo", mode="24hourly") → next 24 hours\n'
+                '  weather(location="London", mode="7days") → 7-day forecast\n'
+                '  weather(location="London", mode="16days") → 16-day forecast'
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
-                        "description": "City or place name. Examples: 'Seoul', 'Riverside, CA', 'Tokyo, Japan', 'Paris, France'",
+                        "description": "City or place name. Examples: 'Seoul', 'Riverside, CA', 'Tokyo, Japan'",
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["now", "today", "hourly_forecast", "daily_forecast"],
-                        "description": "What to fetch: 'now' for current conditions, 'today' for daily summary with sunrise/sunset, 'hourly_forecast' for hour-by-hour prediction, 'daily_forecast' for multi-day prediction. Default: 'now'",
-                    },
-                    "count": {
-                        "type": "integer",
-                        "description": "Number of forecast periods. Only used with hourly_forecast or daily_forecast. Examples: 12 for next 12 hours, 7 for 7-day forecast. Default: 7",
+                        "enum": ["now", "today", "tomorrow", "8hourly", "24hourly", "7days", "16days"],
+                        "description": "now: current conditions. today: today's summary. tomorrow: tomorrow's summary. 8hourly: next 8 hours. 24hourly: next 24 hours. 7days: 7-day forecast. 16days: 16-day forecast. Default: now",
                     },
                     "imperial": {
                         "type": "boolean",
