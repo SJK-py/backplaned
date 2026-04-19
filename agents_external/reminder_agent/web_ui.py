@@ -254,9 +254,16 @@ def create_ui_router() -> APIRouter:
         events = {k: _localise_lr(dict(v)) for k, v in db.get("events", {}).items()}
         tasks = {k: _localise_lr(dict(v)) for k, v in db.get("tasks", {}).items()}
 
+        # Strip OAuth secrets before returning settings to the browser.
+        safe_settings = dict(settings)
+        gs = dict(safe_settings.get("google_sync") or {})
+        for secret_key in ("refresh_token", "access_token", "token_expires_at"):
+            gs.pop(secret_key, None)
+        safe_settings["google_sync"] = gs
+
         return {
             "user_id": user_id,
-            "settings": settings,
+            "settings": safe_settings,
             "events": events,
             "tasks": tasks,
         }

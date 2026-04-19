@@ -269,7 +269,13 @@ async function loadUsers() {
   try {
     const d = await api('/ui/users');
     if (!d.users.length) { el.innerHTML = '<p class="empty">No users with reminders yet.</p>'; return; }
-    let rows = d.users.map(u => `
+    let rows = d.users.map(u => {
+      const gs = u.google_sync || {};
+      let gbadge;
+      if (gs.status === 'connected') gbadge = `<span class="badge badge-green" title="${esc(gs.google_account_email || '')}">${esc(gs.google_account_email || 'connected')}</span>`;
+      else if (gs.status === 'error') gbadge = `<span class="badge badge-red" title="${esc(gs.last_error || '')}">error</span>`;
+      else gbadge = '<span class="badge badge-gray">off</span>';
+      return `
       <tr style="cursor:pointer" onclick="selectUser('${esc(u.user_id)}')">
         <td class="mono">${esc(u.user_id)}</td>
         <td>${u.event_count}</td>
@@ -277,13 +283,15 @@ async function loadUsers() {
         <td>${esc(u.timezone)}</td>
         <td class="mono" style="font-size:.78rem">${esc(u.model_id || '(default)')}</td>
         <td>${esc(u.nighttime)}</td>
+        <td>${gbadge}</td>
         <td class="mono" style="font-size:.78rem">${u.reporting_session_id ? esc(u.reporting_session_id) : '<span class="badge badge-gray">none</span>'}</td>
         <td class="mono" style="font-size:.78rem">${u.reporting_agent_id ? esc(u.reporting_agent_id) : '<span class="badge badge-gray">default</span>'}</td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
     el.innerHTML = `
       <div class="card">
         <h2>Users</h2>
-        <table><tr><th>User ID</th><th>Events</th><th>Tasks</th><th>Timezone</th><th>Model</th><th>Nighttime</th><th>Reporting Session</th><th>Reporting Agent</th></tr>${rows}</table>
+        <table><tr><th>User ID</th><th>Events</th><th>Tasks</th><th>Timezone</th><th>Model</th><th>Nighttime</th><th>Google</th><th>Reporting Session</th><th>Reporting Agent</th></tr>${rows}</table>
       </div>`;
   } catch (e) { el.innerHTML = '<p class="empty">Failed to load users.</p>'; }
 }
@@ -327,6 +335,41 @@ async function loadUserReminders(uid) {
       </tr>`;
     }).join('') || '<tr><td colspan="6" class="empty">No tasks</td></tr>';
 
+    const gs = s.google_sync || {};
+    let gsBody;
+    if (gs.status === 'connected') {
+      gsBody = `
+        <div class="kv">
+          <span class="label">Status</span><span><span class="badge badge-green">Connected</span> as <span class="mono">${esc(gs.google_account_email || '(unknown)')}</span></span>
+          <span class="label">Calendar</span><span class="mono">${esc(gs.calendar_id || 'primary')}</span>
+          <span class="label">Task list</span><span class="mono">${esc(gs.tasklist_id || '@default')}</span>
+          <span class="label">Conflict rule</span><span class="mono">${esc(gs.conflict_rule || 'newest_wins')}</span>
+          <span class="label">Last sync</span><span>${esc(gs.last_sync_at || 'never')}</span>
+          ${gs.last_error ? `<span class="label">Last error</span><span style="color:var(--red)">${esc(gs.last_error)}</span>` : ''}
+        </div>
+        <div class="mt" style="display:flex;gap:.5rem">
+          <button class="btn btn-primary btn-sm" onclick="syncNow('${esc(uid)}')">Sync now</button>
+          <button class="btn btn-danger btn-sm" onclick="disconnectGoogle('${esc(uid)}')">Disconnect</button>
+          <span id="gs-msg" style="font-size:.82rem;color:var(--text-dim);align-self:center"></span>
+        </div>`;
+    } else {
+      const errLine = gs.status === 'error' && gs.last_error
+        ? `<p style="color:var(--red);font-size:.82rem;margin-bottom:.5rem">Last error: ${esc(gs.last_error)}</p>` : '';
+      gsBody = `
+        ${errLine}
+        <p style="color:var(--text-dim);font-size:.88rem;margin-bottom:.6rem">
+          Generate a one-time link and share it with the user. They open it, authorize their Google account, and Calendar + Tasks start syncing on the next cycle.
+        </p>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <button class="btn btn-primary btn-sm" onclick="genConnectLink('${esc(uid)}')">Generate connect link</button>
+          <span id="gs-msg" style="font-size:.82rem;color:var(--text-dim)"></span>
+        </div>
+        <div id="gs-link-box" style="margin-top:.6rem;display:none">
+          <input type="text" id="gs-link" readonly onclick="this.select()" style="font-family:monospace;font-size:.8rem">
+          <p style="color:var(--text-dim);font-size:.78rem;margin-top:.3rem">Link expires in 1 hour.</p>
+        </div>`;
+    }
+
     el.innerHTML = `
       <div class="detail-back" onclick="backToUsers()">&larr; Back to users</div>
       <div class="card">
@@ -346,6 +389,10 @@ async function loadUserReminders(uid) {
           <div class="form-group"><label>Reporting Agent</label><input type="text" id="set-ra" value="${esc(s.reporting_agent_id || '')}" placeholder="core_personal_agent"></div>
           <button class="btn btn-primary btn-sm" onclick="saveSettings('${esc(uid)}')">Save</button>
         </div>
+      </div>
+      <div class="card">
+        <h2>Google Calendar &amp; Tasks Sync</h2>
+        ${gsBody}
       </div>
       <div class="card">
         <h2>Events (${events.length})</h2>
@@ -418,6 +465,55 @@ async function deleteTask(uid, tid) {
   if (!confirm('Delete this task?')) return;
   await api(`/ui/users/${uid}/tasks/${tid}`, { method: 'DELETE' });
   loadUserReminders(uid);
+}
+
+// --- Google sync ---
+async function genConnectLink(uid) {
+  const msg = document.getElementById('gs-msg');
+  if (msg) { msg.style.color = 'var(--text-dim)'; msg.textContent = 'Generating...'; }
+  try {
+    const r = await api(`/ui/users/${uid}/google/connect-link`, { method: 'POST' });
+    if (!r.connect_url) throw new Error(r.detail || 'No link returned');
+    const box = document.getElementById('gs-link-box');
+    const input = document.getElementById('gs-link');
+    if (input) { input.value = r.connect_url; }
+    if (box) { box.style.display = 'block'; }
+    if (msg) { msg.style.color = 'var(--green)'; msg.textContent = 'Link ready — share with the user.'; }
+  } catch (e) {
+    if (msg) { msg.style.color = 'var(--red)'; msg.textContent = e.message || 'Failed'; }
+  }
+}
+
+async function syncNow(uid) {
+  const msg = document.getElementById('gs-msg');
+  if (msg) { msg.style.color = 'var(--text-dim)'; msg.textContent = 'Syncing...'; }
+  try {
+    const r = await api(`/ui/users/${uid}/google/sync-now`, { method: 'POST' });
+    if (msg) {
+      msg.style.color = r.status === 'ok' ? 'var(--green)' : 'var(--yellow)';
+      const parts = [];
+      if (r.calendar_applied != null) parts.push(`cal pulled ${r.calendar_applied}`);
+      if (r.calendar_pushed_created != null) parts.push(`cal created ${r.calendar_pushed_created}`);
+      if (r.calendar_pushed_updated != null) parts.push(`cal updated ${r.calendar_pushed_updated}`);
+      if (r.tasks_applied != null) parts.push(`tasks pulled ${r.tasks_applied}`);
+      if (r.tasks_pushed_created != null) parts.push(`tasks created ${r.tasks_pushed_created}`);
+      if (r.tasks_pushed_updated != null) parts.push(`tasks updated ${r.tasks_pushed_updated}`);
+      msg.textContent = `${r.status}: ${parts.join(', ') || '(no changes)'}`;
+    }
+    setTimeout(() => loadUserReminders(uid), 800);
+  } catch (e) {
+    if (msg) { msg.style.color = 'var(--red)'; msg.textContent = e.message || 'Failed'; }
+  }
+}
+
+async function disconnectGoogle(uid) {
+  if (!confirm('Disconnect Google account? The stored refresh token will be revoked.')) return;
+  try {
+    await api(`/ui/users/${uid}/google/disconnect`, { method: 'POST' });
+    loadUserReminders(uid);
+  } catch (e) {
+    alert('Failed to disconnect: ' + (e.message || 'unknown error'));
+  }
 }
 
 // --- Logs ---
