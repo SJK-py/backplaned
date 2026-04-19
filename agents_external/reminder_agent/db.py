@@ -545,3 +545,26 @@ class ReminderDB:
             if google_id in lst:
                 lst.remove(google_id)
                 self._save_raw(user_id, db)
+
+    async def apply_master_exdate(
+        self, user_id: str, master_google_id: str, exdate_line: str,
+    ) -> bool:
+        """Append an EXDATE line to the master event's _local_exdates list.
+
+        Used when a remote recurrence exception (edit/cancel of a single
+        instance) is pulled — we suppress that occurrence locally without
+        touching the master's ``recurrence`` field (which would trigger a
+        push back to Google).  ``updated_at`` is intentionally NOT bumped.
+        Returns True if the master was found.
+        """
+        async with self._lock_for(user_id):
+            db = self._load_raw(user_id)
+            events = db.get("events", {})
+            for _eid, ev in events.items():
+                if ev.get("google_id") == master_google_id:
+                    exdates = ev.setdefault("_local_exdates", [])
+                    if exdate_line not in exdates:
+                        exdates.append(exdate_line)
+                        self._save_raw(user_id, db)
+                    return True
+            return False

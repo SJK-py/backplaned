@@ -100,25 +100,28 @@ def expand_event_occurrences(
     win_start_naive = window_start.astimezone(base_start.tzinfo).replace(tzinfo=None) if window_start.tzinfo and base_start.tzinfo else window_start.replace(tzinfo=None)
     win_end_naive = window_end.astimezone(base_start.tzinfo).replace(tzinfo=None) if window_end.tzinfo and base_start.tzinfo else window_end.replace(tzinfo=None)
 
-    occurrences: list[dict[str, Any]] = []
-    for rule_str in recurrence:
-        try:
-            rule = rrulestr(rule_str, dtstart=base_naive)
-        except (ValueError, TypeError):
-            continue
+    # Combine RRULE/RDATE lines from Google with any locally-injected EXDATEs
+    # (from recurrence-exception pulls) into a single rruleset so EXDATE/RDATE
+    # entries correctly interact with the RRULE.
+    rule_lines = list(recurrence) + list(event.get("_local_exdates") or [])
+    combined = "\n".join(rule_lines)
+    try:
+        rule = rrulestr(combined, dtstart=base_naive)
+    except (ValueError, TypeError):
+        return []
 
-        idx = 0
-        for dt in rule:
-            if len(occurrences) >= max_occurrences:
-                break
-            dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
-            if dt_naive >= win_end_naive:
-                break
-            if dt_naive >= win_start_naive:
-                # Reattach original timezone.
-                dt_aware = dt_naive.replace(tzinfo=base_start.tzinfo) if base_start.tzinfo else dt_naive
-                occurrences.append(_make_occurrence(event, dt_aware, duration, idx, tz_name))
-            idx += 1
+    occurrences: list[dict[str, Any]] = []
+    idx = 0
+    for dt in rule:
+        if len(occurrences) >= max_occurrences:
+            break
+        dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
+        if dt_naive >= win_end_naive:
+            break
+        if dt_naive >= win_start_naive:
+            dt_aware = dt_naive.replace(tzinfo=base_start.tzinfo) if base_start.tzinfo else dt_naive
+            occurrences.append(_make_occurrence(event, dt_aware, duration, idx, tz_name))
+        idx += 1
 
     occurrences.sort(key=lambda o: o["_start_dt"])
     return occurrences
@@ -177,18 +180,19 @@ def next_occurrence_after(
     if not recurrence:
         return base_naive if base_naive >= after_naive else None
 
-    for rule_str in recurrence:
-        try:
-            rule = rrulestr(rule_str, dtstart=base_naive)
-        except (ValueError, TypeError):
-            continue
-        count = 0
-        for dt in rule:
-            dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
-            if dt_naive >= after_naive:
-                return dt_naive
-            count += 1
-            if count >= max_search:
-                break
+    rule_lines = list(recurrence) + list(event.get("_local_exdates") or [])
+    combined = "\n".join(rule_lines)
+    try:
+        rule = rrulestr(combined, dtstart=base_naive)
+    except (ValueError, TypeError):
+        return None
+    count = 0
+    for dt in rule:
+        dt_naive = dt.replace(tzinfo=None) if dt.tzinfo else dt
+        if dt_naive >= after_naive:
+            return dt_naive
+        count += 1
+        if count >= max_search:
+            break
 
     return None

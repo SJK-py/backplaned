@@ -162,6 +162,83 @@ def _remote_event_to_local(remote: dict[str, Any]) -> dict[str, Any]:
     return rec
 
 
+def _format_exdate_for_master(
+    original_start: dict[str, Any], master: dict[str, Any],
+) -> Optional[str]:
+    """Build an EXDATE line for ``original_start`` aligned with master's naive expansion.
+
+    ``rrule_util.expand_event_occurrences`` strips tz from dtstart and iterates
+    in naive form, so EXDATE values must also be naive in the master's local
+    timezone to match.  Date-only all-day events use ``VALUE=DATE``.
+    """
+    if not original_start:
+        return None
+
+    # All-day instance ("date" present instead of "dateTime").
+    if original_start.get("date"):
+        try:
+            d = datetime.fromisoformat(original_start["date"])
+            return f"EXDATE;VALUE=DATE:{d.strftime('%Y%m%d')}"
+        except ValueError:
+            return None
+
+    dt_str = original_start.get("dateTime")
+    if not dt_str:
+        return None
+    try:
+        exc_dt = datetime.fromisoformat(dt_str)
+    except ValueError:
+        return None
+
+    master_tz_name = (master.get("start") or {}).get("timeZone")
+    if master_tz_name:
+        try:
+            from zoneinfo import ZoneInfo
+            master_tz = ZoneInfo(master_tz_name)
+            if exc_dt.tzinfo is not None:
+                exc_dt = exc_dt.astimezone(master_tz)
+        except Exception:
+            pass
+    if exc_dt.tzinfo is not None:
+        exc_dt = exc_dt.replace(tzinfo=None)
+    return f"EXDATE:{exc_dt.strftime('%Y%m%dT%H%M%S')}"
+
+
+async def _apply_exception(
+    db: ReminderDB, user_id: str, item: dict[str, Any],
+) -> str:
+    """Handle a pulled recurrence-exception item.
+
+    Returns one of: "cancelled", "modified", "orphan", "noop".
+    """
+    master_gid = item.get("recurringEventId")
+    original_start = item.get("originalStartTime") or {}
+    if not master_gid:
+        return "noop"
+
+    match = await db.find_event_by_google_id(user_id, master_gid)
+    if match is None:
+        # Master not synced yet (e.g. exception arrived before its master
+        # in the same batch, or master is filtered out) — drop silently.
+        return "orphan"
+    _master_id, master = match
+
+    exdate = _format_exdate_for_master(original_start, master)
+    if exdate:
+        await db.apply_master_exdate(user_id, master_gid, exdate)
+
+    status = item.get("status", "confirmed")
+    if status == "cancelled":
+        return "cancelled"
+
+    # Modified instance: store as a standalone one-off event so the agenda
+    # shows it at its new time. It has its own google_id and no recurrence.
+    rec = _remote_event_to_local(item)
+    rec["recurrence"] = []
+    await db.apply_remote_event(user_id, rec)
+    return "modified"
+
+
 def _local_event_to_remote(local: dict[str, Any]) -> dict[str, Any]:
     """Translate a local event record into a Google Calendar event body."""
     body: dict[str, Any] = {
@@ -285,19 +362,23 @@ async def _calendar_sync(
                 calendarId=calendar_id, showDeleted=True, singleEvents=False, maxResults=250,
             )
         new_sync_token = sync_token
-        skipped_exceptions = 0
+        cancellations_merged = 0
+        modifications_stored = 0
+        orphans_dropped = 0
         while request is not None:
             response = await _execute(request)
             for item in response.get("items", []):
                 gid = item.get("id")
                 if not gid:
                     continue
-                # Per-instance exceptions of recurring events are not yet
-                # honored locally — drop them so we don't pollute the DB
-                # with orphan instances or wrongly delete the master.
-                # (Full RRULE-EXDATE expansion is a TODO.)
                 if item.get("recurringEventId"):
-                    skipped_exceptions += 1
+                    outcome = await _apply_exception(db, user_id, item)
+                    if outcome == "cancelled":
+                        cancellations_merged += 1
+                    elif outcome == "modified":
+                        modifications_stored += 1
+                    elif outcome == "orphan":
+                        orphans_dropped += 1
                     continue
                 if item.get("status") == "cancelled":
                     if await db.delete_event_by_google_id(user_id, gid):
@@ -325,16 +406,16 @@ async def _calendar_sync(
 
     if new_sync_token:
         await db.update_google_sync(user_id, {"calendar_sync_token": new_sync_token})
-    if skipped_exceptions:
+    if orphans_dropped:
         logger.info(
-            "Skipped %d recurring-event exception(s) for user %s "
-            "(per-instance overrides not yet supported)",
-            skipped_exceptions, user_id,
+            "Dropped %d orphan exception(s) for user %s (master not local yet)",
+            orphans_dropped, user_id,
         )
 
     # --- PUSH: local changes --------------------------------------------
     pushed_created = 0
     pushed_updated = 0
+    push_conflicts = 0
     events = await db.get_all_events(user_id)
     for eid, ev in events.items():
         if not db.is_dirty(ev):
@@ -342,9 +423,12 @@ async def _calendar_sync(
         body = _local_event_to_remote(ev)
         try:
             if ev.get("google_id"):
-                created = await _execute(service.events().patch(
+                req = service.events().patch(
                     calendarId=calendar_id, eventId=ev["google_id"], body=body,
-                ))
+                )
+                if ev.get("etag"):
+                    req.headers["If-Match"] = ev["etag"]
+                created = await _execute(req)
                 await db.set_event_sync_metadata(
                     user_id, eid, etag=created.get("etag"), mark_synced=True,
                 )
@@ -361,7 +445,15 @@ async def _calendar_sync(
                 )
                 pushed_created += 1
         except HttpError as e:
-            logger.warning("Calendar push failed for %s/%s: %s", user_id, eid, e)
+            status = getattr(e, "resp", None) and e.resp.status
+            if status == 412:
+                push_conflicts += 1
+                logger.info(
+                    "Calendar 412 for %s/%s — remote moved; deferring to next pull",
+                    user_id, eid,
+                )
+            else:
+                logger.warning("Calendar push failed for %s/%s: %s", user_id, eid, e)
 
     return {
         "calendar_applied": applied,
@@ -369,6 +461,10 @@ async def _calendar_sync(
         "calendar_tombstones_pushed": tombstones_pushed,
         "calendar_pushed_created": pushed_created,
         "calendar_pushed_updated": pushed_updated,
+        "calendar_push_conflicts": push_conflicts,
+        "calendar_cancellations_merged": cancellations_merged,
+        "calendar_modifications_stored": modifications_stored,
+        "calendar_orphans_dropped": orphans_dropped,
     }
 
 
@@ -453,6 +549,7 @@ async def _tasks_sync(
     # --- PUSH ----------------------------------------------------------
     pushed_created = 0
     pushed_updated = 0
+    push_conflicts = 0
     tasks = await db.get_all_tasks(user_id)
     for tid, tk in tasks.items():
         if not db.is_dirty(tk):
@@ -460,9 +557,12 @@ async def _tasks_sync(
         body = _local_task_to_remote(tk)
         try:
             if tk.get("google_id"):
-                created = await _execute(service.tasks().patch(
+                req = service.tasks().patch(
                     tasklist=tasklist_id, task=tk["google_id"], body=body,
-                ))
+                )
+                if tk.get("etag"):
+                    req.headers["If-Match"] = tk["etag"]
+                created = await _execute(req)
                 await db.set_task_sync_metadata(
                     user_id, tid, etag=created.get("etag"), mark_synced=True,
                 )
@@ -479,7 +579,15 @@ async def _tasks_sync(
                 )
                 pushed_created += 1
         except HttpError as e:
-            logger.warning("Tasks push failed for %s/%s: %s", user_id, tid, e)
+            status = getattr(e, "resp", None) and e.resp.status
+            if status == 412:
+                push_conflicts += 1
+                logger.info(
+                    "Tasks 412 for %s/%s — remote moved; deferring to next pull",
+                    user_id, tid,
+                )
+            else:
+                logger.warning("Tasks push failed for %s/%s: %s", user_id, tid, e)
 
     await db.update_google_sync(user_id, {"tasks_updated_min": poll_started_at})
 
@@ -489,6 +597,7 @@ async def _tasks_sync(
         "tasks_tombstones_pushed": tombstones_pushed,
         "tasks_pushed_created": pushed_created,
         "tasks_pushed_updated": pushed_updated,
+        "tasks_push_conflicts": push_conflicts,
     }
 
 
