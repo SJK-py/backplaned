@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -54,6 +55,37 @@ GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Request execution with backoff
+# ---------------------------------------------------------------------------
+
+_RETRY_STATUSES = (429, 500, 502, 503, 504)
+
+
+async def _execute(request, *, max_retries: int = 4) -> Any:
+    """Run a googleapiclient request with exponential-backoff for 429/5xx.
+
+    Other HttpError statuses (404, 410, 401, ...) propagate immediately so
+    callers can react to them — this helper only retries the transient
+    quota / availability errors that benefit from a wait-and-retry.
+    """
+    from googleapiclient.errors import HttpError
+
+    for attempt in range(max_retries + 1):
+        try:
+            return await asyncio.to_thread(request.execute)
+        except HttpError as e:
+            status = getattr(e, "resp", None) and e.resp.status
+            if status not in _RETRY_STATUSES or attempt >= max_retries:
+                raise
+            sleep_s = (2 ** attempt) + random.random()
+            logger.info(
+                "Google API %s — backing off %.1fs (attempt %d/%d)",
+                status, sleep_s, attempt + 1, max_retries,
+            )
+            await asyncio.sleep(sleep_s)
 
 
 def _build_credentials(google_sync: dict[str, Any], client_id: str, client_secret: str):
@@ -216,11 +248,9 @@ async def _calendar_sync(
     pending = await db.get_pending_deletes(user_id)
     for gid in pending.get("events", []):
         try:
-            await asyncio.to_thread(
-                lambda gid=gid: service.events().delete(
-                    calendarId=calendar_id, eventId=gid,
-                ).execute()
-            )
+            await _execute(service.events().delete(
+                calendarId=calendar_id, eventId=gid,
+            ))
             await db.clear_pending_delete(user_id, "events", gid)
             tombstones_pushed += 1
         except HttpError as e:
@@ -256,7 +286,7 @@ async def _calendar_sync(
             )
         new_sync_token = sync_token
         while request is not None:
-            response = await asyncio.to_thread(request.execute)
+            response = await _execute(request)
             for item in response.get("items", []):
                 gid = item.get("id")
                 if not gid:
@@ -298,21 +328,17 @@ async def _calendar_sync(
         body = _local_event_to_remote(ev)
         try:
             if ev.get("google_id"):
-                created = await asyncio.to_thread(
-                    lambda: service.events().patch(
-                        calendarId=calendar_id, eventId=ev["google_id"], body=body,
-                    ).execute()
-                )
+                created = await _execute(service.events().patch(
+                    calendarId=calendar_id, eventId=ev["google_id"], body=body,
+                ))
                 await db.set_event_sync_metadata(
                     user_id, eid, etag=created.get("etag"), mark_synced=True,
                 )
                 pushed_updated += 1
             else:
-                created = await asyncio.to_thread(
-                    lambda: service.events().insert(
-                        calendarId=calendar_id, body=body,
-                    ).execute()
-                )
+                created = await _execute(service.events().insert(
+                    calendarId=calendar_id, body=body,
+                ))
                 await db.set_event_sync_metadata(
                     user_id, eid,
                     google_id=created.get("id"),
@@ -353,11 +379,9 @@ async def _tasks_sync(
     pending = await db.get_pending_deletes(user_id)
     for gid in pending.get("tasks", []):
         try:
-            await asyncio.to_thread(
-                lambda gid=gid: service.tasks().delete(
-                    tasklist=tasklist_id, task=gid,
-                ).execute()
-            )
+            await _execute(service.tasks().delete(
+                tasklist=tasklist_id, task=gid,
+            ))
             await db.clear_pending_delete(user_id, "tasks", gid)
             tombstones_pushed += 1
         except HttpError as e:
@@ -387,7 +411,7 @@ async def _tasks_sync(
     try:
         request = service.tasks().list(**kwargs)
         while request is not None:
-            response = await asyncio.to_thread(request.execute)
+            response = await _execute(request)
             for item in response.get("items", []):
                 gid = item.get("id")
                 if not gid:
@@ -422,21 +446,17 @@ async def _tasks_sync(
         body = _local_task_to_remote(tk)
         try:
             if tk.get("google_id"):
-                created = await asyncio.to_thread(
-                    lambda: service.tasks().patch(
-                        tasklist=tasklist_id, task=tk["google_id"], body=body,
-                    ).execute()
-                )
+                created = await _execute(service.tasks().patch(
+                    tasklist=tasklist_id, task=tk["google_id"], body=body,
+                ))
                 await db.set_task_sync_metadata(
                     user_id, tid, etag=created.get("etag"), mark_synced=True,
                 )
                 pushed_updated += 1
             else:
-                created = await asyncio.to_thread(
-                    lambda: service.tasks().insert(
-                        tasklist=tasklist_id, body=body,
-                    ).execute()
-                )
+                created = await _execute(service.tasks().insert(
+                    tasklist=tasklist_id, body=body,
+                ))
                 await db.set_task_sync_metadata(
                     user_id, tid,
                     google_id=created.get("id"),
