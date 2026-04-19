@@ -310,8 +310,7 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         return await weather(
             location=args.get("location", ""),
             mode=args.get("mode", "now"),
-            forecast_type=args.get("forecast_type", "hourly"),
-            forecast_count=args.get("forecast_count", 4),
+            count=args.get("count", 4),
             imperial=args.get("imperial", False),
             timeout=FETCH_TIMEOUT,
         )
