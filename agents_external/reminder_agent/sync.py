@@ -285,11 +285,19 @@ async def _calendar_sync(
                 calendarId=calendar_id, showDeleted=True, singleEvents=False, maxResults=250,
             )
         new_sync_token = sync_token
+        skipped_exceptions = 0
         while request is not None:
             response = await _execute(request)
             for item in response.get("items", []):
                 gid = item.get("id")
                 if not gid:
+                    continue
+                # Per-instance exceptions of recurring events are not yet
+                # honored locally — drop them so we don't pollute the DB
+                # with orphan instances or wrongly delete the master.
+                # (Full RRULE-EXDATE expansion is a TODO.)
+                if item.get("recurringEventId"):
+                    skipped_exceptions += 1
                     continue
                 if item.get("status") == "cancelled":
                     if await db.delete_event_by_google_id(user_id, gid):
@@ -317,6 +325,12 @@ async def _calendar_sync(
 
     if new_sync_token:
         await db.update_google_sync(user_id, {"calendar_sync_token": new_sync_token})
+    if skipped_exceptions:
+        logger.info(
+            "Skipped %d recurring-event exception(s) for user %s "
+            "(per-instance overrides not yet supported)",
+            skipped_exceptions, user_id,
+        )
 
     # --- PUSH: local changes --------------------------------------------
     pushed_created = 0
@@ -570,34 +584,66 @@ async def sync_all_users(
     return results
 
 
+_TICK_SECONDS = 60  # how often the loop wakes up to evaluate per-user schedules
+
+
+def _due_for_sync(google_sync: dict[str, Any], now: datetime) -> bool:
+    """Return True if this user's per-user sync_interval has elapsed."""
+    if not google_sync.get("enabled") or not google_sync.get("refresh_token"):
+        return False
+    last = google_sync.get("last_sync_at")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.fromisoformat(last)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    interval_min = max(1, int(google_sync.get("sync_interval") or 15))
+    return (now - last_dt).total_seconds() >= interval_min * 60
+
+
 async def periodic_sync_loop(
     db: ReminderDB,
     *,
     client_id: str,
     client_secret: str,
-    interval_min: int = 15,
+    interval_min: int = 15,  # default per-user fallback (unused if sync_interval is set)
 ) -> None:
-    """Background loop that calls sync_all_users on a fixed interval.
+    """Background loop that runs Google sync on each user's own schedule.
 
-    Skips entirely if OAuth client credentials are not configured.
+    Wakes every ``_TICK_SECONDS`` and only syncs users whose
+    ``settings.google_sync.sync_interval`` minutes have elapsed since their
+    ``last_sync_at``.  ``interval_min`` is no longer authoritative — it
+    survives only as documentation; per-user ``sync_interval`` (default 15 min,
+    settable via the API) controls cadence.
     """
     if not client_id or not client_secret:
         logger.info("Google sync loop disabled — OAuth client not configured.")
         return
 
-    logger.info("Google sync loop started: every %d min", interval_min)
-    # Small initial delay so startup isn't blocked by API calls.
-    await asyncio.sleep(10)
+    logger.info("Google sync loop started (per-user cadence; tick=%ds)", _TICK_SECONDS)
+    await asyncio.sleep(10)  # small startup delay
     while True:
         try:
-            results = await sync_all_users(
-                db, client_id=client_id, client_secret=client_secret,
-            )
-            active = [r for r in results if r.get("status") not in ("disabled", "unauthorized")]
-            if active:
-                logger.info(
-                    "Google sync cycle: %d user(s) synced", len(active),
-                )
+            now = datetime.now(timezone.utc)
+            synced = 0
+            for user_id in db.list_user_ids():
+                settings = await db.get_settings(user_id)
+                gs = settings.get("google_sync") or {}
+                if not _due_for_sync(gs, now):
+                    continue
+                try:
+                    await sync_user(
+                        user_id, db,
+                        client_id=client_id, client_secret=client_secret,
+                    )
+                    synced += 1
+                except Exception:
+                    logger.exception("sync_user failed for %s", user_id)
+            if synced:
+                logger.info("Google sync tick: %d user(s) synced", synced)
         except Exception:
-            logger.exception("periodic_sync_loop iteration failed")
-        await asyncio.sleep(max(60, interval_min * 60))
+            logger.exception("periodic_sync_loop tick failed")
+        await asyncio.sleep(_TICK_SECONDS)
