@@ -518,7 +518,26 @@ class ReminderDB:
         last = record.get("last_synced_at")
         if not last:
             return True
-        return (record.get("updated_at") or "") > last
+        updated = record.get("updated_at")
+        if not updated:
+            return False
+        # Parse to datetimes for comparison: the two sides may use different
+        # ISO formats (Google emits "...789Z" with fixed 3-digit ms, our
+        # _now_iso emits "...789012+00:00"), and lexicographic comparison
+        # gets "Z" > "0" which would silently mark every freshly-pulled event
+        # as dirty.
+        try:
+            dt_updated = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            dt_last = datetime.fromisoformat(last.replace("Z", "+00:00"))
+        except ValueError:
+            # Fall back to string compare rather than treating as dirty
+            # on every tick.
+            return updated > last
+        if dt_updated.tzinfo is None:
+            dt_updated = dt_updated.replace(tzinfo=timezone.utc)
+        if dt_last.tzinfo is None:
+            dt_last = dt_last.replace(tzinfo=timezone.utc)
+        return dt_updated > dt_last
 
     async def get_pending_deletes(self, user_id: str) -> dict[str, list[str]]:
         """Return tombstone google_ids awaiting remote deletion."""

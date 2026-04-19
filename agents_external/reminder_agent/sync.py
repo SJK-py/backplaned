@@ -296,15 +296,35 @@ def _local_task_to_remote(local: dict[str, Any]) -> dict[str, Any]:
 # Conflict resolution
 # ---------------------------------------------------------------------------
 
+def _parse_ts(s: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO8601 timestamp (accepts Google's trailing 'Z') to aware UTC."""
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _prefer_remote(local: dict[str, Any], remote_updated: Optional[str], rule: str) -> bool:
     """Return True when the remote version should overwrite local."""
     if rule == "remote_wins":
         return True
     if rule == "local_wins":
         return False
-    # newest_wins
-    local_updated = local.get("updated_at") or ""
-    return (remote_updated or "") >= local_updated
+    # newest_wins: parse both sides as datetimes — Google emits
+    # "...789Z" while our _now_iso emits "...789012+00:00", so a naive
+    # string compare wrongly favors remote because 'Z' > '0' lexically.
+    local_dt = _parse_ts(local.get("updated_at"))
+    remote_dt = _parse_ts(remote_updated)
+    if remote_dt is None:
+        return False
+    if local_dt is None:
+        return True
+    return remote_dt >= local_dt
 
 
 # ---------------------------------------------------------------------------
@@ -351,58 +371,72 @@ async def _calendar_sync(
     def _list_next(prev_request, prev_response):
         return service.events().list_next(prev_request, prev_response)
 
-    try:
-        if sync_token:
+    new_sync_token = sync_token
+    cancellations_merged = 0
+    modifications_stored = 0
+    orphans_dropped = 0
+    pending_delete_ids = set(pending.get("events", []))
+
+    # Pull attempt(s): start with the stored syncToken; on 410, clear it
+    # and immediately run a full resync in the same cycle rather than
+    # waiting for the next tick.
+    attempts = [sync_token, None] if sync_token else [None]
+    for attempt_token in attempts:
+        if attempt_token:
             request = service.events().list(
-                calendarId=calendar_id, syncToken=sync_token, showDeleted=True,
+                calendarId=calendar_id, syncToken=attempt_token, showDeleted=True,
             )
         else:
-            # First-time full fetch — singleEvents=False keeps recurrence rules intact.
+            # Full fetch — singleEvents=False keeps recurrence rules intact.
             request = service.events().list(
                 calendarId=calendar_id, showDeleted=True, singleEvents=False, maxResults=250,
             )
-        new_sync_token = sync_token
-        cancellations_merged = 0
-        modifications_stored = 0
-        orphans_dropped = 0
-        while request is not None:
-            response = await _execute(request)
-            for item in response.get("items", []):
-                gid = item.get("id")
-                if not gid:
-                    continue
-                if item.get("recurringEventId"):
-                    outcome = await _apply_exception(db, user_id, item)
-                    if outcome == "cancelled":
-                        cancellations_merged += 1
-                    elif outcome == "modified":
-                        modifications_stored += 1
-                    elif outcome == "orphan":
-                        orphans_dropped += 1
-                    continue
-                if item.get("status") == "cancelled":
-                    if await db.delete_event_by_google_id(user_id, gid):
-                        deleted += 1
-                    continue
-                match = await db.find_event_by_google_id(user_id, gid)
-                if match is not None:
-                    _, local = match
-                    if db.is_dirty(local) and not _prefer_remote(
-                        local, item.get("updated"), conflict_rule,
-                    ):
+        try:
+            while request is not None:
+                response = await _execute(request)
+                for item in response.get("items", []):
+                    gid = item.get("id")
+                    if not gid:
                         continue
-                await db.apply_remote_event(user_id, _remote_event_to_local(item))
-                applied += 1
-            new_sync_token = response.get("nextSyncToken") or new_sync_token
-            request = await asyncio.to_thread(_list_next, request, response)
-    except HttpError as e:
-        if getattr(e, "resp", None) is not None and e.resp.status == 410:
-            # syncToken invalid — clear and caller will retry full-sync next cycle.
-            logger.warning("Calendar syncToken expired for user %s; clearing.", user_id)
-            await db.update_google_sync(user_id, {"calendar_sync_token": None})
-            return {"calendar_applied": applied, "calendar_deleted": deleted,
-                    "calendar_error": "sync_token_invalid"}
-        raise
+                    if item.get("recurringEventId"):
+                        outcome = await _apply_exception(db, user_id, item)
+                        if outcome == "cancelled":
+                            cancellations_merged += 1
+                        elif outcome == "modified":
+                            modifications_stored += 1
+                        elif outcome == "orphan":
+                            orphans_dropped += 1
+                        continue
+                    if item.get("status") == "cancelled":
+                        if await db.delete_event_by_google_id(user_id, gid):
+                            deleted += 1
+                        continue
+                    # Don't resurrect something we're in the middle of deleting.
+                    if gid in pending_delete_ids:
+                        continue
+                    match = await db.find_event_by_google_id(user_id, gid)
+                    if match is not None:
+                        _, local = match
+                        if db.is_dirty(local) and not _prefer_remote(
+                            local, item.get("updated"), conflict_rule,
+                        ):
+                            continue
+                    await db.apply_remote_event(user_id, _remote_event_to_local(item))
+                    applied += 1
+                new_sync_token = response.get("nextSyncToken") or new_sync_token
+                request = await asyncio.to_thread(_list_next, request, response)
+            break  # success — don't fall through to the retry attempt
+        except HttpError as e:
+            status = getattr(e, "resp", None) and e.resp.status
+            if status == 410 and attempt_token is not None:
+                logger.warning(
+                    "Calendar syncToken expired for user %s; falling back to full resync.",
+                    user_id,
+                )
+                new_sync_token = None
+                await db.update_google_sync(user_id, {"calendar_sync_token": None})
+                continue  # retry with attempt_token=None
+            raise
 
     if new_sync_token:
         await db.update_google_sync(user_id, {"calendar_sync_token": new_sync_token})
