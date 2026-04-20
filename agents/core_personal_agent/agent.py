@@ -638,15 +638,6 @@ _READ_FILE_TEXT_TOOL: dict[str, Any] = {
     },
 }
 
-_CURRENT_TIME_TOOL: dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": "current_time",
-        "description": "Get the current date, time, and day of week in the user's timezone.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-}
-
 _SHOW_TOOL_HISTORY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
@@ -735,7 +726,7 @@ _DELETE_FILE_TOOL: dict[str, Any] = {
     },
 }
 
-_LOCAL_TOOL_NAMES = {"read_image", "read_file_text", "current_time", "show_tool_history",
+_LOCAL_TOOL_NAMES = {"read_image", "read_file_text", "show_tool_history",
                      "attach_file", "list_inbox", "write_file", "delete_file"}
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
@@ -887,7 +878,6 @@ def _build_tools(
     filtered = {k: v for k, v in available_destinations.items() if k != MEMORY_AGENT_ID}
     tools = build_openai_tools(filtered)
     tools.append(_SEARCH_MEMORY_TOOL)
-    tools.append(_CURRENT_TIME_TOOL)
     tools.append(_SHOW_TOOL_HISTORY_TOOL)
     tools.append(_READ_IMAGE_TOOL)
     tools.append(_READ_FILE_TEXT_TOOL)
@@ -1221,7 +1211,7 @@ async def _agent_loop(
         system_parts = [_AGENT_ORIGIN_SYSTEM_PROMPT]
     else:
         system_parts = [user_system_prompt]
-    system_parts.append(f"## Current User\nuser_id: {user_id}\nsession_id: {session_id}")
+    system_parts.append(f"## Current User\nuser_id: {user_id}\nsession_id: {session_id}\ntimezone: {user_timezone}")
     if not is_agent_origin and user_config_md:
         system_parts.append(f"## User Configuration\n{user_config_md}")
     if session_changed_note:
@@ -1232,7 +1222,18 @@ async def _agent_loop(
     ]
     for entry in history:
         llm_messages.append({"role": entry["role"], "content": entry["content"]})
-    llm_messages.append({"role": "user", "content": augmented_message})
+
+    # Inject current time into the user message (not saved to history).
+    # This prevents time hallucination without breaking prompt caching
+    # (system prompt stays static; user message is unique per turn anyway).
+    from zoneinfo import ZoneInfo as _ZI
+    try:
+        _user_tz = _ZI(user_timezone)
+    except Exception:
+        _user_tz = _ZI("UTC")
+    _now = datetime.now(_user_tz)
+    time_prefix = f"[Current time: {_now.strftime('%Y-%m-%d %H:%M %Z')} ({_now.strftime('%A')})]\n"
+    llm_messages.append({"role": "user", "content": time_prefix + augmented_message})
 
     # Tool-call turn counter (for tool history records)
     tool_turn = 0
@@ -1329,18 +1330,7 @@ async def _agent_loop(
             # --- Local tools (no router spawn needed) ---
             if tc.name in _LOCAL_TOOL_NAMES:
                 try:
-                    if tc.name == "current_time":
-                        from zoneinfo import ZoneInfo as _ZI
-                        try:
-                            _tz = _ZI(user_timezone)
-                        except Exception:
-                            _tz = _ZI("UTC")
-                        _now = datetime.now(_tz)
-                        local_results[tc.id] = (
-                            f"{_now.strftime('%Y-%m-%d %H:%M %Z')} ({_now.strftime('%A')})\n"
-                            f"Timezone: {user_timezone}"
-                        )
-                    elif tc.name == "list_inbox":
+                    if tc.name == "list_inbox":
                         try:
                             entries: list[str] = []
                             for p in sorted(inbox_dir.rglob("*")):
