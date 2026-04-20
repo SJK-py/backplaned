@@ -73,6 +73,8 @@ LLM_MODEL_ID: str = ""
 SEARCH_PROVIDER: str = "searxng"
 SEARXNG_BASE_URL: str = "http://localhost:8080"
 BRAVE_API_KEY: str = ""
+KAGI_TOKEN: str = ""
+KAGI_FASTGPT_URL: str = "https://kagi.com/api/v0/fastgpt"
 SEARCH_MAX_RESULTS: int = 5
 CONTENT_LEN_LIMIT: int = 500
 FETCH_MAX_CHARS: int = 12000
@@ -91,6 +93,7 @@ def _refresh_config() -> None:
     global BRAVE_API_KEY, SEARCH_MAX_RESULTS, CONTENT_LEN_LIMIT
     global FETCH_MAX_CHARS, FETCH_TIMEOUT
     global AGENT_TIMEOUT, _MAX_ITERATIONS, _MAX_TOOL_CALLS, _MAX_SEARCHES, _MAX_FETCHES
+    global KAGI_TOKEN, KAGI_FASTGPT_URL
     cfg = _load_config()
     _si = lambda v, d: d if v is None or v == "" else int(v)
     _sf = lambda v, d: d if v is None or v == "" else float(v)
@@ -99,6 +102,8 @@ def _refresh_config() -> None:
     SEARCH_PROVIDER = str(cfg.get("SEARCH_PROVIDER") or "searxng")
     SEARXNG_BASE_URL = str(cfg.get("SEARXNG_BASE_URL") or "http://localhost:8080")
     BRAVE_API_KEY = str(cfg.get("BRAVE_API_KEY") or "")
+    KAGI_TOKEN = str(cfg.get("KAGI_TOKEN") or "")
+    KAGI_FASTGPT_URL = str(cfg.get("KAGI_FASTGPT_URL") or "https://kagi.com/api/v0/fastgpt")
     SEARCH_MAX_RESULTS = _si(cfg.get("SEARCH_MAX_RESULTS"), 5)
     CONTENT_LEN_LIMIT = _si(cfg.get("CONTENT_LEN_LIMIT"), 500)
     FETCH_MAX_CHARS = _si(cfg.get("FETCH_MAX_CHARS"), 12000)
@@ -320,6 +325,63 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Kagi FastGPT
+# ---------------------------------------------------------------------------
+
+
+async def _try_kagi_fastgpt(llmdata: LLMData) -> Optional[str]:
+    """Call Kagi FastGPT and return formatted result, or None on failure.
+
+    Combines llmdata.prompt with optional context into a single query.
+    On success, formats the output text with numbered references.
+    Returns None if the API call fails so the caller can fall back.
+    """
+    if not KAGI_TOKEN:
+        return None
+
+    query_parts = []
+    if llmdata.context:
+        query_parts.append(f"Context: {llmdata.context}")
+    if llmdata.agent_instruction:
+        query_parts.append(f"Instructions: {llmdata.agent_instruction}")
+    query_parts.append(llmdata.prompt)
+    query = "\n".join(query_parts)
+
+    try:
+        async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
+            r = await client.post(
+                KAGI_FASTGPT_URL,
+                headers={"Authorization": f"Bot {KAGI_TOKEN}"},
+                json={"query": query},
+            )
+            r.raise_for_status()
+        resp = r.json()
+    except Exception as exc:
+        logger.warning("Kagi FastGPT request failed, falling back to agent loop: %s", exc)
+        return None
+
+    data = resp.get("data", {})
+    output = data.get("output", "")
+    if not output:
+        logger.warning("Kagi FastGPT returned empty output, falling back to agent loop")
+        return None
+
+    references = data.get("references", [])
+    if references:
+        ref_lines = ["\n\n**Sources:**"]
+        for i, ref in enumerate(references, 1):
+            title = ref.get("title", "")
+            url = ref.get("url", "")
+            if url:
+                ref_lines.append(f"[{i}] [{title}]({url})")
+            elif title:
+                ref_lines.append(f"[{i}] {title}")
+        output += "\n".join(ref_lines)
+
+    return output
+
+
+# ---------------------------------------------------------------------------
 # Agent loop
 # ---------------------------------------------------------------------------
 
@@ -343,6 +405,23 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
         )
 
     llmdata = LLMData.model_validate(llmdata_raw)
+
+    # --- Kagi FastGPT shortcut ---
+    # If the user's model_id resolves to "kagifastgpt" and KAGI_TOKEN is
+    # configured, try Kagi FastGPT first.  On success, return immediately.
+    # On failure, fall through to the normal agent loop with the default model.
+    resolved_model = _resolve_model_id(user_id or "")
+    if resolved_model == "kagifastgpt" and KAGI_TOKEN:
+        kagi_result = await _try_kagi_fastgpt(llmdata)
+        if kagi_result is not None:
+            return build_result_request(
+                agent_id=_OUR_AGENT_ID,
+                task_id=task_id,
+                parent_task_id=parent_task_id,
+                status_code=200,
+                output=AgentOutput(content=kagi_result),
+            )
+        logger.info("Kagi FastGPT failed for task %s, falling back to agent loop", task_id)
 
     # Build system prompt
     system_parts = [_build_system_prompt()]
