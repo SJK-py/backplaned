@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
 import mimetypes
 import os
@@ -726,8 +727,88 @@ _DELETE_FILE_TOOL: dict[str, Any] = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# Minimal web_fetch (regex-based HTML stripping, no MarkItDown)
+# ---------------------------------------------------------------------------
+
+_FETCH_USER_AGENT = "Mozilla/5.0 (compatible; BackplanedCore/1.0)"
+_FETCH_MAX_CHARS = 12000
+
+
+def _html_to_text(raw_html: str) -> str:
+    """Regex-based HTML → plain text (lightweight, no external deps)."""
+    text = re.sub(r"<script[\s\S]*?</script>", "", raw_html, flags=re.I)
+    text = re.sub(r"<style[\s\S]*?</style>", "", text, flags=re.I)
+    text = re.sub(r"<h([1-6])[^>]*>([\s\S]*?)</h\1>",
+                  lambda m: f"\n{'#' * int(m[1])} {re.sub(r'<[^>]+>', '', m[2]).strip()}\n",
+                  text, flags=re.I)
+    text = re.sub(r"<li[^>]*>([\s\S]*?)</li>",
+                  lambda m: f"\n- {re.sub(r'<[^>]+>', '', m[1]).strip()}", text, flags=re.I)
+    text = re.sub(r"</(p|div|section|article)>", "\n\n", text, flags=re.I)
+    text = re.sub(r"<(br|hr)\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+async def _web_fetch(url: str) -> str:
+    """Fetch a URL and return extracted text content."""
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url)
+        if p.scheme not in ("http", "https"):
+            return f"Error: only http/https allowed, got '{p.scheme or 'none'}'"
+        if not p.netloc:
+            return "Error: missing domain"
+    except Exception as e:
+        return f"Error: invalid URL: {e}"
+
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True, max_redirects=5, timeout=15.0,
+        ) as client:
+            r = await client.get(url, headers={"User-Agent": _FETCH_USER_AGENT})
+            r.raise_for_status()
+
+        ctype = r.headers.get("content-type", "")
+        if "application/json" in ctype:
+            text = json.dumps(r.json(), indent=2, ensure_ascii=False)
+        elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
+            text = _html_to_text(r.text)
+        else:
+            text = r.text.strip()
+
+        if len(text) > _FETCH_MAX_CHARS:
+            text = text[:_FETCH_MAX_CHARS] + "\n\n[Content truncated]"
+
+        return f"URL: {r.url}\n\n{text}"
+    except Exception as e:
+        return f"Error fetching {url}: {e}"
+
+
+_WEB_FETCH_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "web_fetch",
+        "description": (
+            "Fetch a webpage and extract readable text (truncated to ~12k chars). "
+            "Use for reading a specific URL the user provided or referenced. "
+            "For general research, prefer call_web_agent instead."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to fetch"},
+            },
+            "required": ["url"],
+        },
+    },
+}
+
 _LOCAL_TOOL_NAMES = {"read_image", "read_file_text", "show_tool_history",
-                     "attach_file", "list_inbox", "write_file", "delete_file"}
+                     "attach_file", "list_inbox", "write_file", "delete_file",
+                     "web_fetch"}
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 _DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".xls", ".doc", ".ppt"}
@@ -885,6 +966,7 @@ def _build_tools(
     tools.append(_LIST_INBOX_TOOL)
     tools.append(_WRITE_FILE_TOOL)
     tools.append(_DELETE_FILE_TOOL)
+    tools.append(_WEB_FETCH_TOOL)
     return tools
 
 
@@ -1380,6 +1462,10 @@ async def _agent_loop(
                         else:
                             Path(resolved_fp).unlink()
                             local_results[tc.id] = f"Deleted: {fn}"
+                    elif tc.name == "web_fetch":
+                        local_results[tc.id] = await _web_fetch(
+                            tc.arguments.get("url", ""),
+                        )
                 except Exception as exc:
                     local_results[tc.id] = f"Error: {exc}"
                 continue
