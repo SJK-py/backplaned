@@ -857,11 +857,8 @@ def _handle_read_image(arguments: dict[str, Any], session_id: str) -> str:
     if not file_path:
         return "Error: file not found in inbox."
     try:
-        data = Path(file_path).read_bytes()
-        mime = _mime_from_path(file_path)
-        if not mime.startswith("image/"):
-            mime = "image/jpeg"
-        b64 = base64.b64encode(data).decode("ascii")
+        from helper import resize_and_encode_image
+        mime, b64 = resize_and_encode_image(file_path)
         return f"[IMAGE_BASE64:{mime}:{b64}]"
     except Exception as exc:
         return f"Error reading image: {exc}"

@@ -325,11 +325,11 @@ class ToolEngine:
         if not path.is_file():
             return f"Error: '{args['file_path']}' is not a file or does not exist."
         try:
-            data = path.read_bytes()
             mime = mimetypes.guess_type(str(path))[0] or "image/png"
             if not mime.startswith("image/"):
                 return f"Error: '{args['file_path']}' does not appear to be an image ({mime})."
-            b64 = base64.b64encode(data).decode("ascii")
+            from helper import resize_and_encode_image
+            mime, b64 = resize_and_encode_image(str(path))
             return f"[IMAGE_BASE64:{mime}:{b64}]"
         except Exception as exc:
             return f"Error reading image: {exc}"

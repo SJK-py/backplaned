@@ -1581,3 +1581,61 @@ class RouterClient:
 
     async def __aexit__(self, *_: Any) -> None:
         await self.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Image resize + base64 encoding (shared by core_personal_agent & coding_agent)
+# ---------------------------------------------------------------------------
+
+_IMAGE_MAX_LONG_SIDE = 1568
+
+
+def resize_and_encode_image(file_path: str) -> tuple[str, str]:
+    """Read an image, resize if needed, and return (mime_type, base64_data).
+
+    If the longest side exceeds ``_IMAGE_MAX_LONG_SIDE`` (1568 px — Claude's
+    tile boundary, a good cross-model default), the image is resized
+    proportionally.  Photos are re-encoded as JPEG quality 85 for smaller
+    base64; images with transparency are kept as PNG.
+
+    Returns the MIME type and the base64-encoded string.
+    """
+    import base64 as _b64
+    import io as _io
+    import mimetypes as _mt
+
+    from PIL import Image
+
+    mime = _mt.guess_type(file_path)[0] or "image/png"
+    if not mime.startswith("image/"):
+        mime = "image/png"
+
+    img = Image.open(file_path)
+
+    needs_resize = max(img.size) > _IMAGE_MAX_LONG_SIDE
+    has_alpha = img.mode in ("RGBA", "LA", "PA")
+
+    if needs_resize:
+        img.thumbnail((_IMAGE_MAX_LONG_SIDE, _IMAGE_MAX_LONG_SIDE), Image.LANCZOS)
+
+    if has_alpha:
+        out_format = "PNG"
+        out_mime = "image/png"
+    else:
+        out_format = "JPEG"
+        out_mime = "image/jpeg"
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+    if not needs_resize and out_mime == mime:
+        # No resize, same format — use original bytes (skip re-encode).
+        raw = Path(file_path).read_bytes()
+    else:
+        buf = _io.BytesIO()
+        save_kwargs: dict[str, Any] = {"format": out_format}
+        if out_format == "JPEG":
+            save_kwargs["quality"] = 85
+        img.save(buf, **save_kwargs)
+        raw = buf.getvalue()
+
+    return out_mime, _b64.b64encode(raw).decode("ascii")
