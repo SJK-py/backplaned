@@ -24,6 +24,9 @@ dependencies = [
     "markitdown>=0.1.5",
     "markitdown-ocr>=0.1.0",
 
+    # Image processing (read_image resize)
+    "Pillow>=10.0",
+
     # Memory (memory_agent) + Knowledge base (kb_agent)
     "lancedb>=0.30",
 
