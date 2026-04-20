@@ -74,6 +74,7 @@ MAX_PAYLOAD_BYTES: int = int(os.environ.get("MAX_PAYLOAD_BYTES", str(1 * 1024 * 
 MAX_FILE_BYTES: int = int(os.environ.get("MAX_FILE_BYTES", str(50 * 1024 * 1024)))  # 50 MB
 ADMIN_TOKEN: str = os.environ.get("ADMIN_TOKEN", "")
 EMBEDDED_AGENT_TIMEOUT: float = float(os.environ.get("EMBEDDED_AGENT_TIMEOUT", "300"))
+TASK_RETENTION_HOURS: int = int(os.environ.get("TASK_RETENTION_HOURS", "72"))
 
 # In-memory registry of loaded embedded agent ASGI apps.
 # NOTE: For high-traffic production deployments, consider aiosqlite for DB
@@ -1600,6 +1601,101 @@ async def gc_proxy_files() -> None:
             conn.close()
 
 
+async def gc_old_tasks() -> None:
+    """
+    Background loop that runs every 3600 seconds (1 hour).
+
+    Deletes terminal tasks (completed, failed, timeout) older than
+    TASK_RETENTION_HOURS, along with their events and proxy_files.
+    Runs VACUUM afterward to reclaim disk space.
+    """
+    while True:
+        await asyncio.sleep(3600)
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=TASK_RETENTION_HOURS)
+        ).isoformat()
+        conn = get_db()
+        try:
+            # Count before delete for logging.
+            result = conn.execute(
+                """
+                SELECT COUNT(*) FROM tasks
+                WHERE status IN ('completed', 'failed', 'timeout')
+                  AND created_at <= ?
+                """,
+                (cutoff,),
+            ).fetchone()
+            count = result[0] if result else 0
+
+            if count == 0:
+                continue
+
+            # Collect file paths for disk cleanup.
+            file_rows = conn.execute(
+                """
+                SELECT file_path FROM proxy_files WHERE task_id IN (
+                    SELECT task_id FROM tasks
+                    WHERE status IN ('completed', 'failed', 'timeout')
+                      AND created_at <= ?
+                )
+                """,
+                (cutoff,),
+            ).fetchall()
+
+            # Delete proxy_files, events, then tasks.
+            conn.execute(
+                """
+                DELETE FROM proxy_files WHERE task_id IN (
+                    SELECT task_id FROM tasks
+                    WHERE status IN ('completed', 'failed', 'timeout')
+                      AND created_at <= ?
+                )
+                """,
+                (cutoff,),
+            )
+            conn.execute(
+                """
+                DELETE FROM events WHERE task_id IN (
+                    SELECT task_id FROM tasks
+                    WHERE status IN ('completed', 'failed', 'timeout')
+                      AND created_at <= ?
+                )
+                """,
+                (cutoff,),
+            )
+            conn.execute(
+                """
+                DELETE FROM tasks
+                WHERE status IN ('completed', 'failed', 'timeout')
+                  AND created_at <= ?
+                """,
+                (cutoff,),
+            )
+            conn.commit()
+
+            # Reclaim disk space.
+            conn.execute("VACUUM")
+
+            print(f"[router] gc_old_tasks: purged {count} task(s) older than {TASK_RETENTION_HOURS}h.")
+
+            # Remove files from disk.
+            for row in file_rows:
+                try:
+                    fp = Path(row["file_path"])
+                    if fp.exists():
+                        fp.unlink()
+                    parent = fp.parent
+                    if parent.exists() and not any(parent.iterdir()):
+                        parent.rmdir()
+                except Exception:
+                    pass
+
+        except Exception as exc:
+            print(f"[router] gc_old_tasks error: {exc}")
+        finally:
+            conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Agent health check
 # ---------------------------------------------------------------------------
@@ -1736,12 +1832,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     sweep_task = asyncio.create_task(timeout_sweep())
     gc_task = asyncio.create_task(gc_proxy_files())
+    gc_tasks_task = asyncio.create_task(gc_old_tasks())
     health_task = asyncio.create_task(_agent_health_loop())
 
     yield
 
     sweep_task.cancel()
     gc_task.cancel()
+    gc_tasks_task.cancel()
     health_task.cancel()
     try:
         await sweep_task
@@ -1749,6 +1847,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pass
     try:
         await gc_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await gc_tasks_task
     except asyncio.CancelledError:
         pass
     try:
@@ -2834,6 +2936,7 @@ async def clear_log(
         )
         conn.execute("DELETE FROM tasks WHERE status != 'active'")
         conn.commit()
+        conn.execute("VACUUM")
     finally:
         conn.close()
     # Remove actual files from disk.
