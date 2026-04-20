@@ -352,6 +352,11 @@ async def load_embedded_agents() -> None:
             if not agent_py.exists():
                 continue
 
+            # Skip agents with an ignore flag file.
+            if (entry / ".ignore_agent").exists():
+                print(f"[router] Skipping embedded agent '{entry.name}' (.ignore_agent present)")
+                continue
+
             agent_id = entry.name
 
             # Dynamically import the agent module.

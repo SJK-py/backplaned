@@ -96,6 +96,19 @@ PYEOF
 # ── Bootstrap config files to data/ dirs ──────────────────────────────
 # Only create if missing — never overwrite user-modified configs.
 
+# Embedded agents: set/clear .ignore_agent flag based on EXCLUDE_AGENTS.
+# The router skips loading any agent dir that contains .ignore_agent.
+for agent_dir in "$ROOT"/agents/*/; do
+    [ -d "$agent_dir" ] || continue
+    agent_name="$(basename "$agent_dir")"
+    if is_excluded "$agent_name"; then
+        touch "$agent_dir/.ignore_agent"
+        echo "[start] Excluded embedded agent: $agent_name"
+    else
+        rm -f "$agent_dir/.ignore_agent"
+    fi
+done
+
 # Embedded agents: config.default.json → data/config.json
 for default_cfg in "$ROOT"/agents/*/config.default.json; do
     agent_dir="$(dirname "$default_cfg")"
