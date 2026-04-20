@@ -183,6 +183,8 @@ _refresh_config()  # Initial load
 # AgentInfo
 # ---------------------------------------------------------------------------
 
+AGENT_GROUPS = (["core"], ["core"])
+
 AGENT_INFO = AgentInfo(
     agent_id="core_personal_agent",
     description=(

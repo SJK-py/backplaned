@@ -112,6 +112,8 @@ def _get_allowed_model_ids(cfg: dict[str, Any], user_id: str) -> list[str]:
 # AgentInfo
 # ---------------------------------------------------------------------------
 
+AGENT_GROUPS = (["infra"], ["infra"])
+
 AGENT_INFO = AgentInfo(
     agent_id=_OUR_AGENT_ID,
     description=(

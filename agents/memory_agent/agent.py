@@ -95,6 +95,8 @@ def _resolve_model_id(user_id: str) -> Optional[str]:
 
 _OUR_AGENT_ID = "memory_agent"
 
+AGENT_GROUPS = (["usertool"], ["usertool"])
+
 AGENT_INFO = AgentInfo(
     agent_id=_OUR_AGENT_ID,
     description=(

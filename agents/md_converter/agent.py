@@ -108,6 +108,8 @@ def _cleanup_output_dir() -> None:
 # AgentInfo
 # ---------------------------------------------------------------------------
 
+AGENT_GROUPS = (["tool"], ["tool"])
+
 AGENT_INFO = AgentInfo(
     agent_id=_OUR_AGENT_ID,
     description=(

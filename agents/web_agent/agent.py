@@ -129,6 +129,8 @@ def _resolve_model_id(user_id: str) -> Optional[str]:
 # AgentInfo
 # ---------------------------------------------------------------------------
 
+AGENT_GROUPS = (["tool"], ["tool"])
+
 AGENT_INFO = AgentInfo(
     agent_id=_OUR_AGENT_ID,
     description=(
