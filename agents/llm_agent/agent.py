@@ -193,7 +193,7 @@ def _normalize_response(
 # ---------------------------------------------------------------------------
 
 _openai_clients: dict[tuple, Any] = {}   # (provider, base_url, api_key) → AsyncOpenAI
-_anthropic_clients: dict[tuple, Any] = {}  # (api_key,) → AsyncAnthropic
+_anthropic_clients: dict[tuple, Any] = {}  # (base_url, api_key) → AsyncAnthropic
 _gemini_clients: dict[tuple, Any] = {}     # (api_key,) → genai.Client
 
 
@@ -208,13 +208,21 @@ def _get_openai_client(provider: str, base_url: Optional[str], api_key: str, tim
     return client
 
 
-def _get_anthropic_client(api_key: str, timeout: float) -> Any:
-    """Return a cached AsyncAnthropic client, creating one if needed."""
+def _get_anthropic_client(api_key: str, timeout: float, base_url: Optional[str] = None) -> Any:
+    """Return a cached AsyncAnthropic client, creating one if needed.
+
+    When *base_url* is provided, the client targets a third-party
+    Anthropic-compatible endpoint (e.g. MiniMax) instead of
+    Anthropic's own API.
+    """
     import anthropic
-    key = (api_key, timeout)
+    key = (base_url, api_key, timeout)
     client = _anthropic_clients.get(key)
     if client is None:
-        client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
+        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = anthropic.AsyncAnthropic(**kwargs)
         _anthropic_clients[key] = client
     return client
 
@@ -318,10 +326,11 @@ async def _call_anthropic(
     max_tokens: Optional[int],
     tool_choice: Optional[Any] = None,
 ) -> dict[str, Any]:
-    """Call the Anthropic Messages API."""
+    """Call the Anthropic Messages API (or a compatible third-party endpoint)."""
     client = _get_anthropic_client(
         model_cfg.get("api_key", ""),
         float(model_cfg.get("timeout", 60)),
+        base_url=model_cfg.get("base_url"),
     )
 
     # Convert OpenAI-format tools to Anthropic format.
