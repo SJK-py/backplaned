@@ -329,6 +329,9 @@ async def load_embedded_agents() -> None:
     keyed by agent_id (the subdirectory name).
     """
     # Per-agent group assignments for embedded agents.
+    # Preferred: agent.py defines AGENT_GROUPS = (["inbound"], ["outbound"]).
+    # Fallback: hardcoded map below (for backward compat / built-in agents
+    # that haven't been migrated yet).
     _EMBEDDED_AGENT_GROUPS: dict[str, tuple[list[str], list[str]]] = {
         # agent_id: (inbound_groups, outbound_groups)
         "core_personal_agent": (["core"], ["core"]),
@@ -416,7 +419,12 @@ async def load_embedded_agents() -> None:
                             agent_id, doc_bytes, conn
                         )
 
-                inbound_g, outbound_g = _EMBEDDED_AGENT_GROUPS.get(agent_id, _DEFAULT_GROUPS)
+                # Resolution order: module AGENT_GROUPS → hardcoded map → default
+                module_groups = getattr(module, "AGENT_GROUPS", None)
+                if module_groups and isinstance(module_groups, (list, tuple)) and len(module_groups) == 2:
+                    inbound_g, outbound_g = list(module_groups[0]), list(module_groups[1])
+                else:
+                    inbound_g, outbound_g = _EMBEDDED_AGENT_GROUPS.get(agent_id, _DEFAULT_GROUPS)
                 conn.execute(
                     """
                     INSERT INTO agents
