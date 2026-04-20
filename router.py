@@ -322,24 +322,15 @@ async def load_embedded_agents() -> None:
 
     Agents not yet present in the DB are auto-registered with:
     - A freshly generated auth token.
-    - Group assignments per ``_EMBEDDED_AGENT_GROUPS`` mapping.
+    - Group assignments from the module's ``AGENT_GROUPS`` attribute.
     - ``is_embedded = 1``.
 
     The loaded ASGI app is placed in the module-level ``embedded_apps`` dict
     keyed by agent_id (the subdirectory name).
     """
-    # Per-agent group assignments for embedded agents.
-    # Preferred: agent.py defines AGENT_GROUPS = (["inbound"], ["outbound"]).
-    # Fallback: hardcoded map below (for backward compat / built-in agents
-    # that haven't been migrated yet).
-    _EMBEDDED_AGENT_GROUPS: dict[str, tuple[list[str], list[str]]] = {
-        # agent_id: (inbound_groups, outbound_groups)
-        "core_personal_agent": (["core"], ["core"]),
-        "llm_agent":           (["infra"], ["infra"]),
-        "md_converter":        (["tool"], ["tool"]),
-        "memory_agent":        (["usertool"], ["usertool"]),
-        "web_agent":           (["tool"], ["tool"]),
-    }
+    # Per-agent group assignments: each agent.py defines
+    # AGENT_GROUPS = (["inbound"], ["outbound"]).
+    # Agents without AGENT_GROUPS get the default ["embedded"] group.
     _DEFAULT_GROUPS = (["embedded"], ["embedded"])
 
     agents_path = Path(AGENTS_DIR)
@@ -424,7 +415,7 @@ async def load_embedded_agents() -> None:
                 if module_groups and isinstance(module_groups, (list, tuple)) and len(module_groups) == 2:
                     inbound_g, outbound_g = list(module_groups[0]), list(module_groups[1])
                 else:
-                    inbound_g, outbound_g = _EMBEDDED_AGENT_GROUPS.get(agent_id, _DEFAULT_GROUPS)
+                    inbound_g, outbound_g = _DEFAULT_GROUPS
                 conn.execute(
                     """
                     INSERT INTO agents
