@@ -1131,6 +1131,16 @@ async def _handle_incoming(
         )
         return
 
+    if cmd == "defaultsession":
+        session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
+        _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
+        await _spawn_to_core(
+            identifier=session_id, user_id=user_id,
+            session_id=session_id, message="<set_default_session>",
+            core_agent_id=user_core_agent,
+        )
+        return
+
     if cmd in ("start", "help"):
         await _send_to_chat(
             platform, chat_id,
@@ -1139,6 +1149,7 @@ async def _handle_incoming(
             "/model — list models · /model <id> — switch model\n"
             "/link — list linkable agents · /link <id> — direct talk\n"
             "/unlink — end direct agent link\n"
+            "/defaultsession — set current session as default\n"
             "/register <token> — register with invitation token"
         )
         return

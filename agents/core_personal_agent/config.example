@@ -9,7 +9,10 @@
   "CORE_MEMORY_AGENT_ID": "Agent ID of the memory agent (must match the registered agent name)",
   "CORE_LLM_AGENT_ID": "Agent ID of the LLM inference agent (default: llm_agent)",
   "CORE_LLM_MODEL_ID": "(Optional) Model config key to use from llm_agent's config.json (default: 'default')",
+  "CORE_CHANNEL_AGENT_ID": "Agent ID of the channel agent for user-facing origin detection (default: channel_agent)",
+  "CORE_WEBAPP_AGENT_ID": "Agent ID of the webapp agent for user-facing origin detection (default: webapp_agent)",
   "CORE_LINK_HISTORY_TOKEN_RATIO": "Fraction of CORE_HISTORY_TOKEN_LIMIT used for history in linked-session mode (default: 0.5)",
   "CORE_LINK_TRUNCATION_KEEP_RATIO": "Proportion of linked history to keep when truncating (default: 0.5)",
-  "CORE_SYSTEM_PROMPT": "(Optional) Top-level system prompt injected into every LLM call. Overrides the built-in default"
+  "CORE_SYSTEM_PROMPT": "(Optional) Top-level system prompt injected into every LLM call. Overrides the built-in default",
+  "CORE_ARCHIVE_RETENTION_DAYS": "Days to keep archived sessions in the <archived_sessions> listing (default: 7)"
 }
