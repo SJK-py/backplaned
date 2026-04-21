@@ -306,38 +306,60 @@ def _save_webapp_tokens(data: dict[str, Any]) -> None:
     )
 
 
-def _create_webapp_token(user_id: str) -> str:
-    """Generate a single-use webapp login token for user_id (1 hour TTL)."""
-    token = secrets.token_urlsafe(24)
-    data = _load_webapp_tokens()
-    data[token] = {
-        "user_id": user_id,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    _save_webapp_tokens(data)
+async def _create_webapp_token(user_id: str) -> str:
+    """Generate a single-use webapp login token for user_id (1 hour TTL).
+
+    Uses _data_lock to prevent concurrent reads/writes to the token file.
+    Also cleans up expired tokens on each call.
+    """
+    async with _data_lock:
+        data = _load_webapp_tokens()
+        # Clean expired tokens while we have the lock.
+        now = datetime.now(timezone.utc)
+        expired = []
+        for k, v in data.items():
+            try:
+                created = datetime.fromisoformat(v.get("created_at", ""))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                if (now - created).total_seconds() > 3600:
+                    expired.append(k)
+            except Exception:
+                expired.append(k)
+        for k in expired:
+            del data[k]
+        token = secrets.token_urlsafe(24)
+        data[token] = {
+            "user_id": user_id,
+            "created_at": now.isoformat(),
+        }
+        _save_webapp_tokens(data)
     return token
 
 
-def _validate_webapp_token(user_id: str, token: str) -> bool:
-    """Validate and consume a webapp login token. Returns True if valid."""
-    data = _load_webapp_tokens()
-    info = data.get(token)
-    if not info:
-        return False
-    if info.get("user_id") != user_id:
-        return False
-    # Check TTL (1 hour)
-    created = datetime.fromisoformat(info["created_at"])
-    if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
-    if (datetime.now(timezone.utc) - created).total_seconds() > 3600:
+async def _validate_webapp_token(user_id: str, token: str) -> bool:
+    """Validate and consume a webapp login token. Returns True if valid.
+
+    Uses _data_lock for atomic read-check-delete to prevent token reuse.
+    """
+    async with _data_lock:
+        data = _load_webapp_tokens()
+        info = data.get(token)
+        if not info:
+            return False
+        if info.get("user_id") != user_id:
+            return False
+        created = datetime.fromisoformat(info["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - created).total_seconds() > 3600:
+            del data[token]
+            _save_webapp_tokens(data)
+            return False
+        # Consume (single-use)
         del data[token]
         _save_webapp_tokens(data)
-        return False
-    # Consume (single-use)
-    del data[token]
-    _save_webapp_tokens(data)
-    return True
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +1208,7 @@ async def _handle_incoming(
         return
 
     if cmd == "webapp":
-        token = _create_webapp_token(user_id)
+        token = await _create_webapp_token(user_id)
         await _send_to_chat(
             platform, chat_id,
             f"Webapp login token (valid 1 hour, single use):\n\n`{token}`\n\n"
@@ -1326,7 +1348,7 @@ async def _handle_webapp_token_validation(data: dict[str, Any], message: str) ->
     user_id = parts[1].strip()
     token = parts[2].strip()
 
-    if _validate_webapp_token(user_id, token):
+    if await _validate_webapp_token(user_id, token):
         logger.info("Webapp token validated for user %s", user_id)
         await _report_direct_result(task_id, parent_task_id, 200, "Token valid")
     else:

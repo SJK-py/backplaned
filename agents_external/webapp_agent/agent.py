@@ -206,6 +206,8 @@ async def _spawn_fire_and_forget(
 # Agent info
 # ---------------------------------------------------------------------------
 
+AGENT_GROUPS = (["channel"], ["channel"])
+
 agent_info = AgentInfo(
     agent_id="webapp_agent",
     description="Web application agent. User-facing frontend for chat, session management, and file handling.",
@@ -655,16 +657,25 @@ async def api_list_inbox(webapp_session: Optional[str] = Cookie(default=None)) -
     return JSONResponse(files)
 
 
+def _safe_inbox_path(user_id: str, filename: str) -> Path:
+    """Resolve filename within the user's inbox, blocking path traversal."""
+    inbox = _user_inbox(user_id)
+    fp = (inbox / filename).resolve()
+    if not str(fp).startswith(str(inbox.resolve()) + os.sep) and fp != inbox.resolve():
+        raise HTTPException(status_code=403, detail="Access denied")
+    return fp
+
+
 @app.get("/api/inbox/{filename}")
 async def api_download_file(
     filename: str,
     webapp_session: Optional[str] = Cookie(default=None),
 ) -> FileResponse:
     user_id = _validate_session(webapp_session)
-    fp = _user_inbox(user_id) / filename
+    fp = _safe_inbox_path(user_id, filename)
     if not fp.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(str(fp), filename=filename)
+    return FileResponse(str(fp), filename=fp.name)
 
 
 @app.delete("/api/inbox/{filename}")
@@ -673,7 +684,7 @@ async def api_delete_file(
     webapp_session: Optional[str] = Cookie(default=None),
 ) -> JSONResponse:
     user_id = _validate_session(webapp_session)
-    fp = _user_inbox(user_id) / filename
+    fp = _safe_inbox_path(user_id, filename)
     if not fp.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     fp.unlink()

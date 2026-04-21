@@ -242,6 +242,16 @@ _active_loops: dict[str, _LoopState] = {}
 # Auth token (injected by the router as an environment variable at startup)
 # ---------------------------------------------------------------------------
 
+_SAFE_SID_RE = re.compile(r'^[a-zA-Z0-9_\-]+$')
+
+
+def _validate_session_id(sid: str) -> str:
+    """Validate session_id to prevent path traversal. Returns the id or raises."""
+    if not sid or not _SAFE_SID_RE.match(sid):
+        raise ValueError(f"Invalid session_id: {sid!r}")
+    return sid
+
+
 _AUTH_TOKEN: str = ""
 
 
@@ -339,9 +349,11 @@ def _archive_and_clear(session_id: str) -> None:
         shutil.move(str(lp), str(dest))
     # Move info file to archive and save with archived_at.
     ip = _info_path(session_id)
+    dest_info = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_info.json"
     if info:
-        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_info.json"
-        dest.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+        dest_info.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif ip.exists():
+        shutil.move(str(ip), str(dest_info))
     if ip.exists():
         ip.unlink()
     # Clean up per-session inbox
@@ -507,6 +519,9 @@ def _replace_active_session(user_id: str, old_sid: str, new_sid: str) -> None:
     """Replace old_sid with new_sid in the user's active list (same position)."""
     m = _load_active_sessions()
     sessions = m.get(user_id, [])
+    # Remove new_sid if it already exists (prevent duplicates).
+    if new_sid in sessions:
+        sessions.remove(new_sid)
     if old_sid in sessions:
         idx = sessions.index(old_sid)
         sessions[idx] = new_sid
@@ -2318,6 +2333,7 @@ async def _dispatch(
         _remove_active_session(user_id, session_id)
         if new_sid:
             _replace_active_session(user_id, session_id, new_sid)
+            _ensure_session_info(new_sid, user_id, origin_agent_id)
         return "Session archived."
 
     if message.startswith("<set_default_session>"):
@@ -2330,6 +2346,10 @@ async def _dispatch(
         target_sid = message[len("<unarchive_session>"):].strip()
         if not target_sid:
             return "Error: session_id required."
+        try:
+            _validate_session_id(target_sid)
+        except ValueError:
+            return "Error: invalid session_id format."
         # Move files from archive back to sessions dir.
         archive_dir = Path(HISTORY_ARCHIVE_DIR)
         hist_src = archive_dir / f"{target_sid}.json"
@@ -2374,6 +2394,10 @@ async def _dispatch(
         target_sid = message[len("<delete_session>"):].strip()
         if not target_sid:
             return "Error: session_id required."
+        try:
+            _validate_session_id(target_sid)
+        except ValueError:
+            return "Error: invalid session_id format."
         archive_dir = Path(HISTORY_ARCHIVE_DIR)
         deleted = False
         for suffix in (".json", "_info.json", "_tools.json", "_link.json"):
@@ -2582,6 +2606,20 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 content="Error: user_id, session_id, and message are all required."
             ),
         )
+
+    # Validate session_id format to prevent path traversal.
+    # "SYSTEM" is allowed as a pseudo-session for control tokens.
+    if session_id != "SYSTEM":
+        try:
+            _validate_session_id(session_id)
+        except ValueError:
+            return build_result_request(
+                agent_id=_OUR_AGENT_ID,
+                task_id=task_id,
+                parent_task_id=parent_task_id,
+                status_code=400,
+                output=AgentOutput(content=f"Error: invalid session_id format."),
+            )
 
     # Handle <stop_session> — cancel all active loops for this session.
     if message == "<stop_session>":
