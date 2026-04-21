@@ -89,6 +89,7 @@ DATA_DIR: Path = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent / "da
 SESSIONS_FILE: Path = DATA_DIR / "sessions.json"
 CREDENTIALS_FILE: Path = DATA_DIR / "credentials.json"
 INVITATION_TOKENS_FILE: Path = DATA_DIR / "invitation_tokens.json"
+WEBAPP_TOKENS_FILE: Path = DATA_DIR / "webapp_tokens.json"
 RATE_LIMITS_FILE: Path = DATA_DIR / "rate_limits.json"
 
 RATE_LIMIT_WINDOW: int = int(_chan_get("RATE_LIMIT_WINDOW", "3600"))
@@ -284,6 +285,59 @@ def _delete_invitation_token(token_string: str) -> bool:
         _save_tokens_data(td)
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Webapp login tokens (user_id → single-use token, TTL 1 hour)
+# ---------------------------------------------------------------------------
+
+def _load_webapp_tokens() -> dict[str, Any]:
+    if WEBAPP_TOKENS_FILE.exists():
+        try:
+            return json.loads(WEBAPP_TOKENS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_webapp_tokens(data: dict[str, Any]) -> None:
+    WEBAPP_TOKENS_FILE.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _create_webapp_token(user_id: str) -> str:
+    """Generate a single-use webapp login token for user_id (1 hour TTL)."""
+    token = secrets.token_urlsafe(24)
+    data = _load_webapp_tokens()
+    data[token] = {
+        "user_id": user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_webapp_tokens(data)
+    return token
+
+
+def _validate_webapp_token(user_id: str, token: str) -> bool:
+    """Validate and consume a webapp login token. Returns True if valid."""
+    data = _load_webapp_tokens()
+    info = data.get(token)
+    if not info:
+        return False
+    if info.get("user_id") != user_id:
+        return False
+    # Check TTL (1 hour)
+    created = datetime.fromisoformat(info["created_at"])
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    if (datetime.now(timezone.utc) - created).total_seconds() > 3600:
+        del data[token]
+        _save_webapp_tokens(data)
+        return False
+    # Consume (single-use)
+    del data[token]
+    _save_webapp_tokens(data)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1131,6 +1185,15 @@ async def _handle_incoming(
         )
         return
 
+    if cmd == "webapp":
+        token = _create_webapp_token(user_id)
+        await _send_to_chat(
+            platform, chat_id,
+            f"Webapp login token (valid 1 hour, single use):\n\n`{token}`\n\n"
+            f"Use this with your user ID (`{user_id}`) to log in at the webapp.",
+        )
+        return
+
     if cmd == "defaultsession":
         session_id = await _get_or_create_session(platform, chat_id, platform_user_id, user_id)
         _typing_tasks[session_id] = asyncio.create_task(_send_typing_loop(platform, chat_id))
@@ -1150,6 +1213,7 @@ async def _handle_incoming(
             "/link — list linkable agents · /link <id> — direct talk\n"
             "/unlink — end direct agent link\n"
             "/defaultsession — set current session as default\n"
+            "/webapp — generate webapp login token\n"
             "/register <token> — register with invitation token"
         )
         return
@@ -1887,6 +1951,23 @@ async def ui_unset_verbose(
             verbose.remove(user_id)
         _save_data(data)
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Webapp token validation (called by webapp_agent, no session auth required)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/validate-webapp-token")
+async def api_validate_webapp_token(request: Request) -> JSONResponse:
+    """Validate a webapp login token. Called by webapp_agent directly."""
+    body = await request.json()
+    user_id = str(body.get("user_id", "")).strip()
+    token = str(body.get("token", "")).strip()
+    if not user_id or not token:
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "user_id and token required"})
+    if _validate_webapp_token(user_id, token):
+        return JSONResponse({"status": "ok", "user_id": user_id})
+    return JSONResponse(status_code=401, content={"status": "error", "detail": "Invalid or expired token"})
 
 
 # ---------------------------------------------------------------------------
