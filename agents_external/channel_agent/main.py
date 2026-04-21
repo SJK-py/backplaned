@@ -1267,9 +1267,9 @@ async def _route_result(data: dict[str, Any]) -> None:
 
     # --- Path 2: Direct invocation (agent-initiated) ---
     if destination is not None:
-        action = payload.get("action")
-        if action == "validate_webapp_token":
-            await _handle_webapp_token_validation(data, payload)
+        message = str(payload.get("message") or "")
+        if message.startswith("<validate_webapp_token>"):
+            await _handle_webapp_token_validation(data, message)
             return
         await _handle_direct_message(data, payload)
         return
@@ -1310,16 +1310,21 @@ async def _route_result(data: dict[str, Any]) -> None:
         logger.info("Session %s removed after /new", identifier)
 
 
-async def _handle_webapp_token_validation(data: dict[str, Any], payload: dict[str, Any]) -> None:
-    """Validate a webapp login token and report result via the router."""
+async def _handle_webapp_token_validation(data: dict[str, Any], message: str) -> None:
+    """Validate a webapp login token and report result via the router.
+
+    Message format: <validate_webapp_token> {user_id} {token}
+    """
     task_id: str = data.get("task_id") or ""
     parent_task_id = data.get("parent_task_id")
-    user_id = str(payload.get("user_id", "")).strip()
-    token = str(payload.get("token", "")).strip()
 
-    if not user_id or not token:
-        await _report_direct_result(task_id, parent_task_id, 400, "user_id and token required")
+    parts = message.split(None, 2)
+    if len(parts) < 3:
+        await _report_direct_result(task_id, parent_task_id, 400, "Usage: <validate_webapp_token> user_id token")
         return
+
+    user_id = parts[1].strip()
+    token = parts[2].strip()
 
     if _validate_webapp_token(user_id, token):
         logger.info("Webapp token validated for user %s", user_id)

@@ -394,7 +394,11 @@ async def api_login_token(request: Request) -> JSONResponse:
             identifier=identifier,
             parent_task_id=None,
             destination_agent_id="channel_agent",
-            payload={"action": "validate_webapp_token", "user_id": user_id, "token": token},
+            payload={
+                "user_id": user_id,
+                "session_id": "SYSTEM",
+                "message": f"<validate_webapp_token> {user_id} {token}",
+            },
         )
         result = await asyncio.wait_for(fut, timeout=15.0)
     except asyncio.TimeoutError:
