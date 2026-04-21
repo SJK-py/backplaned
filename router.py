@@ -356,6 +356,19 @@ async def load_embedded_agents() -> None:
 
             # Dynamically import the agent module.
             # (Agents read their own config.json directly — no env injection needed.)
+            #
+            # Clear stale bare-module entries so each agent's
+            # `from tools import ...` resolves against its own directory,
+            # not a previously loaded agent's cached module.  Without this,
+            # two agents sharing a filename (e.g. tools.py, config.py, db.py)
+            # collide in sys.modules and the second one gets wrong symbols.
+            sibling_names = [
+                p.stem for p in entry.iterdir()
+                if p.suffix == ".py" and p.stem not in ("agent", "__init__")
+            ]
+            for _mod_name in sibling_names:
+                sys.modules.pop(_mod_name, None)
+
             spec = importlib.util.spec_from_file_location(
                 f"agents.{agent_id}.agent", str(agent_py)
             )
