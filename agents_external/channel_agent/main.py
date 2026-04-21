@@ -1265,8 +1265,12 @@ async def _route_result(data: dict[str, Any]) -> None:
     destination = data.get("destination_agent_id")
     payload: dict = data.get("payload") or {}
 
-    # --- Path 2: Direct invocation (agent-initiated message) ---
+    # --- Path 2: Direct invocation (agent-initiated) ---
     if destination is not None:
+        action = payload.get("action")
+        if action == "validate_webapp_token":
+            await _handle_webapp_token_validation(data, payload)
+            return
         await _handle_direct_message(data, payload)
         return
 
@@ -1304,6 +1308,25 @@ async def _route_result(data: dict[str, Any]) -> None:
         _pending_removal.discard(identifier)
         await _remove_session_details(identifier)
         logger.info("Session %s removed after /new", identifier)
+
+
+async def _handle_webapp_token_validation(data: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Validate a webapp login token and report result via the router."""
+    task_id: str = data.get("task_id") or ""
+    parent_task_id = data.get("parent_task_id")
+    user_id = str(payload.get("user_id", "")).strip()
+    token = str(payload.get("token", "")).strip()
+
+    if not user_id or not token:
+        await _report_direct_result(task_id, parent_task_id, 400, "user_id and token required")
+        return
+
+    if _validate_webapp_token(user_id, token):
+        logger.info("Webapp token validated for user %s", user_id)
+        await _report_direct_result(task_id, parent_task_id, 200, "Token valid")
+    else:
+        logger.info("Webapp token rejected for user %s", user_id)
+        await _report_direct_result(task_id, parent_task_id, 401, "Invalid or expired token")
 
 
 async def _handle_direct_message(data: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -1951,23 +1974,6 @@ async def ui_unset_verbose(
             verbose.remove(user_id)
         _save_data(data)
     return {"status": "ok"}
-
-
-# ---------------------------------------------------------------------------
-# Webapp token validation (called by webapp_agent, no session auth required)
-# ---------------------------------------------------------------------------
-
-@app.post("/api/validate-webapp-token")
-async def api_validate_webapp_token(request: Request) -> JSONResponse:
-    """Validate a webapp login token. Called by webapp_agent directly."""
-    body = await request.json()
-    user_id = str(body.get("user_id", "")).strip()
-    token = str(body.get("token", "")).strip()
-    if not user_id or not token:
-        return JSONResponse(status_code=400, content={"status": "error", "detail": "user_id and token required"})
-    if _validate_webapp_token(user_id, token):
-        return JSONResponse({"status": "ok", "user_id": user_id})
-    return JSONResponse(status_code=401, content={"status": "error", "detail": "Invalid or expired token"})
 
 
 # ---------------------------------------------------------------------------

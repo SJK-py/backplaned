@@ -220,6 +220,7 @@ def init_db() -> None:
             ("core", "usertool"),       # core can call user-specific tools
             ("core", "channel"),        # core can send DMs via channel
             ("channel", "core"),        # channel routes user messages to core
+            ("channel", "channel"),     # channel agents can talk to each other (e.g. webapp → channel for token auth)
             ("tool", "infra"),          # tools can call LLM
             ("usertool", "infra"),      # user-tools can call LLM
             ("usertool", "tool"),       # user-tools can call stateless tools (e.g. kb→md_converter)

@@ -380,26 +380,37 @@ async def api_login_token(request: Request) -> JSONResponse:
     if not user_id or not token:
         raise HTTPException(status_code=400, detail="user_id and token required")
 
-    # Validate token directly via channel_agent HTTP endpoint
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(
-                f"{agent_config.channel_agent_url}/api/validate-webapp-token",
-                json={"user_id": user_id, "token": token},
-            )
-        if r.status_code != 200:
-            detail = "Invalid or expired token"
-            try:
-                detail = r.json().get("detail", detail)
-            except Exception:
-                pass
-            raise HTTPException(status_code=401, detail=detail)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Token validation error: {exc}")
+    # Validate token via channel_agent through the router.
+    if not router_client:
+        raise HTTPException(status_code=503, detail="Not connected to router")
 
-    # Token valid — return step to set password
+    identifier = f"wa_auth_{uuid.uuid4().hex[:8]}"
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+    _pending_results[identifier] = fut
+
+    try:
+        await router_client.spawn(
+            identifier=identifier,
+            parent_task_id=None,
+            destination_agent_id="channel_agent",
+            payload={"action": "validate_webapp_token", "user_id": user_id, "token": token},
+        )
+        result = await asyncio.wait_for(fut, timeout=15.0)
+    except asyncio.TimeoutError:
+        _pending_results.pop(identifier, None)
+        raise HTTPException(status_code=504, detail="Token validation timed out")
+    except Exception as exc:
+        _pending_results.pop(identifier, None)
+        raise HTTPException(status_code=502, detail=f"Token validation error: {exc}")
+    finally:
+        _pending_results.pop(identifier, None)
+
+    sc = result.get("status_code", 200)
+    content = result.get("payload", {}).get("content", "")
+    if sc and sc >= 400:
+        raise HTTPException(status_code=401, detail=content or "Invalid or expired token")
+
     return JSONResponse({"status": "set_password", "user_id": user_id, "token": token})
 
 
