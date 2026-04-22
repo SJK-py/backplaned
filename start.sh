@@ -164,7 +164,7 @@ fi
 
 # Generate and propagate SESSION_SECRET (shared across all agents)
 SESSION_SECRET="${SESSION_SECRET:-$("$VENV_BIN/python3" -c 'import secrets; print(secrets.token_hex(32))')}"
-for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin; do
+for _agent_name in channel_agent coding_agent cron_agent kb_agent mcp_agent mcp_server reminder_agent web_admin webapp_agent; do
     is_excluded "$_agent_name" && continue
     set_env_var "$ROOT/agents_external/$_agent_name/data/.env" "SESSION_SECRET" "$SESSION_SECRET"
 done
@@ -232,6 +232,7 @@ CRON_PORT="${CRON_PORT:-8085}"
 KB_PORT="${KB_PORT:-8086}"
 CODING_PORT="${CODING_PORT:-8100}"
 REMINDER_PORT="${REMINDER_PORT:-8101}"
+WEBAPP_PORT="${WEBAPP_PORT:-8090}"
 
 # Helper: set AGENT_PORT and AGENT_URL for an external agent
 _set_agent_port() {
@@ -250,6 +251,7 @@ _set_agent_port "cron_agent"     "$CRON_PORT"
 _set_agent_port "kb_agent"       "$KB_PORT"
 _set_agent_port "coding_agent"   "$CODING_PORT"
 _set_agent_port "reminder_agent" "$REMINDER_PORT"
+_set_agent_port "webapp_agent"   "$WEBAPP_PORT"
 
 # MCP protocol port (separate from mcp_server's AGENT_PORT)
 MCP_PORT="${MCP_PORT:-8084}"
@@ -421,6 +423,9 @@ start_agent "cron_agent" "Cron" '["usertool"]' '["usertool","notify"]' "$CRON_PO
     "$VENV_BIN/python3" agent.py
 
 start_agent "kb_agent" "KB" '["usertool"]' '["usertool"]' "$KB_PORT" \
+    "$VENV_BIN/python3" agent.py
+
+start_agent "webapp_agent" "Webapp" '["channel"]' '["channel"]' "$WEBAPP_PORT" \
     "$VENV_BIN/python3" agent.py
 
 # ── Shutdown trap ────────────────────────────────────────────────────────
