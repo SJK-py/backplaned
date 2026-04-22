@@ -38,7 +38,6 @@ CORE_AGENT_TIMEOUT accordingly.
 from __future__ import annotations
 
 import asyncio
-import base64
 import html
 import json
 import mimetypes
@@ -2410,6 +2409,10 @@ async def _dispatch(
         _archive_and_clear(session_id)
         _remove_active_session(user_id, session_id)
         if new_sid:
+            try:
+                _validate_session_id(new_sid)
+            except ValueError:
+                return "Error: invalid session_id format."
             _replace_active_session(user_id, session_id, new_sid)
             _ensure_session_info(new_sid, user_id, origin_agent_id)
         return "Session archived."
