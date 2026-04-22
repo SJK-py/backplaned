@@ -245,14 +245,27 @@ function App(){
             }else if(ev.type==='tool_call'){
               setMessages(prev=>{
                 const last=prev[prev.length-1];
-                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
-                return[...prev,{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
+                const text=ev.content?`${ev.content}`:`🔧 Calling ${ev.metadata?.tool||'tool'}...`;
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:text}];
+                return[...prev,{role:'progress',content:text}];
+              });
+            }else if(ev.type==='tool_result'){
+              setMessages(prev=>{
+                const last=prev[prev.length-1];
+                const text=ev.content?`✅ ${ev.metadata?.tool||'Result'}: ${ev.content.slice(0,200)}`:'✅ Tool completed';
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:text}];
+                return[...prev,{role:'progress',content:text}];
               });
             }else if(ev.type==='result'){
-              // Remove progress indicator and add final reply
+              let reply=ev.content||'(no response)';
+              const rfiles=ev.files;
+              if(rfiles&&rfiles.length){
+                const names=rfiles.map(f=>f.original_name||f.name||'file').join(', ');
+                reply+=`\n\n📎 Files received: ${names} (check inbox to download)`;
+              }
               setMessages(prev=>{
                 const filtered=prev.filter(m=>m.role!=='progress');
-                return[...filtered,{role:'assistant',content:ev.content||'(no response)'}];
+                return[...filtered,{role:'assistant',content:reply}];
               });
             }else if(ev.type==='error'){
               setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'system',content:ev.content||'Error'}]);
@@ -332,8 +345,9 @@ function App(){
 
   // Select session — load history from backend
   function selectSession(sid){
+    if(sid===currentSid)return;
     setCurrentSid(sid);
-    setMessages([]);  // cleared immediately; useEffect loads history
+    setMessages([]);
     if(window.innerWidth<=768)setLeftOpen(false);
   }
 

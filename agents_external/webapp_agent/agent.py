@@ -562,8 +562,12 @@ async def api_chat(request: Request, webapp_session: Optional[str] = Cookie(defa
                 saved_files.append(saved)
         except Exception:
             pass
-    if reply:
-        _append_chat(user_id, session_id, "assistant", reply)
+    history_reply = reply
+    if saved_files:
+        names = ", ".join(f.get("original_name", f.get("name", "file")) for f in saved_files)
+        history_reply += f"\n\n📎 Files received: {names} (check inbox to download)"
+    if history_reply:
+        _append_chat(user_id, session_id, "assistant", history_reply)
     return JSONResponse({
         "content": reply,
         "files": saved_files or payload.get("files"),
@@ -956,8 +960,12 @@ async def api_chat_stream(request: Request, webapp_session: Optional[str] = Cook
                         saved_files.append(saved)
                 except Exception as exc:
                     logger.warning("Failed to fetch result file: %s", exc)
-            if reply:
-                _append_chat(user_id, session_id, "assistant", reply)
+            history_reply = reply
+            if saved_files:
+                names = ", ".join(f.get("original_name", f.get("name", "file")) for f in saved_files)
+                history_reply += f"\n\n📎 Files received: {names} (check inbox to download)"
+            if history_reply:
+                _append_chat(user_id, session_id, "assistant", history_reply)
             yield f"data: {json.dumps({'type': 'result', 'content': reply, 'files': saved_files or files_out, 'status_code': result.get('status_code', 200)})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
