@@ -106,9 +106,24 @@ function LoginPage({onLogin}){
 function App(){
   const[user,setUser]=useState(null);
   const[checking,setChecking]=useState(true);
-  const[sessions,setSessions]=useState([]);
+  const[sessions,_setSessions]=useState(()=>{
+    try{const s=localStorage.getItem('wa_sessions');return s?JSON.parse(s):[]}catch(e){return[]}
+  });
+  const setSessions=useCallback(fn=>{
+    _setSessions(prev=>{
+      const next=typeof fn==='function'?fn(prev):fn;
+      try{localStorage.setItem('wa_sessions',JSON.stringify(next))}catch(e){}
+      return next;
+    });
+  },[]);
   const[archived,setArchived]=useState([]);
-  const[currentSid,setCurrentSid]=useState(null);
+  const[currentSid,_setCurrentSid]=useState(()=>{
+    try{return localStorage.getItem('wa_currentSid')||null}catch(e){return null}
+  });
+  const setCurrentSid=useCallback(v=>{
+    _setCurrentSid(v);
+    try{if(v)localStorage.setItem('wa_currentSid',v);else localStorage.removeItem('wa_currentSid')}catch(e){}
+  },[]);
   const[messages,setMessages]=useState([]);
   const[agents,setAgents]=useState({});
   const[sending,setSending]=useState(false);
@@ -156,6 +171,17 @@ function App(){
     const i2=setInterval(loadArchived,(config.archive_refresh_interval_sec||60)*1000);
     return()=>{clearInterval(i1);clearInterval(i2)};
   },[user,config,loadAgents,loadArchived]);
+
+  // Load history when currentSid changes (including initial restore from localStorage)
+  useEffect(()=>{
+    if(!currentSid||!user)return;
+    (async()=>{
+      try{
+        const r=await api('GET',`/api/sessions/${currentSid}/history`);
+        if(r&&r.ok){const hist=await r.json();if(Array.isArray(hist)&&hist.length)setMessages(hist);else setMessages([])}
+      }catch(e){setMessages([])}
+    })();
+  },[currentSid,user]);
 
   // Auto-scroll chat
   useEffect(()=>{
@@ -243,7 +269,7 @@ function App(){
           }catch(e){/* ignore parse errors */}
         }
       }
-      // Lazy title fetch after first message
+      // Lazy title fetch after first response (core generates title async)
       if(isFirstMsg){
         setTimeout(async()=>{
           const ir=await api('GET',`/api/sessions/${currentSid}/info`);
@@ -251,7 +277,7 @@ function App(){
             const info=await ir.json();
             if(info.title)setSessions(prev=>prev.map(s=>s.session_id===currentSid?{...s,title:info.title}:s));
           }
-        },(config.session_title_delay_sec||5)*1000);
+        },15000);
       }
     }catch(e){
       setMessages(prev=>[...prev,{role:'system',content:`Error: ${e.message}`}]);
@@ -314,16 +340,10 @@ function App(){
   }
 
   // Select session — load history from backend
-  async function selectSession(sid){
+  function selectSession(sid){
     setCurrentSid(sid);
-    setMessages([]);
-    // Mobile: close left pane on select
+    setMessages([]);  // cleared immediately; useEffect loads history
     if(window.innerWidth<=768)setLeftOpen(false);
-    // Fetch persisted history
-    try{
-      const r=await api('GET',`/api/sessions/${sid}/history`);
-      if(r&&r.ok){const hist=await r.json();if(Array.isArray(hist)&&hist.length)setMessages(hist)}
-    }catch(e){/* ignore — fresh session has no history */}
   }
 
   // Logout

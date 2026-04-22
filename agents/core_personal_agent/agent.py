@@ -1160,6 +1160,83 @@ async def _spawn_via_http(
 # Memory-add helper (fire-and-forget; not exposed as LLM tool)
 # ---------------------------------------------------------------------------
 
+def _bg_generate_title(
+    session_id: str,
+    user_message: str,
+    user_id: str,
+) -> None:
+    """Fire-and-forget session title generation from the first user message.
+
+    Spawns a summarization call to llm_agent to produce a short title
+    (5-8 words), then updates the session's _info.json.
+    """
+    info = _load_session_info(session_id)
+    if info.get("title"):
+        return
+
+    async def _fire() -> None:
+        try:
+            identifier = f"title_{uuid.uuid4().hex[:8]}"
+            model_id = _resolve_summarization_model(user_id) or LLM_MODEL_ID
+            loop = asyncio.get_running_loop()
+            fut: asyncio.Future = loop.create_future()
+            _active_title_futs[identifier] = fut
+
+            payload = {
+                "llmcall": {
+                    "messages": [
+                        {"role": "system", "content": "Generate a very short title (5-8 words max) for a conversation that starts with the following message. Output ONLY the title, nothing else."},
+                        {"role": "user", "content": user_message[:500]},
+                    ],
+                    "tools": [],
+                    "model_id": model_id,
+                },
+                "user_id": user_id,
+            }
+            body = build_spawn_request(
+                agent_id=_OUR_AGENT_ID,
+                identifier=identifier,
+                parent_task_id=None,
+                destination_agent_id=LLM_AGENT_ID,
+                payload=payload,
+            )
+            token = _get_auth_token()
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    f"{ROUTER_URL}/route", json=body,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                r.raise_for_status()
+
+            result = await asyncio.wait_for(fut, timeout=30.0)
+            content = result.get("payload", {}).get("content", "")
+            try:
+                parsed = json.loads(content)
+                title = parsed.get("content", content).strip()
+            except Exception:
+                title = content.strip()
+            # Clean up: remove quotes, limit length
+            title = title.strip('"\'').strip()
+            if len(title) > 80:
+                title = title[:77] + "..."
+            if title:
+                fresh_info = _load_session_info(session_id)
+                if fresh_info and not fresh_info.get("title"):
+                    fresh_info["title"] = title
+                    _save_session_info(session_id, fresh_info)
+                    logger.info("Auto-titled session %s: %s", session_id, title)
+        except Exception as exc:
+            logger.debug("Background title generation failed: %s", exc)
+        finally:
+            _active_title_futs.pop(identifier, None)
+
+    asyncio.ensure_future(_fire())
+
+
+# In-flight title generation futures (identifier → Future)
+_active_title_futs: dict[str, asyncio.Future] = {}
+
+
 def _bg_memory_add(
     user_message: str,
     assistant_reply: str,
@@ -1523,6 +1600,7 @@ async def _agent_loop(
                 history.append({"role": "assistant", "content": history_reply})
                 _save_history(session_id, history)
                 _bg_memory_add(user_message, history_reply, user_id, loop_state.task_id, user_timezone=user_timezone)
+                _bg_generate_title(session_id, user_message, user_id)
 
             files_out = [ProxyFile(**pf) for pf in attached_files] if attached_files else None
             return AgentOutput(content=reply, files=files_out)
@@ -2783,11 +2861,17 @@ async def receive(request: Request) -> JSONResponse:
     identifier: Optional[str] = data.get("identifier")
     destination: Optional[str] = data.get("destination_agent_id")
     if identifier and destination is None and "status_code" in data:
+        # Check active agent loops first.
         for loop_state in _active_loops.values():
             fut = loop_state.pending.get(identifier)
             if fut is not None and not fut.done():
                 fut.set_result(data)
                 break
+        else:
+            # Check background title generation futures.
+            tfut = _active_title_futs.get(identifier)
+            if tfut is not None and not tfut.done():
+                tfut.set_result(data)
         # Return null — the router's isinstance(response_data, dict) check
         # prevents _process_route_internal from being called.
         return JSONResponse(status_code=200, content=None)
