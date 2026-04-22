@@ -29,7 +29,7 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 from dotenv import load_dotenv
 from fastapi import Cookie, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
@@ -704,6 +704,19 @@ if _static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
+def _static_version() -> str:
+    """Compute a short cache-busting version from static file mtimes."""
+    import hashlib
+    h = hashlib.md5(usedforsecurity=False)
+    for f in sorted(_static_dir.iterdir()):
+        if f.is_file():
+            h.update(str(f.stat().st_mtime_ns).encode())
+    return h.hexdigest()[:8]
+
+
+_STATIC_VER: str = _static_version() if _static_dir.exists() else ""
+
+
 # ---------------------------------------------------------------------------
 # Router callback endpoint
 # ---------------------------------------------------------------------------
@@ -1177,8 +1190,12 @@ add_config_routes(app, Path(__file__).resolve().parent, _require_auth, cookie_na
 
 
 @app.get("/")
-async def root() -> FileResponse:
-    return FileResponse(str(_static_dir / "index.html"))
+async def root():
+    html = (_static_dir / "index.html").read_text(encoding="utf-8")
+    if _STATIC_VER:
+        html = html.replace("/static/style.css", f"/static/style.css?v={_STATIC_VER}")
+        html = html.replace("/static/app.js", f"/static/app.js?v={_STATIC_VER}")
+    return HTMLResponse(html)
 
 
 # ---------------------------------------------------------------------------
