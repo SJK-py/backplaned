@@ -117,6 +117,41 @@ def _save_to_inbox(user_id: str, file_bytes: bytes, filename: str) -> dict[str, 
 
 
 # ---------------------------------------------------------------------------
+async def _fetch_result_file_to_inbox(user_id: str, pf: dict[str, Any]) -> Optional[dict[str, str]]:
+    """Download a ProxyFile from a result payload into the user's inbox.
+
+    Returns a dict with name/size for the frontend, or None on failure.
+    """
+    protocol = pf.get("protocol", "")
+    path = pf.get("path", "")
+    key = pf.get("key")
+    filename = pf.get("original_filename") or Path(path.split("?")[0]).name or "file"
+
+    if protocol == "router-proxy" and agent_config:
+        url = f"{agent_config.router_url}{path}"
+        params = {"key": key} if key else {}
+    elif protocol == "http":
+        url = path
+        params = {}
+    else:
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.get(url, params=params)
+            r.raise_for_status()
+        inbox = _user_inbox(user_id)
+        stem = Path(filename).stem
+        suffix = Path(filename).suffix
+        dest = inbox / f"{stem}_{uuid.uuid4().hex[:6]}{suffix}"
+        dest.write_bytes(r.content)
+        logger.info("Saved result file '%s' to inbox for user %s", filename, user_id)
+        return {"name": dest.name, "original_name": filename, "size": len(r.content)}
+    except Exception as exc:
+        logger.warning("Failed to download result file '%s': %s", filename, exc)
+        return None
+
+
 # Per-session chat history (local to webapp_agent)
 # ---------------------------------------------------------------------------
 
@@ -518,11 +553,20 @@ async def api_chat(request: Request, webapp_session: Optional[str] = Cookie(defa
     result = await _spawn_to_core(user_id, session_id, message)
     payload = result.get("payload", {})
     reply = payload.get("content", "")
+    # Download result files to user's inbox.
+    saved_files = []
+    for pf in (payload.get("files") or []):
+        try:
+            saved = await _fetch_result_file_to_inbox(user_id, pf)
+            if saved:
+                saved_files.append(saved)
+        except Exception:
+            pass
     if reply:
         _append_chat(user_id, session_id, "assistant", reply)
     return JSONResponse({
         "content": reply,
-        "files": payload.get("files"),
+        "files": saved_files or payload.get("files"),
         "status_code": result.get("status_code", 200),
     })
 
@@ -903,9 +947,18 @@ async def api_chat_stream(request: Request, webapp_session: Optional[str] = Cook
 
             reply = result.get("payload", {}).get("content", "")
             files_out = result.get("payload", {}).get("files")
+            # Download result files to user's inbox.
+            saved_files = []
+            for pf in (files_out or []):
+                try:
+                    saved = await _fetch_result_file_to_inbox(user_id, pf)
+                    if saved:
+                        saved_files.append(saved)
+                except Exception as exc:
+                    logger.warning("Failed to fetch result file: %s", exc)
             if reply:
                 _append_chat(user_id, session_id, "assistant", reply)
-            yield f"data: {json.dumps({'type': 'result', 'content': reply, 'files': files_out, 'status_code': result.get('status_code', 200)})}\n\n"
+            yield f"data: {json.dumps({'type': 'result', 'content': reply, 'files': saved_files or files_out, 'status_code': result.get('status_code', 200)})}\n\n"
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
 

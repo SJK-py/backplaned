@@ -287,11 +287,11 @@ function App(){
   }
 
   // Unarchive
-  async function unarchiveSession(sid){
+  async function unarchiveSession(sid,title){
     const r=await api('POST',`/api/sessions/${sid}/unarchive`);
     if(r&&r.ok){
       loadArchived();
-      setSessions(prev=>[...prev,{session_id:sid,title:sid}]);
+      setSessions(prev=>[...prev,{session_id:sid,title:title||sid}]);
     }
   }
 
@@ -377,18 +377,16 @@ function App(){
         `)}
         <div class="new-session-btn" onClick=${newSession}>+ New session</div>
 
-        ${archived.length>0&&html`
-          <div class="session-section-title" style="margin-top:12px">Archived <button class="icon-btn" style="font-size:12px" title="Refresh" onClick=${e=>{e.stopPropagation();loadArchived()}}>↻</button></div>
-          ${archived.map(a=>html`
-            <div class="session-item">
-              <span class="title">${esc(a.title)||esc(a.session_id)}</span>
-              <div class="session-actions" style="opacity:1">
-                <button onClick=${()=>unarchiveSession(a.session_id)} title="Unarchive">↩</button>
-                <button onClick=${()=>deleteSession(a.session_id)} title="Delete">🗑</button>
-              </div>
+        <div class="session-section-title" style="margin-top:12px">Archived <button class="icon-btn" style="font-size:12px" title="Refresh" onClick=${e=>{e.stopPropagation();loadArchived()}}>↻</button></div>
+        ${archived.length>0?archived.map(a=>html`
+          <div class="session-item">
+            <span class="title">${esc(a.title)||esc(a.session_id)}</span>
+            <div class="session-actions" style="opacity:1">
+              <button onClick=${()=>unarchiveSession(a.session_id,a.title)} title="Unarchive">↩</button>
+              <button onClick=${()=>deleteSession(a.session_id)} title="Delete">🗑</button>
             </div>
-          `)}
-        `}
+          </div>
+        `):html`<div style="padding:4px 10px;font-size:12px;color:var(--dim)">No archived sessions</div>`}
       </div>
     </div>
 
@@ -417,7 +415,7 @@ function App(){
       <div class="input-area">
         <input type="file" id="file-input" style="display:none" multiple
           onChange=${e=>{if(e.target.files.length)setAttachedFiles(Array.from(e.target.files))}}/>
-        <button class="icon-btn" title="Attach files" style="flex-shrink:0"
+        <button class="icon-btn" title="Attach files" style="flex-shrink:0;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-size:18px"
           onClick=${()=>document.getElementById('file-input').click()}>📎</button>
         <div style="flex:1;display:flex;flex-direction:column;gap:2px">
           ${attachedFiles.length>0&&html`<div style="font-size:11px;color:var(--dim);padding:0 4px">
