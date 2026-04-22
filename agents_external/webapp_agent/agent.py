@@ -23,7 +23,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 from fastapi import FastAPI, Cookie, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -977,10 +977,36 @@ async def api_chat_stream(request: Request, webapp_session: Optional[str] = Cook
 
 
 # ---------------------------------------------------------------------------
-# Static files (SPA)
+# Static files (SPA) — with cache-busting version hash
 # ---------------------------------------------------------------------------
 
 _static_dir = _AGENT_DIR / "static"
+
+
+def _static_version() -> str:
+    """Compute a short cache-busting version from static file mtimes."""
+    import hashlib
+    h = hashlib.md5(usedforsecurity=False)
+    for f in sorted(_static_dir.iterdir()):
+        if f.is_file():
+            h.update(str(f.stat().st_mtime_ns).encode())
+    return h.hexdigest()[:8]
+
+
+_STATIC_VER: str = _static_version() if _static_dir.exists() else ""
+_INDEX_HTML = _static_dir / "index.html"
+
+
+@app.get("/")
+async def _serve_index():
+    """Serve index.html with cache-busting query params on asset URLs."""
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    if _STATIC_VER:
+        html = html.replace("/style.css", f"/style.css?v={_STATIC_VER}")
+        html = html.replace("/app.js", f"/app.js?v={_STATIC_VER}")
+    return HTMLResponse(html)
+
+
 if _static_dir.exists():
     app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="static")
 
