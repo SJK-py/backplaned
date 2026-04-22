@@ -110,7 +110,7 @@ function App(){
   const[archived,setArchived]=useState([]);
   const[currentSid,setCurrentSid]=useState(null);
   const[messages,setMessages]=useState([]);
-  const[agents,setAgents]=useState({});
+  const[agents,setAgents]=useState('');
   const[sending,setSending]=useState(false);
   const[attachedFiles,setAttachedFiles]=useState([]);
   const[leftOpen,setLeftOpen]=useState(true);
@@ -148,14 +148,11 @@ function App(){
     if(r&&r.ok){const d=await r.json();setArchived(Array.isArray(d)?d:[])}
   },[user]);
 
-  // Periodic refresh
+  // Load agents and archived once on login
   useEffect(()=>{
     if(!user)return;
     loadAgents();loadArchived();
-    const i1=setInterval(loadAgents,(config.agents_refresh_interval_sec||60)*1000);
-    const i2=setInterval(loadArchived,(config.archive_refresh_interval_sec||60)*1000);
-    return()=>{clearInterval(i1);clearInterval(i2)};
-  },[user,config,loadAgents,loadArchived]);
+  },[user,loadAgents,loadArchived]);
 
   // Auto-scroll chat
   useEffect(()=>{
@@ -364,7 +361,7 @@ function App(){
         <div class="new-session-btn" onClick=${newSession}>+ New session</div>
 
         ${archived.length>0&&html`
-          <div class="session-section-title" style="margin-top:12px">Archived</div>
+          <div class="session-section-title" style="margin-top:12px">Archived <button class="icon-btn" style="font-size:12px" title="Refresh" onClick=${e=>{e.stopPropagation();loadArchived()}}>↻</button></div>
           ${archived.map(a=>html`
             <div class="session-item">
               <span class="title">${esc(a.title)||esc(a.session_id)}</span>
@@ -421,10 +418,13 @@ function App(){
     <div class=${"pane-right"+(rightOpen?'':' collapsed')}>
       <div style="padding:12px 12px 8px;display:flex;justify-content:space-between;align-items:center">
         <span style="font-weight:600;font-size:14px">Agents</span>
-        <button class="icon-btn" onClick=${()=>setRightOpen(false)}>✕</button>
+        <div style="display:flex;gap:4px">
+          <button class="icon-btn" title="Refresh" onClick=${loadAgents}>↻</button>
+          <button class="icon-btn" onClick=${()=>setRightOpen(false)}>✕</button>
+        </div>
       </div>
       <div class="agent-list">
-        ${agents?agents.split('\n').filter(l=>l.trim()).map(line=>{
+        ${(typeof agents==='string'&&agents)?agents.split('\n').filter(l=>l.trim()).map(line=>{
           const m=line.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
           if(m)return html`<div class="agent-item">
             <div class="name">${esc(m[1])}</div>

@@ -46,8 +46,6 @@ class AgentConfig(BaseModel):
     session_secret: str = ""
 
     session_title_delay_sec: int = 5
-    archive_refresh_interval_sec: int = 60
-    agents_refresh_interval_sec: int = 60
 
     @classmethod
     def from_env(cls) -> AgentConfig:
@@ -75,6 +73,4 @@ class AgentConfig(BaseModel):
             credentials_path=os.environ.get("CREDENTIALS_PATH", cls.model_fields["credentials_path"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _load_or_create_secret(Path(os.environ.get("DATA_DIR", "data"))),
             session_title_delay_sec=int(_get("SESSION_TITLE_DELAY_SEC", cls.model_fields["session_title_delay_sec"].default)),
-            archive_refresh_interval_sec=int(_get("ARCHIVE_REFRESH_INTERVAL_SEC", cls.model_fields["archive_refresh_interval_sec"].default)),
-            agents_refresh_interval_sec=int(_get("AGENTS_REFRESH_INTERVAL_SEC", cls.model_fields["agents_refresh_interval_sec"].default)),
         )

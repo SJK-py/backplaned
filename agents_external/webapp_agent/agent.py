@@ -821,8 +821,6 @@ async def api_delete_file(
 @app.get("/api/app-config")
 async def api_app_config() -> JSONResponse:
     return JSONResponse({
-        "archive_refresh_interval_sec": agent_config.archive_refresh_interval_sec if agent_config else 60,
-        "agents_refresh_interval_sec": agent_config.agents_refresh_interval_sec if agent_config else 60,
         "session_title_delay_sec": agent_config.session_title_delay_sec if agent_config else 5,
     })
 

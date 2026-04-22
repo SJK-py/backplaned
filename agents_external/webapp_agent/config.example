@@ -1,5 +1,3 @@
 {
-    "SESSION_TITLE_DELAY_SEC": "Seconds to wait after first query before fetching session title from core (default: 5)",
-    "ARCHIVE_REFRESH_INTERVAL_SEC": "Client-side polling interval for archived sessions list in seconds (default: 60)",
-    "AGENTS_REFRESH_INTERVAL_SEC": "Client-side polling interval for available agents list in seconds (default: 60)"
+    "SESSION_TITLE_DELAY_SEC": "Seconds to wait after first query before fetching session title from core (default: 5)"
 }
