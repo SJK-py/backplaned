@@ -24,15 +24,22 @@ Embedded agents run in-process with the router. They are loaded from subdirector
 
 **Group:** `core`
 
-Main orchestrator and personal assistant. This is the primary entry point for user conversations from channel_agent, web_admin, and mcp_server.
+Main orchestrator and personal assistant. This is the primary entry point for user conversations from channel_agent, webapp_agent, web_admin, and mcp_server.
 
 **Features:**
+- Multi-session support: multiple concurrent sessions per user with an ordered active list
+- Session metadata: per-session `_info.json` with title, timestamps, origin agent
+- Session archiving: archive, unarchive (with file attachment for webapp reconstruction), delete, rename
+- Default session designation for notification routing
 - Maintains per-session chat history with configurable token limits
 - Runs a multi-turn LLM agent loop with parallel tool calling
 - Automatically queries and updates long-term memory via memory_agent
 - Delegates tasks to specialized agents based on user requests
 - Supports file attachments (fetched via ProxyFileManager)
 - Linked conversation history: carries forward context from previous sessions
+- Lightweight processor for non-user-initiated messages (notifications) with dedicated system prompt
+- Current time injected into user messages (no tool call needed)
+- Local web_fetch tool for reading specific URLs without spawning web_agent
 
 **Input/Output:**
 - Input: `user_id: str, session_id: str, message: str, files: Optional[List[ProxyFile]]`
@@ -45,12 +52,15 @@ Main orchestrator and personal assistant. This is the primary entry point for us
 | `CORE_LLM_AGENT_ID` | `llm_agent` | Agent ID for LLM inference |
 | `CORE_LLM_MODEL_ID` | `""` | Model config key (empty = "default") |
 | `CORE_MEMORY_AGENT_ID` | `memory_agent` | Agent ID for long-term memory |
+| `CORE_CHANNEL_AGENT_ID` | `channel_agent` | Agent ID for user-facing origin detection |
+| `CORE_WEBAPP_AGENT_ID` | `webapp_agent` | Agent ID for user-facing origin detection |
 | `CORE_HISTORY_TOKEN_LIMIT` | `32768` | Max tokens in conversation history |
 | `CORE_MAX_AGENT_ITERATIONS` | `25` | Max LLM agent loop iterations |
 | `CORE_AGENT_TIMEOUT` | `290` | Total timeout for agent loop (seconds) |
 | `CORE_TOOL_TIMEOUT` | `240` | Timeout per tool call (seconds) |
 | `CORE_LINK_HISTORY_TOKEN_RATIO` | `0.5` | Fraction of history budget for linked sessions |
 | `CORE_LINK_TRUNCATION_KEEP_RATIO` | `0.5` | Keep ratio when truncating linked history |
+| `CORE_ARCHIVE_RETENTION_DAYS` | `7` | Days to keep archived sessions in listings |
 
 ---
 
@@ -245,10 +255,12 @@ Bridges Telegram and Discord messaging platforms to the router.
 - File upload support (images, documents)
 - Inline progress streaming (shows LLM thinking/tool activity in real-time)
 - Rate limiting for unregistered users
-- Outbound message delivery: other agents can send direct messages to users
+- Outbound message delivery: other agents can send direct messages to users and files
+- Webapp login token generation (`/webapp` command)
+- Default session designation (`/defaultsession` command)
 
 **Input/Output:**
-- Input: `user_id: str, session_id: str, message: str`
+- Input: `user_id: str, session_id: str, message: str, files: Optional[List[ProxyFile]]`
 - Output: `content: str`
 
 **Configuration (`config.json`):**
@@ -464,6 +476,51 @@ Inbound MCP bridge. Exposes router agents as MCP tools to external MCP clients (
 | Key | Default | Description |
 |-----|---------|-------------|
 | `exclude_agents` | `[]` | Agent IDs to exclude from MCP exposure |
+
+---
+
+### webapp_agent
+
+**Group:** `channel` | **Hidden:** Yes
+
+User-facing web application providing a modern chat interface with multi-session support.
+
+**Features:**
+- Per-user authentication: password login or single-use token (generated via `/webapp` in Telegram/Discord)
+- Multi-session chat: create, archive, unarchive, rename, delete sessions
+- Default session designation (for notification routing)
+- File inbox: per-user workspace with upload, download, delete
+- Agent linking: browse available agents, link/unlink for direct conversation
+- User configuration: natural-language config modification (timezone, model, system prompt)
+- Responsive three-pane layout (sessions, chat, agents) with mobile support
+- Built with Preact + HTM (no build step)
+
+**Input/Output:**
+- Input: `user_id: str, session_id: str, message: str, files: Optional[List[ProxyFile]]`
+- Output: `content: str`
+
+**Configuration (`config.json`):**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `SESSION_TITLE_DELAY_SEC` | `5` | Delay before fetching session title from core after first message |
+| `ARCHIVE_REFRESH_INTERVAL_SEC` | `60` | Client-side polling interval for archived sessions list |
+| `AGENTS_REFRESH_INTERVAL_SEC` | `60` | Client-side polling interval for available agents list |
+
+**Environment variables (`.env`):**
+
+| Variable | Description |
+|----------|-------------|
+| `ROUTER_URL` | Router base URL |
+| `AGENT_PORT` | Listen port (default 8090) |
+| `SESSION_SECRET` | Cookie signing secret (auto-generated and persisted if not set) |
+
+**Authentication flow:**
+1. User sends `/webapp` in Telegram/Discord → channel_agent generates a single-use token (1h TTL)
+2. User enters user_id + token in the webapp login page
+3. webapp_agent validates the token via the router (spawn to channel_agent with `<validate_webapp_token>`)
+4. On success, user sets a password for future logins
+5. Subsequent logins use user_id + password (cookie session, 24h TTL)
 
 ---
 
