@@ -340,6 +340,9 @@ function App(){
   // Logout
   async function logout(){
     await api('POST','/api/logout');
+    try{localStorage.removeItem('wa_sessions');localStorage.removeItem('wa_currentSid')}catch(e){}
+    _setSessions([]);_setCurrentSid(null);
+    setMessages([]);setArchived([]);setAgents('');setAttachedFiles([]);
     setUser(null);
   }
 

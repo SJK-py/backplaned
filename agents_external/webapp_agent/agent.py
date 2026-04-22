@@ -31,8 +31,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from helper import (
-    AgentInfo, AgentOutput, LLMData, RouterClient,
-    build_result_request, onboard, PasswordFile,
+    AgentInfo, RouterClient, onboard, PasswordFile,
 )
 from config import AgentConfig
 
@@ -48,10 +47,7 @@ logger = logging.getLogger("webapp_agent")
 
 agent_config: AgentConfig = None  # type: ignore
 router_client: RouterClient = None  # type: ignore
-available_destinations: dict[str, Any] = {}
 _pending_results: dict[str, asyncio.Future] = {}
-_pending_events: dict[str, asyncio.Event] = {}
-_task_results: dict[str, dict[str, Any]] = {}
 
 _AGENT_DIR = Path(__file__).resolve().parent
 _USERS_DIR: Path = None  # type: ignore  # set in lifespan
@@ -191,13 +187,6 @@ def _validate_session(cookie: Optional[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Token auth via channel_agent
-# ---------------------------------------------------------------------------
-
-_webapp_tokens: dict[str, str] = {}  # token → user_id (in-memory, set by channel_agent)
-
-
-# ---------------------------------------------------------------------------
 # Spawn to core and wait for result
 # ---------------------------------------------------------------------------
 
@@ -290,7 +279,7 @@ agent_info = AgentInfo(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global agent_config, router_client, available_destinations, _USERS_DIR
+    global agent_config, router_client, _USERS_DIR
 
     agent_config = AgentConfig.from_env()
     _USERS_DIR = Path(agent_config.data_dir) / "users"
@@ -320,8 +309,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception as e:
             logger.warning("Failed to refresh agent info: %s", e)
         try:
-            dest_data = await router_client.get_destinations()
-            available_destinations = dest_data.get("available_destinations", {})
+            await router_client.get_destinations()
         except Exception as e:
             logger.warning("Failed to fetch destinations: %s", e)
         logger.info("Using saved credentials for '%s'.", agent_config.agent_id)
@@ -337,7 +325,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             agent_config.agent_auth_token = resp.auth_token
             agent_config.agent_id = resp.agent_id
-            available_destinations = resp.available_destinations
+            # available_destinations not needed — agents pane uses core's <agents_info>
             router_client = RouterClient(
                 router_url=agent_config.router_url,
                 agent_id=resp.agent_id,
@@ -390,10 +378,7 @@ async def receive_task(request: Request) -> JSONResponse:
             fut.set_result(body)
         return JSONResponse({"status": "accepted"}, status_code=202)
 
-    # Update destinations
-    global available_destinations
-    if "available_destinations" in body:
-        available_destinations = body["available_destinations"]
+    # available_destinations not tracked — agents pane uses core's <agents_info>
 
     return JSONResponse({"status": "accepted"}, status_code=202)
 
