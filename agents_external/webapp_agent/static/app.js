@@ -112,6 +112,7 @@ function App(){
   const[messages,setMessages]=useState([]);
   const[agents,setAgents]=useState({});
   const[sending,setSending]=useState(false);
+  const[attachedFiles,setAttachedFiles]=useState([]);
   const[leftOpen,setLeftOpen]=useState(true);
   const[rightOpen,setRightOpen]=useState(false);
   const[modal,setModal]=useState(null);
@@ -137,7 +138,7 @@ function App(){
   const loadAgents=useCallback(async()=>{
     if(!user)return;
     const r=await api('GET','/api/agents');
-    if(r&&r.ok)setAgents(await r.json());
+    if(r&&r.ok){const d=await r.json();setAgents(d.content||'')}
   },[user]);
 
   // Load archived
@@ -172,35 +173,91 @@ function App(){
     setMessages([]);
   }
 
-  // Send message
+  // Send message with SSE progress streaming
   async function sendMessage(){
     const el=inputRef.current;if(!el)return;
     const msg=el.value.trim();if(!msg||!currentSid)return;
     el.value='';
+    const isFirstMsg=messages.length===0;
     setMessages(prev=>[...prev,{role:'user',content:msg}]);
     setSending(true);
+
+    // Upload attached files first, collect ProxyFile dicts
+    let fileDicts=null;
+    if(attachedFiles.length>0){
+      fileDicts=[];
+      for(const f of attachedFiles){
+        try{
+          const fd=new FormData();fd.append('file',f);
+          const ur=await fetch('/api/upload',{method:'POST',credentials:'same-origin',body:fd});
+          if(ur.ok){fileDicts.push(await ur.json())}
+        }catch(e){/* skip failed uploads */}
+      }
+      if(fileDicts.length===0)fileDicts=null;
+    }
+
     try{
-      const r=await api('POST','/api/chat',{session_id:currentSid,message:msg});
-      if(r&&r.ok){
-        const d=await r.json();
-        setMessages(prev=>[...prev,{role:'assistant',content:d.content||'(no response)'}]);
-        // Lazy title fetch
-        if(messages.length===0){
-          setTimeout(async()=>{
-            const ir=await api('GET',`/api/sessions/${currentSid}/info`);
-            if(ir&&ir.ok){
-              const info=await ir.json();
-              if(info.title)setSessions(prev=>prev.map(s=>s.session_id===currentSid?{...s,title:info.title}:s));
-            }
-          },(config.session_title_delay_sec||5)*1000);
-        }
-      }else{
+      const r=await fetch('/api/chat-stream',{
+        method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({session_id:currentSid,message:msg,files:fileDicts}),
+      });
+      if(!r.ok){
         setMessages(prev=>[...prev,{role:'system',content:'Error sending message.'}]);
+        setSending(false);setAttachedFiles([]);el.focus();return;
+      }
+      const reader=r.body.getReader();
+      const decoder=new TextDecoder();
+      let buf='';
+      while(true){
+        const{done,value}=await reader.read();
+        if(done)break;
+        buf+=decoder.decode(value,{stream:true});
+        const lines=buf.split('\n');
+        buf=lines.pop()||'';
+        for(const line of lines){
+          if(!line.startsWith('data: '))continue;
+          try{
+            const ev=JSON.parse(line.slice(6));
+            if(ev.type==='thinking'||ev.type==='status'){
+              setMessages(prev=>{
+                const last=prev[prev.length-1];
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:ev.content||ev.type}];
+                return[...prev,{role:'progress',content:ev.content||ev.type}];
+              });
+            }else if(ev.type==='tool_call'){
+              setMessages(prev=>{
+                const last=prev[prev.length-1];
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
+                return[...prev,{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
+              });
+            }else if(ev.type==='result'){
+              // Remove progress indicator and add final reply
+              setMessages(prev=>{
+                const filtered=prev.filter(m=>m.role!=='progress');
+                return[...filtered,{role:'assistant',content:ev.content||'(no response)'}];
+              });
+            }else if(ev.type==='error'){
+              setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'system',content:ev.content||'Error'}]);
+            }
+          }catch(e){/* ignore parse errors */}
+        }
+      }
+      // Lazy title fetch after first message
+      if(isFirstMsg){
+        setTimeout(async()=>{
+          const ir=await api('GET',`/api/sessions/${currentSid}/info`);
+          if(ir&&ir.ok){
+            const info=await ir.json();
+            if(info.title)setSessions(prev=>prev.map(s=>s.session_id===currentSid?{...s,title:info.title}:s));
+          }
+        },(config.session_title_delay_sec||5)*1000);
       }
     }catch(e){
       setMessages(prev=>[...prev,{role:'system',content:`Error: ${e.message}`}]);
     }
     setSending(false);
+    setAttachedFiles([]);
     el.focus();
   }
 
@@ -256,12 +313,17 @@ function App(){
     await api('POST',`/api/sessions/${currentSid}/unlink`);
   }
 
-  // Select session
-  function selectSession(sid){
+  // Select session — load history from backend
+  async function selectSession(sid){
     setCurrentSid(sid);
     setMessages([]);
     // Mobile: close left pane on select
     if(window.innerWidth<=768)setLeftOpen(false);
+    // Fetch persisted history
+    try{
+      const r=await api('GET',`/api/sessions/${sid}/history`);
+      if(r&&r.ok){const hist=await r.json();if(Array.isArray(hist)&&hist.length)setMessages(hist)}
+    }catch(e){/* ignore — fresh session has no history */}
   }
 
   // Logout
@@ -339,9 +401,18 @@ function App(){
       </div>
 
       <div class="input-area">
-        <textarea ref=${inputRef} rows="1" placeholder="Type a message..."
-          onKeyDown=${e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}}
-          disabled=${sending||!currentSid}/>
+        <input type="file" id="file-input" style="display:none" multiple
+          onChange=${e=>{if(e.target.files.length)setAttachedFiles(Array.from(e.target.files))}}/>
+        <button class="icon-btn" title="Attach files" style="flex-shrink:0"
+          onClick=${()=>document.getElementById('file-input').click()}>📎</button>
+        <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+          ${attachedFiles.length>0&&html`<div style="font-size:11px;color:var(--dim);padding:0 4px">
+            ${attachedFiles.map((f,i)=>html`<span style="margin-right:6px">${esc(f.name)} <button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:10px" onClick=${()=>setAttachedFiles(prev=>prev.filter((_,j)=>j!==i))}>✕</button></span>`)}
+          </div>`}
+          <textarea ref=${inputRef} rows="1" placeholder="Type a message..."
+            onKeyDown=${e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}}
+            disabled=${sending||!currentSid}/>
+        </div>
         <button class="send-btn" onClick=${sendMessage} disabled=${sending||!currentSid}>↑</button>
       </div>
     </div>
@@ -353,16 +424,18 @@ function App(){
         <button class="icon-btn" onClick=${()=>setRightOpen(false)}>✕</button>
       </div>
       <div class="agent-list">
-        ${Object.entries(agents).map(([aid,info])=>html`
-          <div class="agent-item">
-            <div class="name">${esc(aid)}</div>
-            <div class="desc">${esc(info.description)}</div>
+        ${agents?agents.split('\n').filter(l=>l.trim()).map(line=>{
+          const m=line.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
+          if(m)return html`<div class="agent-item">
+            <div class="name">${esc(m[1])}</div>
+            <div class="desc">${esc(m[2])}</div>
             <div class="actions">
-              <button class="btn-sm btn-outline" onClick=${()=>linkAgent(aid)}>Link</button>
+              <button class="btn-sm btn-outline" onClick=${()=>linkAgent(m[1])}>Link</button>
+              <button class="btn-sm btn-outline" onClick=${()=>unlinkAgent()}>Unlink</button>
             </div>
-          </div>
-        `)}
-        ${Object.keys(agents).length===0&&html`<div style="padding:16px;color:var(--dim);font-size:13px">No agents available</div>`}
+          </div>`;
+          return line.trim()?html`<div style="padding:4px 10px;font-size:12px;color:var(--dim)">${esc(line)}</div>`:null;
+        }):html`<div style="padding:16px;color:var(--dim);font-size:13px">Loading agents...</div>`}
       </div>
     </div>
 

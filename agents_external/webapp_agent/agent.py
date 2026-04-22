@@ -23,7 +23,7 @@ from typing import Any, AsyncIterator, Optional
 
 import httpx
 from fastapi import FastAPI, Cookie, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -94,6 +94,72 @@ def _user_inbox(user_id: str) -> Path:
     d = _user_dir(user_id) / "inbox"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+_local_file_keys: dict[str, tuple[str, str]] = {}  # key → (user_id, abs_path)
+
+
+def _save_to_inbox(user_id: str, file_bytes: bytes, filename: str) -> dict[str, Any]:
+    """Save a file to the user's inbox and return a ProxyFile-shaped dict."""
+    inbox = _user_inbox(user_id)
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    unique_name = f"{stem}_{uuid.uuid4().hex[:6]}{suffix}"
+    dest = inbox / unique_name
+    dest.write_bytes(file_bytes)
+
+    key = secrets.token_urlsafe(24)
+    _local_file_keys[key] = (user_id, str(dest.resolve()))
+
+    base_url = agent_config.agent_url or f"http://localhost:{agent_config.agent_port}"
+    return {
+        "path": f"{base_url}/files/serve?key={key}",
+        "protocol": "http",
+        "key": None,
+        "original_filename": filename,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-session chat history (local to webapp_agent)
+# ---------------------------------------------------------------------------
+
+def _history_dir(user_id: str) -> Path:
+    d = _user_dir(user_id) / "history"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _history_path(user_id: str, session_id: str) -> Path:
+    return _history_dir(user_id) / f"{session_id}.json"
+
+
+def _load_chat_history(user_id: str, session_id: str) -> list[dict[str, Any]]:
+    p = _history_path(user_id, session_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+
+def _save_chat_history(user_id: str, session_id: str, messages: list[dict[str, Any]]) -> None:
+    _history_path(user_id, session_id).write_text(
+        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _append_chat(user_id: str, session_id: str, role: str, content: str) -> None:
+    history = _load_chat_history(user_id, session_id)
+    history.append({"role": role, "content": content})
+    _save_chat_history(user_id, session_id, history)
+
+
+def _delete_chat_history(user_id: str, session_id: str) -> None:
+    p = _history_path(user_id, session_id)
+    if p.exists():
+        p.unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -463,13 +529,27 @@ async def api_chat(request: Request, webapp_session: Optional[str] = Cookie(defa
     if not session_id or not message:
         raise HTTPException(status_code=400, detail="session_id and message required")
 
+    _append_chat(user_id, session_id, "user", message)
     result = await _spawn_to_core(user_id, session_id, message)
     payload = result.get("payload", {})
+    reply = payload.get("content", "")
+    if reply:
+        _append_chat(user_id, session_id, "assistant", reply)
     return JSONResponse({
-        "content": payload.get("content", ""),
+        "content": reply,
         "files": payload.get("files"),
         "status_code": result.get("status_code", 200),
     })
+
+
+@app.get("/api/sessions/{session_id}/history")
+async def api_session_history(
+    session_id: str,
+    webapp_session: Optional[str] = Cookie(default=None),
+) -> JSONResponse:
+    user_id = _validate_session(webapp_session)
+    messages = _load_chat_history(user_id, session_id)
+    return JSONResponse(messages)
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +570,7 @@ async def api_archive_session(
 ) -> JSONResponse:
     user_id = _validate_session(webapp_session)
     result = await _spawn_to_core(user_id, session_id, "<new_session>", timeout=30.0)
+    _delete_chat_history(user_id, session_id)
     return JSONResponse({"status": "archived", "content": result.get("payload", {}).get("content", "")})
 
 
@@ -552,9 +633,39 @@ async def api_unarchive(
     user_id = _validate_session(webapp_session)
     result = await _spawn_to_core(user_id, "SYSTEM", f"<unarchive_session> {session_id}", timeout=30.0)
     payload = result.get("payload", {})
+
+    # Reconstruct local chat history from attached session history file.
+    result_files = payload.get("files") or []
+    for f in result_files:
+        fname = f.get("original_filename") or Path(f.get("path", "")).name
+        if fname == f"{session_id}.json":
+            # Download the history file from the router and parse it.
+            try:
+                dl_url = f.get("path", "")
+                key = f.get("key")
+                protocol = f.get("protocol", "")
+                if protocol == "router-proxy" and agent_config:
+                    dl_url = f"{agent_config.router_url}{dl_url}"
+                params = {"key": key} if key else {}
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    r = await client.get(dl_url, params=params)
+                    r.raise_for_status()
+                core_history = r.json()
+                # Convert core history to webapp format (role + content).
+                local_messages: list[dict[str, Any]] = []
+                for entry in core_history:
+                    role = entry.get("role", "")
+                    content = entry.get("content", "")
+                    if role in ("user", "assistant") and isinstance(content, str) and content:
+                        local_messages.append({"role": role, "content": content})
+                if local_messages:
+                    _save_chat_history(user_id, session_id, local_messages)
+                    logger.info("Reconstructed %d messages for unarchived session %s", len(local_messages), session_id)
+            except Exception as exc:
+                logger.warning("Failed to reconstruct history for %s: %s", session_id, exc)
+
     return JSONResponse({
         "content": payload.get("content", ""),
-        "files": payload.get("files"),
     })
 
 
@@ -574,16 +685,10 @@ async def api_delete_session(
 
 @app.get("/api/agents")
 async def api_agents(webapp_session: Optional[str] = Cookie(default=None)) -> JSONResponse:
-    _validate_session(webapp_session)
-    agents = {}
-    for aid, info in available_destinations.items():
-        if info.get("hidden"):
-            continue
-        agents[aid] = {
-            "description": info.get("description", ""),
-            "input_schema": info.get("input_schema", ""),
-        }
-    return JSONResponse(agents)
+    user_id = _validate_session(webapp_session)
+    result = await _spawn_to_core(user_id, "SYSTEM", "<agents_info>", timeout=15.0)
+    content = result.get("payload", {}).get("content", "")
+    return JSONResponse({"content": content})
 
 
 # ---------------------------------------------------------------------------
@@ -641,6 +746,24 @@ async def api_set_config(
 # ---------------------------------------------------------------------------
 # File inbox endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/api/upload")
+async def api_upload_file(
+    request: Request,
+    webapp_session: Optional[str] = Cookie(default=None),
+) -> JSONResponse:
+    """Upload a file to the user's inbox. Returns a ProxyFile dict for use in chat."""
+    user_id = _validate_session(webapp_session)
+    form = await request.form()
+    file = form.get("file")
+    if not file:
+        raise HTTPException(status_code=400, detail="file required")
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File exceeds 50 MB limit")
+    pf = _save_to_inbox(user_id, content, file.filename or "file")
+    return JSONResponse(pf)
+
 
 @app.get("/api/inbox")
 async def api_list_inbox(webapp_session: Optional[str] = Cookie(default=None)) -> JSONResponse:
@@ -701,6 +824,118 @@ async def api_app_config() -> JSONResponse:
         "archive_refresh_interval_sec": agent_config.archive_refresh_interval_sec if agent_config else 60,
         "agents_refresh_interval_sec": agent_config.agents_refresh_interval_sec if agent_config else 60,
         "session_title_delay_sec": agent_config.session_title_delay_sec if agent_config else 5,
+    })
+
+
+# ---------------------------------------------------------------------------
+# File serve endpoint (for router to fetch uploaded files)
+# ---------------------------------------------------------------------------
+
+@app.get("/files/serve")
+async def serve_file(key: str) -> FileResponse:
+    entry = _local_file_keys.get(key)
+    if not entry:
+        raise HTTPException(status_code=404, detail="File not found or key expired")
+    user_id, abs_path = entry
+    p = Path(abs_path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File no longer exists")
+    return FileResponse(str(p), filename=p.name)
+
+
+# ---------------------------------------------------------------------------
+# SSE chat streaming (progress events from core)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/chat-stream")
+async def api_chat_stream(request: Request, webapp_session: Optional[str] = Cookie(default=None)) -> StreamingResponse:
+    """Send a message and stream progress events via SSE until done."""
+    user_id = _validate_session(webapp_session)
+    body = await request.json()
+    session_id = str(body.get("session_id", "")).strip()
+    message = str(body.get("message", "")).strip()
+    file_dicts = body.get("files")  # list of ProxyFile dicts from upload
+    if not session_id or not message:
+        raise HTTPException(status_code=400, detail="session_id and message required")
+
+    if not router_client:
+        raise HTTPException(status_code=503, detail="Not connected to router")
+
+    _append_chat(user_id, session_id, "user", message)
+
+    # Spawn task
+    identifier = f"wa_{uuid.uuid4().hex[:12]}"
+    loop = asyncio.get_running_loop()
+    fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+    _pending_results[identifier] = fut
+
+    payload: dict[str, Any] = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "message": message,
+    }
+    if file_dicts:
+        payload["files"] = file_dicts
+
+    resp = await router_client.spawn(
+        identifier=identifier,
+        parent_task_id=None,
+        destination_agent_id="core_personal_agent",
+        payload=payload,
+    )
+
+    # The router returns {"task_id": ...} — we need this to subscribe to progress.
+    task_id = None
+    if isinstance(resp, httpx.Response):
+        try:
+            task_id = resp.json().get("task_id")
+        except Exception:
+            pass
+
+    async def event_stream():
+        try:
+            # If we have a task_id and router_client, subscribe to progress events.
+            if task_id and router_client:
+                try:
+                    async with router_client._client.stream(
+                        "GET",
+                        f"{router_client.router_url}/tasks/{task_id}/progress",
+                        headers={"Authorization": f"Bearer {router_client.auth_token}"},
+                        timeout=300.0,
+                    ) as sse_response:
+                        async for line in sse_response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            try:
+                                event = json.loads(line[6:])
+                            except Exception:
+                                continue
+                            yield f"data: {json.dumps(event)}\n\n"
+                            if event.get("type") == "done":
+                                break
+                except Exception as exc:
+                    logger.debug("SSE progress subscription failed: %s", exc)
+
+            # Wait for the final result.
+            try:
+                result = await asyncio.wait_for(fut, timeout=300.0)
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'error', 'content': 'Request timed out'})}\n\n"
+                return
+            finally:
+                _pending_results.pop(identifier, None)
+
+            reply = result.get("payload", {}).get("content", "")
+            files_out = result.get("payload", {}).get("files")
+            if reply:
+                _append_chat(user_id, session_id, "assistant", reply)
+            yield f"data: {json.dumps({'type': 'result', 'content': reply, 'files': files_out, 'status_code': result.get('status_code', 200)})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
     })
 
 
