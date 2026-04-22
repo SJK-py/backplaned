@@ -1,3 +1,1 @@
-{
-    "SESSION_TITLE_DELAY_SEC": "Seconds to wait after first query before fetching session title from core (default: 5)"
-}
+{}

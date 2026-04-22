@@ -818,13 +818,6 @@ async def api_delete_file(
 # App config endpoint (public, for frontend)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/app-config")
-async def api_app_config() -> JSONResponse:
-    return JSONResponse({
-        "session_title_delay_sec": agent_config.session_title_delay_sec if agent_config else 5,
-    })
-
-
 # ---------------------------------------------------------------------------
 # File serve endpoint (for router to fetch uploaded files)
 # ---------------------------------------------------------------------------
