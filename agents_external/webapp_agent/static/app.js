@@ -173,30 +173,85 @@ function App(){
     setMessages([]);
   }
 
-  // Send message
+  // Send message with SSE progress streaming
   async function sendMessage(){
     const el=inputRef.current;if(!el)return;
     const msg=el.value.trim();if(!msg||!currentSid)return;
     el.value='';
+    const isFirstMsg=messages.length===0;
     setMessages(prev=>[...prev,{role:'user',content:msg}]);
     setSending(true);
+
+    // Upload attached files first, collect ProxyFile dicts
+    let fileDicts=null;
+    if(attachedFiles.length>0){
+      fileDicts=[];
+      for(const f of attachedFiles){
+        try{
+          const fd=new FormData();fd.append('file',f);
+          const ur=await fetch('/api/upload',{method:'POST',credentials:'same-origin',body:fd});
+          if(ur.ok){fileDicts.push(await ur.json())}
+        }catch(e){/* skip failed uploads */}
+      }
+      if(fileDicts.length===0)fileDicts=null;
+    }
+
     try{
-      const r=await api('POST','/api/chat',{session_id:currentSid,message:msg});
-      if(r&&r.ok){
-        const d=await r.json();
-        setMessages(prev=>[...prev,{role:'assistant',content:d.content||'(no response)'}]);
-        // Lazy title fetch
-        if(messages.length===0){
-          setTimeout(async()=>{
-            const ir=await api('GET',`/api/sessions/${currentSid}/info`);
-            if(ir&&ir.ok){
-              const info=await ir.json();
-              if(info.title)setSessions(prev=>prev.map(s=>s.session_id===currentSid?{...s,title:info.title}:s));
-            }
-          },(config.session_title_delay_sec||5)*1000);
-        }
-      }else{
+      const r=await fetch('/api/chat-stream',{
+        method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({session_id:currentSid,message:msg,files:fileDicts}),
+      });
+      if(!r.ok){
         setMessages(prev=>[...prev,{role:'system',content:'Error sending message.'}]);
+        setSending(false);setAttachedFiles([]);el.focus();return;
+      }
+      const reader=r.body.getReader();
+      const decoder=new TextDecoder();
+      let buf='';
+      while(true){
+        const{done,value}=await reader.read();
+        if(done)break;
+        buf+=decoder.decode(value,{stream:true});
+        const lines=buf.split('\n');
+        buf=lines.pop()||'';
+        for(const line of lines){
+          if(!line.startsWith('data: '))continue;
+          try{
+            const ev=JSON.parse(line.slice(6));
+            if(ev.type==='thinking'||ev.type==='status'){
+              setMessages(prev=>{
+                const last=prev[prev.length-1];
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:ev.content||ev.type}];
+                return[...prev,{role:'progress',content:ev.content||ev.type}];
+              });
+            }else if(ev.type==='tool_call'){
+              setMessages(prev=>{
+                const last=prev[prev.length-1];
+                if(last&&last.role==='progress')return[...prev.slice(0,-1),{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
+                return[...prev,{role:'progress',content:`Calling ${ev.metadata?.tool||'tool'}...`}];
+              });
+            }else if(ev.type==='result'){
+              // Remove progress indicator and add final reply
+              setMessages(prev=>{
+                const filtered=prev.filter(m=>m.role!=='progress');
+                return[...filtered,{role:'assistant',content:ev.content||'(no response)'}];
+              });
+            }else if(ev.type==='error'){
+              setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'system',content:ev.content||'Error'}]);
+            }
+          }catch(e){/* ignore parse errors */}
+        }
+      }
+      // Lazy title fetch after first message
+      if(isFirstMsg){
+        setTimeout(async()=>{
+          const ir=await api('GET',`/api/sessions/${currentSid}/info`);
+          if(ir&&ir.ok){
+            const info=await ir.json();
+            if(info.title)setSessions(prev=>prev.map(s=>s.session_id===currentSid?{...s,title:info.title}:s));
+          }
+        },(config.session_title_delay_sec||5)*1000);
       }
     }catch(e){
       setMessages(prev=>[...prev,{role:'system',content:`Error: ${e.message}`}]);
