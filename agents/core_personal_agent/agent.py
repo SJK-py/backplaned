@@ -2407,14 +2407,17 @@ async def _dispatch(
         if _load_link_state(session_id):
             await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
         _archive_and_clear(session_id)
-        _remove_active_session(user_id, session_id)
         if new_sid:
             try:
                 _validate_session_id(new_sid)
             except ValueError:
                 return "Error: invalid session_id format."
+            # Replace old→new in-place so the new session keeps the same
+            # list position (preserves default when old_sid was at index 0).
             _replace_active_session(user_id, session_id, new_sid)
             _ensure_session_info(new_sid, user_id, origin_agent_id)
+        else:
+            _remove_active_session(user_id, session_id)
         return "Session archived."
 
     if message.startswith("<set_default_session>"):

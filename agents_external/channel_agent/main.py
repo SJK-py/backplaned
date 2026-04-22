@@ -1511,6 +1511,8 @@ async def _run_telegram() -> None:
             BotCommand("model", "List or switch LLM model"),
             BotCommand("link", "Direct talk with an agent"),
             BotCommand("unlink", "End direct agent link"),
+            BotCommand("defaultsession", "Set current session as default"),
+            BotCommand("webapp", "Generate webapp login token"),
             BotCommand("register", "Register with invitation token"),
         ])
     except Exception as e:
