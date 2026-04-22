@@ -1574,6 +1574,8 @@ async def _agent_loop(
         if not llm_resp.tool_calls:
             # Final answer — push progress and persist to session history.
             reply = llm_resp.content or ""
+            reply = re.sub(r"\n?\[Files received during this turn:[^\]]*\]$", "", reply)
+            reply = re.sub(r"\n?\[Used tools:[^\]]*\]$", "", reply)
             await _push_progress(loop_state.task_id, "chunk", reply)
 
             if is_agent_origin:
