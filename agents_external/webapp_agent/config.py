@@ -45,8 +45,6 @@ class AgentConfig(BaseModel):
     credentials_path: str = "data/credentials.json"
     session_secret: str = ""
 
-    session_title_delay_sec: int = 5
-
     @classmethod
     def from_env(cls) -> AgentConfig:
         import secrets as _s
@@ -72,5 +70,4 @@ class AgentConfig(BaseModel):
             data_dir=os.environ.get("DATA_DIR", cls.model_fields["data_dir"].default),
             credentials_path=os.environ.get("CREDENTIALS_PATH", cls.model_fields["credentials_path"].default),
             session_secret=os.environ.get("SESSION_SECRET") or _load_or_create_secret(Path(os.environ.get("DATA_DIR", "data"))),
-            session_title_delay_sec=int(_get("SESSION_TITLE_DELAY_SEC", cls.model_fields["session_title_delay_sec"].default)),
         )

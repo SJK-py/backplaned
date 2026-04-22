@@ -131,7 +131,6 @@ function App(){
   const[leftOpen,setLeftOpen]=useState(true);
   const[rightOpen,setRightOpen]=useState(false);
   const[modal,setModal]=useState(null);
-  const[config,setConfig]=useState({});
   const inputRef=useRef(null);
   const chatRef=useRef(null);
 
@@ -142,11 +141,6 @@ function App(){
       if(r.ok){const d=await r.json();setUser(d.user_id)}
       setChecking(false);
     })();
-  },[]);
-
-  // Load app config
-  useEffect(()=>{
-    (async()=>{const r=await fetch('/api/app-config');if(r.ok)setConfig(await r.json())})();
   },[]);
 
   // Load agents
