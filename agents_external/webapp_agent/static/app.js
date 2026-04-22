@@ -112,6 +112,7 @@ function App(){
   const[messages,setMessages]=useState([]);
   const[agents,setAgents]=useState({});
   const[sending,setSending]=useState(false);
+  const[attachedFiles,setAttachedFiles]=useState([]);
   const[leftOpen,setLeftOpen]=useState(true);
   const[rightOpen,setRightOpen]=useState(false);
   const[modal,setModal]=useState(null);
@@ -137,7 +138,7 @@ function App(){
   const loadAgents=useCallback(async()=>{
     if(!user)return;
     const r=await api('GET','/api/agents');
-    if(r&&r.ok)setAgents(await r.json());
+    if(r&&r.ok){const d=await r.json();setAgents(d.content||'')}
   },[user]);
 
   // Load archived
@@ -201,6 +202,7 @@ function App(){
       setMessages(prev=>[...prev,{role:'system',content:`Error: ${e.message}`}]);
     }
     setSending(false);
+    setAttachedFiles([]);
     el.focus();
   }
 
@@ -339,9 +341,18 @@ function App(){
       </div>
 
       <div class="input-area">
-        <textarea ref=${inputRef} rows="1" placeholder="Type a message..."
-          onKeyDown=${e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}}
-          disabled=${sending||!currentSid}/>
+        <input type="file" id="file-input" style="display:none" multiple
+          onChange=${e=>{if(e.target.files.length)setAttachedFiles(Array.from(e.target.files))}}/>
+        <button class="icon-btn" title="Attach files" style="flex-shrink:0"
+          onClick=${()=>document.getElementById('file-input').click()}>📎</button>
+        <div style="flex:1;display:flex;flex-direction:column;gap:2px">
+          ${attachedFiles.length>0&&html`<div style="font-size:11px;color:var(--dim);padding:0 4px">
+            ${attachedFiles.map((f,i)=>html`<span style="margin-right:6px">${esc(f.name)} <button style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:10px" onClick=${()=>setAttachedFiles(prev=>prev.filter((_,j)=>j!==i))}>✕</button></span>`)}
+          </div>`}
+          <textarea ref=${inputRef} rows="1" placeholder="Type a message..."
+            onKeyDown=${e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}}}
+            disabled=${sending||!currentSid}/>
+        </div>
         <button class="send-btn" onClick=${sendMessage} disabled=${sending||!currentSid}>↑</button>
       </div>
     </div>
@@ -353,16 +364,18 @@ function App(){
         <button class="icon-btn" onClick=${()=>setRightOpen(false)}>✕</button>
       </div>
       <div class="agent-list">
-        ${Object.entries(agents).map(([aid,info])=>html`
-          <div class="agent-item">
-            <div class="name">${esc(aid)}</div>
-            <div class="desc">${esc(info.description)}</div>
+        ${agents?agents.split('\n').filter(l=>l.trim()).map(line=>{
+          const m=line.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
+          if(m)return html`<div class="agent-item">
+            <div class="name">${esc(m[1])}</div>
+            <div class="desc">${esc(m[2])}</div>
             <div class="actions">
-              <button class="btn-sm btn-outline" onClick=${()=>linkAgent(aid)}>Link</button>
+              <button class="btn-sm btn-outline" onClick=${()=>linkAgent(m[1])}>Link</button>
+              <button class="btn-sm btn-outline" onClick=${()=>unlinkAgent()}>Unlink</button>
             </div>
-          </div>
-        `)}
-        ${Object.keys(agents).length===0&&html`<div style="padding:16px;color:var(--dim);font-size:13px">No agents available</div>`}
+          </div>`;
+          return line.trim()?html`<div style="padding:4px 10px;font-size:12px;color:var(--dim)">${esc(line)}</div>`:null;
+        }):html`<div style="padding:16px;color:var(--dim);font-size:13px">Loading agents...</div>`}
       </div>
     </div>
 

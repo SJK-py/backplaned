@@ -574,16 +574,10 @@ async def api_delete_session(
 
 @app.get("/api/agents")
 async def api_agents(webapp_session: Optional[str] = Cookie(default=None)) -> JSONResponse:
-    _validate_session(webapp_session)
-    agents = {}
-    for aid, info in available_destinations.items():
-        if info.get("hidden"):
-            continue
-        agents[aid] = {
-            "description": info.get("description", ""),
-            "input_schema": info.get("input_schema", ""),
-        }
-    return JSONResponse(agents)
+    user_id = _validate_session(webapp_session)
+    result = await _spawn_to_core(user_id, "SYSTEM", "<agents_info>", timeout=15.0)
+    content = result.get("payload", {}).get("content", "")
+    return JSONResponse({"content": content})
 
 
 # ---------------------------------------------------------------------------
