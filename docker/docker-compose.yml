@@ -16,6 +16,7 @@ services:
       - "${MCP_PORT:-8084}:8084"
       - "${CRON_PORT:-8085}:8085"
       - "${KB_PORT:-8086}:8086"
+      - "${WEBAPP_PORT:-8090}:8090"
       - "${REMINDER_PORT:-8101}:8101"
     volumes:
       # start.config is sourced by start.sh inside the container
@@ -37,6 +38,7 @@ services:
       - "${DATA_ROOT:-./data}/kb_agent:/app/agents_external/kb_agent/data"
       - "${DATA_ROOT:-./data}/reminder_agent:/app/agents_external/reminder_agent/data"
       - "${DATA_ROOT:-./data}/web_admin:/app/agents_external/web_admin/data"
+      - "${DATA_ROOT:-./data}/webapp_agent:/app/agents_external/webapp_agent/data"
     environment:
       - ADMIN_TOKEN=${ADMIN_TOKEN}
       # Persist the router's SQLite DB on the mounted data volume so that

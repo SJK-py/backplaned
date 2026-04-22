@@ -157,11 +157,22 @@ for _d in [HISTORY_DIR, HISTORY_ARCHIVE_DIR, USER_CONFIG_DIR]:
     Path(_d).mkdir(parents=True, exist_ok=True)
 
 
+CHANNEL_AGENT_ID: str = "channel_agent"
+WEBAPP_AGENT_ID: str = "webapp_agent"
+ARCHIVE_RETENTION_DAYS: int = 7
+
+
+def _is_user_facing_origin(origin_agent_id: str) -> bool:
+    """True if the origin is a user-facing agent (channel or webapp)."""
+    return origin_agent_id in (CHANNEL_AGENT_ID, WEBAPP_AGENT_ID)
+
+
 def _refresh_config() -> None:
     """Re-read config.json and update module-level variables."""
     global AGENT_TIMEOUT, TOOL_TIMEOUT, LLM_AGENT_ID, LLM_MODEL_ID
     global HISTORY_TOKEN_LIMIT, MEMORY_AGENT_ID, MAX_AGENT_ITERATIONS
     global LINK_HISTORY_TOKEN_RATIO, LINK_TRUNCATION_KEEP_RATIO, SYSTEM_PROMPT
+    global CHANNEL_AGENT_ID, WEBAPP_AGENT_ID, ARCHIVE_RETENTION_DAYS
     cfg = _load_config()
     _si = lambda v, d: d if v is None or v == "" else int(v)
     _sf = lambda v, d: d if v is None or v == "" else float(v)
@@ -175,6 +186,9 @@ def _refresh_config() -> None:
     LINK_HISTORY_TOKEN_RATIO = _sf(cfg.get("CORE_LINK_HISTORY_TOKEN_RATIO"), 0.5)
     LINK_TRUNCATION_KEEP_RATIO = _sf(cfg.get("CORE_LINK_TRUNCATION_KEEP_RATIO"), 0.5)
     SYSTEM_PROMPT = str(cfg.get("CORE_SYSTEM_PROMPT") or _DEFAULT_SYSTEM_PROMPT)
+    CHANNEL_AGENT_ID = str(cfg.get("CORE_CHANNEL_AGENT_ID") or "channel_agent")
+    WEBAPP_AGENT_ID = str(cfg.get("CORE_WEBAPP_AGENT_ID") or "webapp_agent")
+    ARCHIVE_RETENTION_DAYS = _si(cfg.get("CORE_ARCHIVE_RETENTION_DAYS"), 7)
 
 
 _refresh_config()  # Initial load
@@ -228,6 +242,16 @@ _active_loops: dict[str, _LoopState] = {}
 # Auth token (injected by the router as an environment variable at startup)
 # ---------------------------------------------------------------------------
 
+_SAFE_SID_RE = re.compile(r'^[a-zA-Z0-9_\-]+$')
+
+
+def _validate_session_id(sid: str) -> str:
+    """Validate session_id to prevent path traversal. Returns the id or raises."""
+    if not sid or not _SAFE_SID_RE.match(sid):
+        raise ValueError(f"Invalid session_id: {sid!r}")
+    return sid
+
+
 _AUTH_TOKEN: str = ""
 
 
@@ -244,6 +268,45 @@ def _get_auth_token() -> str:
 
 def _history_path(session_id: str) -> Path:
     return Path(HISTORY_DIR) / f"{session_id}.json"
+
+
+def _info_path(session_id: str) -> Path:
+    return Path(HISTORY_DIR) / f"{session_id}_info.json"
+
+
+def _load_session_info(session_id: str) -> dict[str, Any]:
+    p = _info_path(session_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_session_info(session_id: str, info: dict[str, Any]) -> None:
+    _info_path(session_id).write_text(
+        json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _ensure_session_info(session_id: str, user_id: str, origin_agent_id: str = "") -> dict[str, Any]:
+    """Load or create session info. Updates last_used timestamp on every call."""
+    info = _load_session_info(session_id)
+    now = datetime.now(timezone.utc).isoformat()
+    if not info:
+        info = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "title": "",
+            "origin_agent_id": origin_agent_id,
+            "created_at": now,
+            "last_used_at": now,
+            "archived_at": None,
+        }
+    info["last_used_at"] = now
+    _save_session_info(session_id, info)
+    return info
 
 
 def _load_history(session_id: str) -> list[dict]:
@@ -267,19 +330,32 @@ def _save_history(session_id: str, history: list[dict]) -> None:
 
 def _archive_and_clear(session_id: str) -> None:
     """Move the session history, tool history, link state, and inbox to the archive directory."""
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    now = datetime.now(timezone.utc)
+    # Update info with archived timestamp before moving.
+    info = _load_session_info(session_id)
+    if info:
+        info["archived_at"] = now.isoformat()
     p = _history_path(session_id)
     if p.exists():
-        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_{ts}.json"
+        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}.json"
         shutil.move(str(p), str(dest))
     tp = _tool_history_path(session_id)
     if tp.exists():
-        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_{ts}_tools.json"
+        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_tools.json"
         shutil.move(str(tp), str(dest))
     lp = _link_state_path(session_id)
     if lp.exists():
-        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_{ts}_link.json"
+        dest = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_link.json"
         shutil.move(str(lp), str(dest))
+    # Move info file to archive and save with archived_at.
+    ip = _info_path(session_id)
+    dest_info = Path(HISTORY_ARCHIVE_DIR) / f"{session_id}_info.json"
+    if info:
+        dest_info.write_text(json.dumps(info, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif ip.exists():
+        shutil.move(str(ip), str(dest_info))
+    if ip.exists():
+        ip.unlink()
     # Clean up per-session inbox
     inbox = _INBOX_BASE / session_id
     if inbox.exists():
@@ -387,47 +463,114 @@ def _clear_link_state(session_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Active session tracking — maps user_id → most recent session_id
+# Active session tracking — maps user_id → ordered list of session_ids.
+# The first entry is the "default" session (used for notifications, etc.).
 # ---------------------------------------------------------------------------
 
 _ACTIVE_SESSIONS_PATH = Path(HISTORY_DIR) / "active_sessions.json"
 
 
-def _load_active_sessions() -> dict[str, str]:
+def _load_active_sessions() -> dict[str, list[str]]:
     if _ACTIVE_SESSIONS_PATH.exists():
         try:
-            return json.loads(_ACTIVE_SESSIONS_PATH.read_text(encoding="utf-8"))
+            data = json.loads(_ACTIVE_SESSIONS_PATH.read_text(encoding="utf-8"))
+            # Migrate from old format (user_id → single str) to new (user_id → list).
+            migrated: dict[str, list[str]] = {}
+            for k, v in data.items():
+                if isinstance(v, str):
+                    migrated[k] = [v]
+                elif isinstance(v, list):
+                    migrated[k] = v
+                else:
+                    migrated[k] = []
+            return migrated
         except Exception:
             return {}
     return {}
 
 
-def _save_active_sessions(m: dict[str, str]) -> None:
+def _save_active_sessions(m: dict[str, list[str]]) -> None:
     _ACTIVE_SESSIONS_PATH.write_text(
         json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
 
-def _set_active_session(user_id: str, session_id: str) -> None:
-    """Record that session_id is the most recent session for user_id."""
+def _add_active_session(user_id: str, session_id: str) -> None:
+    """Append session_id to the user's active list (if not already present)."""
     m = _load_active_sessions()
-    m[user_id] = session_id
+    sessions = m.get(user_id, [])
+    if session_id not in sessions:
+        sessions.append(session_id)
+    m[user_id] = sessions
     _save_active_sessions(m)
+
+
+def _remove_active_session(user_id: str, session_id: str) -> None:
+    """Remove session_id from the user's active list."""
+    m = _load_active_sessions()
+    sessions = m.get(user_id, [])
+    if session_id in sessions:
+        sessions.remove(session_id)
+        m[user_id] = sessions
+        _save_active_sessions(m)
+
+
+def _replace_active_session(user_id: str, old_sid: str, new_sid: str) -> None:
+    """Replace old_sid with new_sid in the user's active list (same position)."""
+    m = _load_active_sessions()
+    sessions = m.get(user_id, [])
+    # Remove new_sid if it already exists (prevent duplicates).
+    if new_sid in sessions:
+        sessions.remove(new_sid)
+    if old_sid in sessions:
+        idx = sessions.index(old_sid)
+        sessions[idx] = new_sid
+    else:
+        sessions.append(new_sid)
+    m[user_id] = sessions
+    _save_active_sessions(m)
+
+
+def _set_default_session(user_id: str, session_id: str) -> bool:
+    """Move session_id to the front of the user's active list (make it default).
+
+    Returns True if the session was found and moved, False otherwise.
+    """
+    m = _load_active_sessions()
+    sessions = m.get(user_id, [])
+    if session_id not in sessions:
+        return False
+    sessions.remove(session_id)
+    sessions.insert(0, session_id)
+    m[user_id] = sessions
+    _save_active_sessions(m)
+    return True
+
+
+def _get_active_sessions(user_id: str) -> list[str]:
+    """Return the user's active session list."""
+    m = _load_active_sessions()
+    return m.get(user_id, [])
 
 
 def _resolve_session(user_id: str, session_id: str) -> tuple[str, Optional[str]]:
     """
-    If session_id is not the user's active session, return the active one.
+    Resolve an inbound session_id against the user's active session list.
+
+    - If session_id is in the list → use it as-is.
+    - If session_id is NOT in the list but the list is non-empty → redirect
+      to the default (first) session.
+    - If the list is empty → use session_id as-is (new user, no history).
 
     Returns (resolved_session_id, original_session_id_if_changed).
-    If the session_id is already active (or no active session is recorded),
-    returns (session_id, None).
     """
-    m = _load_active_sessions()
-    active = m.get(user_id)
-    if active and active != session_id:
-        return active, session_id
-    return session_id, None
+    sessions = _get_active_sessions(user_id)
+    if not sessions:
+        return session_id, None
+    if session_id in sessions:
+        return session_id, None
+    # Not in list → redirect to default (first) session.
+    return sessions[0], session_id
 
 
 
@@ -2182,14 +2325,128 @@ async def _dispatch(
     if message.startswith("<new_session>"):
         # Format: "<new_session>" or "<new_session> {new_session_id}"
         parts = message.split(None, 1)
-        new_sid = parts[1] if len(parts) > 1 else None
+        new_sid = parts[1].strip() if len(parts) > 1 else None
         # Unlink if active (briefs linked conversation into main history)
         if _load_link_state(session_id):
             await _handle_unlink_agent(session_id, loop_state, user_id=user_id)
         _archive_and_clear(session_id)
+        _remove_active_session(user_id, session_id)
         if new_sid:
-            _set_active_session(user_id, new_sid)
+            _replace_active_session(user_id, session_id, new_sid)
+            _ensure_session_info(new_sid, user_id, origin_agent_id)
         return "Session archived."
+
+    if message.startswith("<set_default_session>"):
+        ok = _set_default_session(user_id, session_id)
+        if ok:
+            return f"Session `{session_id}` is now the default session."
+        return "Error: session not in active list."
+
+    if message.startswith("<unarchive_session>"):
+        target_sid = message[len("<unarchive_session>"):].strip()
+        if not target_sid:
+            return "Error: session_id required."
+        try:
+            _validate_session_id(target_sid)
+        except ValueError:
+            return "Error: invalid session_id format."
+        # Move files from archive back to sessions dir.
+        archive_dir = Path(HISTORY_ARCHIVE_DIR)
+        hist_src = archive_dir / f"{target_sid}.json"
+        info_src = archive_dir / f"{target_sid}_info.json"
+        if not hist_src.exists():
+            return f"Error: archived session not found: {target_sid}"
+        hist_dest = _history_path(target_sid)
+        shutil.move(str(hist_src), str(hist_dest))
+        info_data: dict[str, Any] = {}
+        if info_src.exists():
+            try:
+                info_data = json.loads(info_src.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            shutil.move(str(info_src), str(_info_path(target_sid)))
+        # Also move tool history and link state if they exist.
+        for suffix in ("_tools.json", "_link.json"):
+            src = archive_dir / f"{target_sid}{suffix}"
+            if src.exists():
+                shutil.move(str(src), str(Path(HISTORY_DIR) / f"{target_sid}{suffix}"))
+        # Clear archived_at and add to active list.
+        info = _load_session_info(target_sid)
+        if info:
+            info["archived_at"] = None
+            _save_session_info(target_sid, info)
+        _add_active_session(user_id, target_sid)
+        # Build result with attached files for webapp_agent reconstruction.
+        result_files: list[ProxyFile] = []
+        pfm = ProxyFileManager(inbox_dir=_session_inbox(session_id), router_url=ROUTER_URL)
+        for fp in (hist_dest, _info_path(target_sid)):
+            if fp.exists():
+                pf = pfm.resolve(str(fp))
+                if pf:
+                    result_files.append(ProxyFile(**pf))
+        title = info_data.get("title") or target_sid
+        return AgentOutput(
+            content=f"Session `{target_sid}` ({title}) unarchived.",
+            files=result_files or None,
+        )
+
+    if message.startswith("<delete_session>"):
+        target_sid = message[len("<delete_session>"):].strip()
+        if not target_sid:
+            return "Error: session_id required."
+        try:
+            _validate_session_id(target_sid)
+        except ValueError:
+            return "Error: invalid session_id format."
+        archive_dir = Path(HISTORY_ARCHIVE_DIR)
+        deleted = False
+        for suffix in (".json", "_info.json", "_tools.json", "_link.json"):
+            fp = archive_dir / f"{target_sid}{suffix}"
+            if fp.exists():
+                fp.unlink()
+                deleted = True
+        return f"Archived session `{target_sid}` deleted." if deleted else f"Error: archived session not found: {target_sid}"
+
+    if message == "<archived_sessions>":
+        archive_dir = Path(HISTORY_ARCHIVE_DIR)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=ARCHIVE_RETENTION_DAYS)
+        results: list[dict[str, Any]] = []
+        if archive_dir.exists():
+            for fp in sorted(archive_dir.glob("*_info.json")):
+                try:
+                    info = json.loads(fp.read_text(encoding="utf-8"))
+                    archived_at = info.get("archived_at")
+                    if archived_at:
+                        dt = datetime.fromisoformat(archived_at)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if dt < cutoff:
+                            continue
+                    results.append({
+                        "session_id": info.get("session_id", fp.stem.replace("_info", "")),
+                        "title": info.get("title", ""),
+                        "archived_at": archived_at,
+                    })
+                except Exception:
+                    continue
+        return json.dumps(results, indent=2, ensure_ascii=False) if results else "No archived sessions."
+
+    if message.startswith("<rename_session>"):
+        new_name = message[len("<rename_session>"):].strip()
+        if not new_name:
+            return "Error: new session name required."
+        info = _load_session_info(session_id)
+        if not info:
+            info = _ensure_session_info(session_id, user_id, origin_agent_id)
+        info["title"] = new_name
+        _save_session_info(session_id, info)
+        return f"Session renamed to: {new_name}"
+
+    if message == "<session_info>":
+        info = _load_session_info(session_id)
+        if not info:
+            return "{}"
+        return json.dumps(info, indent=2, ensure_ascii=False)
 
     if message == "<token_info>":
         history = _load_history(session_id)
@@ -2249,6 +2506,9 @@ async def _dispatch(
             lines.append(f"User config note:\n{ucmd}")
         else:
             lines.append("User config note: (empty)")
+        sessions = _get_active_sessions(user_id)
+        is_default = sessions and sessions[0] == session_id
+        lines.append(f"Default session: {'yes' if is_default else 'no'} (active: {len(sessions)})")
         return "\n".join(lines)
 
     # --- /config <instruction> → LLM-driven config modification ---
@@ -2294,7 +2554,7 @@ async def _dispatch(
     # must go through the normal orchestrator loop so they can be delivered
     # to the user via channel_agent, not forwarded to the linked agent.
     link_state = _load_link_state(session_id)
-    if link_state and origin_agent_id == "channel_agent":
+    if link_state and _is_user_facing_origin(origin_agent_id):
         return await _handle_linked_message(
             message, user_id, session_id, loop_state, link_state,
             available_destinations=available_destinations,
@@ -2306,7 +2566,7 @@ async def _dispatch(
     # _agent_loop but skip session history loading/saving and use a
     # dedicated system prompt.  A clean notification entry is appended
     # to history afterward so the user can reference it.
-    is_agent_origin = bool(origin_agent_id and origin_agent_id != "channel_agent")
+    is_agent_origin = bool(origin_agent_id and not _is_user_facing_origin(origin_agent_id))
 
     return await _agent_loop(
         user_message=message,
@@ -2346,6 +2606,20 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 content="Error: user_id, session_id, and message are all required."
             ),
         )
+
+    # Validate session_id format to prevent path traversal.
+    # "SYSTEM" is allowed as a pseudo-session for control tokens.
+    if session_id != "SYSTEM":
+        try:
+            _validate_session_id(session_id)
+        except ValueError:
+            return build_result_request(
+                agent_id=_OUR_AGENT_ID,
+                task_id=task_id,
+                parent_task_id=parent_task_id,
+                status_code=400,
+                output=AgentOutput(content=f"Error: invalid session_id format."),
+            )
 
     # Handle <stop_session> — cancel all active loops for this session.
     if message == "<stop_session>":
@@ -2396,11 +2670,21 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                          "<user_config>", "<fetch_user_config>", "<update_user_config>",
                          "<show_config>", "<config_instruct>",
                          "<list_models>", "<set_model>",
-                         "<list_linkable>", "<link_agent>", "<unlink_agent>")
+                         "<list_linkable>", "<link_agent>", "<unlink_agent>",
+                         "<set_default_session>", "<unarchive_session>",
+                         "<delete_session>", "<archived_sessions>",
+                         "<rename_session>", "<session_info>")
     is_control = any(message.startswith(p) for p in _CONTROL_PREFIXES)
 
     session_changed_note = ""
     if not is_control:
+        # Auto-register unlisted sessions from user-facing agents.
+        if _is_user_facing_origin(origin_agent_id):
+            sessions = _get_active_sessions(user_id)
+            if session_id not in sessions:
+                _add_active_session(user_id, session_id)
+                _ensure_session_info(session_id, user_id, origin_agent_id)
+
         resolved_sid, original_sid = _resolve_session(user_id, session_id)
         if original_sid is not None:
             logger.info(
@@ -2413,6 +2697,9 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
                 f"message to user): session_id has been changed from "
                 f"{original_sid} to {resolved_sid}."
             )
+
+    # Ensure session info exists and update last_used.
+    _ensure_session_info(session_id, user_id, origin_agent_id)
 
     loop_state = _LoopState(
         task_id=task_id,

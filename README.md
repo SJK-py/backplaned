@@ -30,6 +30,7 @@ All communication flows through the **router**, which acts as an ESB-style messa
 | **kb_agent** | External | `usertool` | Knowledge base with hybrid vector + full-text search. Stores Markdown documents in per-user LanceDB databases. |
 | **mcp_agent** | External | `tool` | Outbound MCP gateway. Connects to external MCP tool servers (stdio/SSE) and exposes their tools to the router. |
 | **mcp_server** | External | `bridge` | Inbound MCP bridge. Exposes router agents as MCP tools to external clients (Claude Desktop, Cursor, etc.). |
+| **webapp_agent** | External | `channel` | User-facing web application. Per-user login, multi-session chat, file inbox, agent linking, and configuration. |
 | **web_admin** | External | `admin` | Admin web frontend. Task management, agent configuration, direct messaging, and system monitoring. |
 
 ## Quick Start (Bare Metal)
@@ -261,6 +262,7 @@ backplaned/
 │   ├── mcp_agent/
 │   ├── mcp_server/
 │   ├── reminder_agent/
+│   ├── webapp_agent/
 │   └── web_admin/
 │
 ├── docs/                     # Documentation
