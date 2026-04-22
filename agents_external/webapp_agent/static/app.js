@@ -258,12 +258,17 @@ function App(){
     await api('POST',`/api/sessions/${currentSid}/unlink`);
   }
 
-  // Select session
-  function selectSession(sid){
+  // Select session — load history from backend
+  async function selectSession(sid){
     setCurrentSid(sid);
     setMessages([]);
     // Mobile: close left pane on select
     if(window.innerWidth<=768)setLeftOpen(false);
+    // Fetch persisted history
+    try{
+      const r=await api('GET',`/api/sessions/${sid}/history`);
+      if(r&&r.ok){const hist=await r.json();if(Array.isArray(hist)&&hist.length)setMessages(hist)}
+    }catch(e){/* ignore — fresh session has no history */}
   }
 
   // Logout

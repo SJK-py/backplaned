@@ -97,6 +97,48 @@ def _user_inbox(user_id: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Per-session chat history (local to webapp_agent)
+# ---------------------------------------------------------------------------
+
+def _history_dir(user_id: str) -> Path:
+    d = _user_dir(user_id) / "history"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _history_path(user_id: str, session_id: str) -> Path:
+    return _history_dir(user_id) / f"{session_id}.json"
+
+
+def _load_chat_history(user_id: str, session_id: str) -> list[dict[str, Any]]:
+    p = _history_path(user_id, session_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+
+def _save_chat_history(user_id: str, session_id: str, messages: list[dict[str, Any]]) -> None:
+    _history_path(user_id, session_id).write_text(
+        json.dumps(messages, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def _append_chat(user_id: str, session_id: str, role: str, content: str) -> None:
+    history = _load_chat_history(user_id, session_id)
+    history.append({"role": role, "content": content})
+    _save_chat_history(user_id, session_id, history)
+
+
+def _delete_chat_history(user_id: str, session_id: str) -> None:
+    p = _history_path(user_id, session_id)
+    if p.exists():
+        p.unlink()
+
+
+# ---------------------------------------------------------------------------
 # Session auth (cookie-based)
 # ---------------------------------------------------------------------------
 
@@ -463,13 +505,27 @@ async def api_chat(request: Request, webapp_session: Optional[str] = Cookie(defa
     if not session_id or not message:
         raise HTTPException(status_code=400, detail="session_id and message required")
 
+    _append_chat(user_id, session_id, "user", message)
     result = await _spawn_to_core(user_id, session_id, message)
     payload = result.get("payload", {})
+    reply = payload.get("content", "")
+    if reply:
+        _append_chat(user_id, session_id, "assistant", reply)
     return JSONResponse({
-        "content": payload.get("content", ""),
+        "content": reply,
         "files": payload.get("files"),
         "status_code": result.get("status_code", 200),
     })
+
+
+@app.get("/api/sessions/{session_id}/history")
+async def api_session_history(
+    session_id: str,
+    webapp_session: Optional[str] = Cookie(default=None),
+) -> JSONResponse:
+    user_id = _validate_session(webapp_session)
+    messages = _load_chat_history(user_id, session_id)
+    return JSONResponse(messages)
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +546,7 @@ async def api_archive_session(
 ) -> JSONResponse:
     user_id = _validate_session(webapp_session)
     result = await _spawn_to_core(user_id, session_id, "<new_session>", timeout=30.0)
+    _delete_chat_history(user_id, session_id)
     return JSONResponse({"status": "archived", "content": result.get("payload", {}).get("content", "")})
 
 
@@ -552,9 +609,39 @@ async def api_unarchive(
     user_id = _validate_session(webapp_session)
     result = await _spawn_to_core(user_id, "SYSTEM", f"<unarchive_session> {session_id}", timeout=30.0)
     payload = result.get("payload", {})
+
+    # Reconstruct local chat history from attached session history file.
+    result_files = payload.get("files") or []
+    for f in result_files:
+        fname = f.get("original_filename") or Path(f.get("path", "")).name
+        if fname == f"{session_id}.json":
+            # Download the history file from the router and parse it.
+            try:
+                dl_url = f.get("path", "")
+                key = f.get("key")
+                protocol = f.get("protocol", "")
+                if protocol == "router-proxy" and agent_config:
+                    dl_url = f"{agent_config.router_url}{dl_url}"
+                params = {"key": key} if key else {}
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    r = await client.get(dl_url, params=params)
+                    r.raise_for_status()
+                core_history = r.json()
+                # Convert core history to webapp format (role + content).
+                local_messages: list[dict[str, Any]] = []
+                for entry in core_history:
+                    role = entry.get("role", "")
+                    content = entry.get("content", "")
+                    if role in ("user", "assistant") and isinstance(content, str) and content:
+                        local_messages.append({"role": role, "content": content})
+                if local_messages:
+                    _save_chat_history(user_id, session_id, local_messages)
+                    logger.info("Reconstructed %d messages for unarchived session %s", len(local_messages), session_id)
+            except Exception as exc:
+                logger.warning("Failed to reconstruct history for %s: %s", session_id, exc)
+
     return JSONResponse({
         "content": payload.get("content", ""),
-        "files": payload.get("files"),
     })
 
 
