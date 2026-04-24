@@ -719,9 +719,13 @@ async def api_delete_session(
 @app.get("/api/agents")
 async def api_agents(webapp_session: Optional[str] = Cookie(default=None)) -> JSONResponse:
     user_id = _validate_session(webapp_session)
-    result = await _spawn_to_core(user_id, "SYSTEM", "<agents_info>", timeout=15.0)
+    result = await _spawn_to_core(user_id, "SYSTEM", "<agents_info_json>", timeout=15.0)
     content = result.get("payload", {}).get("content", "")
-    return JSONResponse({"content": content})
+    try:
+        agents_list = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        agents_list = []
+    return JSONResponse({"agents": agents_list})
 
 
 # ---------------------------------------------------------------------------
@@ -734,8 +738,11 @@ async def api_link(
     webapp_session: Optional[str] = Cookie(default=None),
 ) -> JSONResponse:
     user_id = _validate_session(webapp_session)
-    result = await _spawn_to_core(user_id, session_id, f"<link_agent> {agent_id}", timeout=30.0)
-    return JSONResponse({"content": result.get("payload", {}).get("content", "")})
+    result = await _spawn_to_core(user_id, session_id, f"<link_agent> {agent_id}", timeout=60.0)
+    content = result.get("payload", {}).get("content", "")
+    if content:
+        _append_chat(user_id, session_id, "assistant", content)
+    return JSONResponse({"content": content})
 
 
 @app.post("/api/sessions/{session_id}/unlink")
@@ -744,8 +751,11 @@ async def api_unlink(
     webapp_session: Optional[str] = Cookie(default=None),
 ) -> JSONResponse:
     user_id = _validate_session(webapp_session)
-    result = await _spawn_to_core(user_id, session_id, "<unlink_agent>", timeout=30.0)
-    return JSONResponse({"content": result.get("payload", {}).get("content", "")})
+    result = await _spawn_to_core(user_id, session_id, "<unlink_agent>", timeout=60.0)
+    content = result.get("payload", {}).get("content", "")
+    if content:
+        _append_chat(user_id, session_id, "assistant", content)
+    return JSONResponse({"content": content})
 
 
 # ---------------------------------------------------------------------------
