@@ -2167,7 +2167,7 @@ async def _handle_link_agent(
     return (
         f"Linked to **{target_agent}**.\n"
         f"_{desc}_\n\n"
-        f"Messages will be sent directly to this agent. Use /unlink to return to normal mode."
+        f"Messages will be sent directly to this agent. Unlink to return to normal mode."
     )
 
 
@@ -2531,7 +2531,9 @@ async def _dispatch(
     if message == "<session_info>":
         info = _load_session_info(session_id)
         if not info:
-            return "{}"
+            info = {}
+        link_state = _load_link_state(session_id)
+        info["linked_agent"] = link_state.get("agent_id") if link_state else None
         return json.dumps(info, indent=2, ensure_ascii=False)
 
     if message == "<token_info>":
