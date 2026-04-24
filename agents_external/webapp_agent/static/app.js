@@ -127,6 +127,7 @@ function App(){
   const[messages,setMessages]=useState([]);
   const[agents,setAgents]=useState([]);
   const[expandedAgent,setExpandedAgent]=useState(null);
+  const[linkedAgent,setLinkedAgent]=useState(null);
   const[sending,setSending]=useState(false);
   const[attachedFiles,setAttachedFiles]=useState([]);
   const[leftOpen,setLeftOpen]=useState(true);
@@ -164,14 +165,19 @@ function App(){
     loadAgents();loadArchived();
   },[user,loadAgents,loadArchived]);
 
-  // Load history when currentSid changes (including initial restore from localStorage)
+  // Load history and link status when currentSid changes
   useEffect(()=>{
-    if(!currentSid||!user)return;
+    if(!currentSid||!user){setLinkedAgent(null);return}
     (async()=>{
       try{
         const r=await api('GET',`/api/sessions/${currentSid}/history`);
         if(r&&r.ok){const hist=await r.json();if(Array.isArray(hist)&&hist.length)setMessages(hist);else setMessages([])}
       }catch(e){setMessages([])}
+      try{
+        const ir=await api('GET',`/api/sessions/${currentSid}/info`);
+        if(ir&&ir.ok){const info=await ir.json();setLinkedAgent(info.linked_agent||null)}
+        else setLinkedAgent(null);
+      }catch(e){setLinkedAgent(null)}
     })();
   },[currentSid,user]);
 
@@ -344,6 +350,7 @@ function App(){
       if(r&&r.ok){
         const d=await r.json();
         setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'assistant',content:d.content||'Linked.'}]);
+        setLinkedAgent(agentId);
       }else{
         setMessages(prev=>prev.filter(m=>m.role!=='progress'));
       }
@@ -358,6 +365,7 @@ function App(){
       if(r&&r.ok){
         const d=await r.json();
         setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'assistant',content:d.content||'Unlinked.'}]);
+        setLinkedAgent(null);
       }else{
         setMessages(prev=>prev.filter(m=>m.role!=='progress'));
       }
@@ -377,7 +385,7 @@ function App(){
     await api('POST','/api/logout');
     try{localStorage.removeItem('wa_sessions');localStorage.removeItem('wa_currentSid')}catch(e){}
     _setSessions([]);_setCurrentSid(null);
-    setMessages([]);setArchived([]);setAgents([]);setAttachedFiles([]);
+    setMessages([]);setArchived([]);setAgents([]);setAttachedFiles([]);setLinkedAgent(null);
     setUser(null);
   }
 
@@ -473,6 +481,10 @@ function App(){
           <button class="icon-btn" onClick=${()=>setRightOpen(false)}>✕</button>
         </div>
       </div>
+      ${linkedAgent&&html`<div style="padding:8px 12px;margin:0 8px 8px;border-radius:var(--radius);background:var(--accent-light);border:1px solid var(--accent);display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:13px;font-weight:600">Linked to ${esc(linkedAgent)}</span>
+        <button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>unlinkAgent()}>Unlink</button>
+      </div>`}
       <div class="agent-list">
         ${agents.length?agents.map(a=>{
           const expanded=expandedAgent===a.agent_id;
@@ -484,10 +496,9 @@ function App(){
             </div>
             ${expanded&&html`<div style="margin-top:4px">
               <div class="desc">${esc(a.description)||'No description.'}</div>
-              <div class="actions">
-                ${a.linkable&&html`<button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>linkAgent(a.agent_id)}>Link</button>`}
-                <button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>unlinkAgent()}>Unlink</button>
-              </div>
+              ${a.linkable&&!linkedAgent&&html`<div class="actions">
+                <button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>linkAgent(a.agent_id)}>Link</button>
+              </div>`}
             </div>`}
           </div>`}):html`<div style="padding:16px;color:var(--dim);font-size:13px">No agents loaded.</div>`}
       </div>
