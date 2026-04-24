@@ -2549,6 +2549,18 @@ async def _dispatch(
             for aid, info in available_destinations.items()
         )
 
+    if message == "<agents_info_json>":
+        linkable = _get_linkable_agents(available_destinations)
+        agents_list = [
+            {
+                "agent_id": aid,
+                "description": info.get("description", ""),
+                "linkable": aid in linkable,
+            }
+            for aid, info in available_destinations.items()
+        ]
+        return json.dumps(agents_list)
+
     if message.startswith("<user_config>"):
         cfg_text = message[len("<user_config>"):].strip()
         json_cfg = _load_user_json_config(user_id)
@@ -2752,7 +2764,7 @@ async def _run(data: dict[str, Any]) -> dict[str, Any]:
     # Control tokens (<new_session>, etc.) operate on the session_id as-given
     # and must NOT be redirected or prefixed.
     _CONTROL_PREFIXES = ("<new_session>", "<stop_session>",
-                         "<token_info>", "<agents_info>",
+                         "<token_info>", "<agents_info>", "<agents_info_json>",
                          "<user_config>", "<fetch_user_config>", "<update_user_config>",
                          "<show_config>", "<config_instruct>",
                          "<list_models>", "<set_model>",

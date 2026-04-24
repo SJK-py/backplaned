@@ -125,7 +125,8 @@ function App(){
     try{if(v)localStorage.setItem('wa_currentSid',v);else localStorage.removeItem('wa_currentSid')}catch(e){}
   },[]);
   const[messages,setMessages]=useState([]);
-  const[agents,setAgents]=useState('');
+  const[agents,setAgents]=useState([]);
+  const[expandedAgent,setExpandedAgent]=useState(null);
   const[sending,setSending]=useState(false);
   const[attachedFiles,setAttachedFiles]=useState([]);
   const[leftOpen,setLeftOpen]=useState(true);
@@ -147,7 +148,7 @@ function App(){
   const loadAgents=useCallback(async()=>{
     if(!user)return;
     const r=await api('GET','/api/agents');
-    if(r&&r.ok){const d=await r.json();setAgents(d.content||'')}
+    if(r&&r.ok){const d=await r.json();setAgents(Array.isArray(d.agents)?d.agents:[])}
   },[user]);
 
   // Load archived
@@ -335,12 +336,32 @@ function App(){
 
   // Link/unlink
   async function linkAgent(agentId){
-    if(!currentSid)return;
-    await api('POST',`/api/sessions/${currentSid}/link/${agentId}`);
+    if(!currentSid||sending)return;
+    setSending(true);
+    setMessages(prev=>[...prev,{role:'progress',content:`Linking to ${agentId}...`}]);
+    try{
+      const r=await api('POST',`/api/sessions/${currentSid}/link/${agentId}`);
+      if(r&&r.ok){
+        const d=await r.json();
+        setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'assistant',content:d.content||'Linked.'}]);
+      }else{
+        setMessages(prev=>prev.filter(m=>m.role!=='progress'));
+      }
+    }finally{setSending(false)}
   }
   async function unlinkAgent(){
-    if(!currentSid)return;
-    await api('POST',`/api/sessions/${currentSid}/unlink`);
+    if(!currentSid||sending)return;
+    setSending(true);
+    setMessages(prev=>[...prev,{role:'progress',content:'Unlinking...'}]);
+    try{
+      const r=await api('POST',`/api/sessions/${currentSid}/unlink`);
+      if(r&&r.ok){
+        const d=await r.json();
+        setMessages(prev=>[...prev.filter(m=>m.role!=='progress'),{role:'assistant',content:d.content||'Unlinked.'}]);
+      }else{
+        setMessages(prev=>prev.filter(m=>m.role!=='progress'));
+      }
+    }finally{setSending(false)}
   }
 
   // Select session — load history from backend
@@ -356,7 +377,7 @@ function App(){
     await api('POST','/api/logout');
     try{localStorage.removeItem('wa_sessions');localStorage.removeItem('wa_currentSid')}catch(e){}
     _setSessions([]);_setCurrentSid(null);
-    setMessages([]);setArchived([]);setAgents('');setAttachedFiles([]);
+    setMessages([]);setArchived([]);setAgents([]);setAttachedFiles([]);
     setUser(null);
   }
 
@@ -453,18 +474,22 @@ function App(){
         </div>
       </div>
       <div class="agent-list">
-        ${(typeof agents==='string'&&agents)?agents.split('\n').filter(l=>l.trim()).map(line=>{
-          const m=line.match(/^\*\*([^*]+)\*\*:\s*(.*)/);
-          if(m)return html`<div class="agent-item">
-            <div class="name">${esc(m[1])}</div>
-            <div class="desc">${esc(m[2])}</div>
-            <div class="actions">
-              <button class="btn-sm btn-outline" onClick=${()=>linkAgent(m[1])}>Link</button>
-              <button class="btn-sm btn-outline" onClick=${()=>unlinkAgent()}>Unlink</button>
+        ${agents.length?agents.map(a=>{
+          const expanded=expandedAgent===a.agent_id;
+          return html`<div class="agent-item" key=${a.agent_id}>
+            <div class="name" style="cursor:pointer;display:flex;align-items:center;gap:4px"
+              onClick=${()=>setExpandedAgent(expanded?null:a.agent_id)}>
+              <span style="font-size:10px;width:12px">${expanded?'▼':'▶'}</span>
+              <span>${esc(a.agent_id)}</span>
             </div>
-          </div>`;
-          return line.trim()?html`<div style="padding:4px 10px;font-size:12px;color:var(--dim)">${esc(line)}</div>`:null;
-        }):html`<div style="padding:16px;color:var(--dim);font-size:13px">Loading agents...</div>`}
+            ${expanded&&html`<div style="margin-top:4px">
+              <div class="desc">${esc(a.description)||'No description.'}</div>
+              <div class="actions">
+                ${a.linkable&&html`<button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>linkAgent(a.agent_id)}>Link</button>`}
+                <button class="btn-sm btn-outline" disabled=${sending} onClick=${()=>unlinkAgent()}>Unlink</button>
+              </div>
+            </div>`}
+          </div>`}):html`<div style="padding:16px;color:var(--dim);font-size:13px">No agents loaded.</div>`}
       </div>
     </div>
 
