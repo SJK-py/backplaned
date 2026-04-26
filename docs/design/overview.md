@@ -203,13 +203,27 @@ The expected build sequence is documented in
 
 ## 9. Document map
 
-- [`router.md`](./router.md) — Router internals, frame protocol, state
-  machine, database schema, API surface.
-- [`sdk.md`](./sdk.md) — Agent SDK: handler surface, transport, LLM service,
-  file handling, embedded vs external deployment.
-- _(planned)_ `acl.md` — Capability and tier model in detail.
-- _(planned)_ `storage.md` — ProxyFile storage backend interface and
-  migration rules.
-- _(planned)_ `observability.md` — Trace/log/metric conventions.
+Router (split for readability and resilience while drafting):
+
+- [`router/protocol.md`](./router/protocol.md) — WebSocket frame envelope,
+  connection lifecycle, heartbeat, correlation model.
+- [`router/state.md`](./router/state.md) — Task state machine, multi-user
+  model (users, sessions, quotas, RBAC), capability-based ACL.
+- [`router/storage.md`](./router/storage.md) — Database schema, ProxyFile
+  storage backend, HTTP API surface, observability, configuration,
+  implementation sequencing.
+
+SDK:
+
+- [`sdk/core.md`](./sdk/core.md) — Agent surface, `TaskContext`, transport
+  abstraction, frame dispatch, peer calls, lifecycle, errors.
+- [`sdk/services.md`](./sdk/services.md) — LLM service, file handling,
+  progress, cancellation, tool builders, embedded vs. external
+  deployment, testing, worked Gemini-agent example.
+
+Planned follow-ups:
+
+- _(planned)_ `acl.md` — Deep-dive on capability and tier model.
+- _(planned)_ `observability.md` — Span / log / metric conventions.
 - _(planned)_ `security.md` — Threat model, token lifecycle, secrets
   handling.
