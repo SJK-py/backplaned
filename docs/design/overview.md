@@ -221,9 +221,14 @@ SDK:
   progress, cancellation, tool builders, embedded vs. external
   deployment, testing, worked Gemini-agent example.
 
-Planned follow-ups:
+Cross-cutting:
 
-- _(planned)_ `acl.md` — Deep-dive on capability and tier model.
-- _(planned)_ `observability.md` — Span / log / metric conventions.
-- _(planned)_ `security.md` — Threat model, token lifecycle, secrets
-  handling.
+- [`acl.md`](./acl.md) — Capability-based ACL: vocabulary, namespace
+  conventions, rule grammar, evaluation algorithm, scoped grants,
+  per-user composition, testing, migration from groups.
+- [`observability.md`](./observability.md) — Span / log / metric
+  conventions: trace propagation, naming, required attributes,
+  cardinality rules, dashboards, anti-patterns.
+- [`security.md`](./security.md) — Threat model, trust boundaries,
+  user / agent authentication, token lifecycle, secrets handling,
+  data isolation, audit log, risk table.
