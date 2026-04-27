@@ -79,10 +79,14 @@ class TaskContext:
     cancel_token: CancelToken
     log: logging.Logger
     """Pre-bound with trace_id/task_id/agent_id."""
-    progress: "ProgressEmitter"
-    files: "ProxyFileManager"
-    llm: "LlmServiceClient"
-    peers: "PeerClient"
+
+    # The four service handles below are wired in by the dispatcher right
+    # after construction (they hold back-references to ctx). They are
+    # never None at handler invocation time.
+    progress: "ProgressEmitter | None" = None
+    files: "ProxyFileManager | None" = None
+    llm: "LlmServiceClient | None" = None
+    peers: "PeerClient | None" = None
 
     extras: dict[str, Any] = field(default_factory=dict)
     """Free-form per-context state — SDK plugins may stash data here."""
