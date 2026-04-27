@@ -250,6 +250,13 @@ async def _handshake(ws: WebSocket, state: "AppState") -> SocketEntry:
             pass
         previous.closed.set()
 
+    try:
+        from bp_router.observability.metrics import ws_connected_agents  # noqa: PLC0415
+
+        ws_connected_agents.set(len(state.socket_registry))  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+
     # Build Welcome.
     async with pool.acquire() as conn:
         all_agents = await queries.list_agents(conn)
@@ -368,6 +375,14 @@ async def _send_loop(entry: SocketEntry) -> None:
         frame = await entry.outbox.get()
         await entry.websocket.send_text(serialize_frame(frame))
         entry.last_send = loop.time()
+        try:
+            from bp_router.observability.metrics import frames_total  # noqa: PLC0415
+
+            frames_total.labels(
+                direction="send", type=frame.type, agent_id=entry.agent_id
+            ).inc()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _heartbeat_loop(
@@ -424,6 +439,17 @@ async def _on_disconnect(entry: SocketEntry, state: "AppState") -> None:
     """Move into resume window if applicable, else fail in-flight tasks."""
     entry.closed.set()
     settings = state.settings  # type: ignore[attr-defined]
+
+    try:
+        from bp_router.observability.metrics import (  # noqa: PLC0415
+            ws_connected_agents,
+            ws_disconnects_total,
+        )
+
+        ws_connected_agents.set(len(state.socket_registry))  # type: ignore[attr-defined]
+        ws_disconnects_total.labels(reason="closed").inc()
+    except Exception:  # noqa: BLE001
+        pass
 
     # Reject any frame-level pending acks tied to this socket's correlations.
     if entry.inflight_correlations:

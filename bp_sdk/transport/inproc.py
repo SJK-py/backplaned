@@ -40,13 +40,16 @@ class InProcessTransport:
     async def connect(
         cls, config: "AgentConfig", *, info: "AgentInfo"
     ) -> "InProcessTransport":
-        # The router's embedded registry is responsible for calling
-        # `attach()` on the same instance. For now, the agent process
-        # creates the transport and registers it with the router via
-        # an in-process hook (TODO: define the hook surface).
-        t = cls()
-        await t._attached.wait()
-        return t
+        """Construct an InProcessTransport.
+
+        For embedded agents, the router-side `attach_embedded_agent`
+        is expected to call `attach()` on this instance with the
+        paired queues. `connect()` returns immediately when called
+        from the router's lifespan; the attach is what actually
+        wires the queues. Callers from outside the router should
+        prefer `WebSocketTransport`.
+        """
+        return cls()
 
     # ------------------------------------------------------------------
     # Router-side hooks
@@ -76,9 +79,15 @@ class InProcessTransport:
     # ------------------------------------------------------------------
 
     async def send(self, frame: Frame) -> None:
+        # Wait for attach in case the agent boots before the router
+        # finishes wiring the queues.
+        if not self._attached.is_set():
+            await self._attached.wait()
         await self._outbound.put(frame)
 
     async def recv(self) -> Frame:
+        if not self._attached.is_set():
+            await self._attached.wait()
         return await self._inbound.get()
 
     async def close(self) -> None:
@@ -87,3 +96,10 @@ class InProcessTransport:
     @property
     def is_connected(self) -> bool:
         return self._attached.is_set() and not self._closed.is_set()
+
+    @property
+    def welcome(self):  # type: ignore[no-untyped-def]
+        """Embedded agents don't go through Hello/Welcome; we don't
+        publish a catalog through this channel. Returns None so callers
+        that read transport.welcome stay safe."""
+        return None

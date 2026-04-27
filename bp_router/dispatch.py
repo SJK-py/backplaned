@@ -37,6 +37,13 @@ async def dispatch_frame(
     frame: Frame,
 ) -> None:
     """Route an inbound frame to the right handler."""
+    try:
+        from bp_router.observability.metrics import frames_total  # noqa: PLC0415
+
+        frames_total.labels(direction="recv", type=frame.type, agent_id=entry.agent_id).inc()
+    except Exception:  # noqa: BLE001
+        pass
+
     if isinstance(frame, NewTaskFrame):
         await _handle_new_task(state, entry, frame)
     elif isinstance(frame, ResultFrame):
