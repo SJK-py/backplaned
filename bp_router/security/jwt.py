@@ -5,11 +5,16 @@ See `docs/design/security.md` §3-5.
 
 from __future__ import annotations
 
+import secrets as _secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
+import jwt as pyjwt
 from fastapi import Depends, HTTPException, Request
+
+ISSUER = "bp_router"
+
 
 # ---------------------------------------------------------------------------
 # Principal types
@@ -42,6 +47,14 @@ class AgentPrincipal:
 # ---------------------------------------------------------------------------
 
 
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _new_jti() -> str:
+    return _secrets.token_urlsafe(16)
+
+
 def issue_session_token(
     *,
     user_id: str,
@@ -53,7 +66,22 @@ def issue_session_token(
     algorithm: str = "HS256",
 ) -> tuple[str, datetime, str]:
     """Returns (token, expires_at, jti)."""
-    raise NotImplementedError
+    iat = _now()
+    exp = iat + timedelta(seconds=ttl_s)
+    jti = _new_jti()
+    claims = {
+        "iss": ISSUER,
+        "sub": user_id,
+        "iat": int(iat.timestamp()),
+        "exp": int(exp.timestamp()),
+        "kind": "session",
+        "role": role,
+        "user_tier": user_tier,
+        "kver": key_version,
+        "jti": jti,
+    }
+    token = pyjwt.encode(claims, secret, algorithm=algorithm)
+    return token, exp, jti
 
 
 def issue_agent_token(
@@ -66,12 +94,30 @@ def issue_agent_token(
     algorithm: str = "HS256",
 ) -> tuple[str, datetime, str]:
     """Returns (token, expires_at, jti)."""
-    raise NotImplementedError
+    iat = _now()
+    exp = iat + timedelta(seconds=ttl_s)
+    jti = _new_jti()
+    claims = {
+        "iss": ISSUER,
+        "sub": agent_id,
+        "iat": int(iat.timestamp()),
+        "exp": int(exp.timestamp()),
+        "kind": "agent",
+        "ver": protocol_version,
+        "kver": key_version,
+        "jti": jti,
+    }
+    token = pyjwt.encode(claims, secret, algorithm=algorithm)
+    return token, exp, jti
 
 
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------
+
+
+class TokenError(Exception):
+    """Generic verification failure — message is safe to surface to callers."""
 
 
 def verify_token(
@@ -83,8 +129,57 @@ def verify_token(
     key_version: int,
     algorithm: str = "HS256",
 ) -> dict[str, Any]:
-    """Verify signature, expiry, kind claim, and revocation. Returns claims."""
-    raise NotImplementedError
+    """Verify signature, expiry, kind claim, and revocation. Returns claims.
+
+    Raises TokenError on any verification failure. Callers should treat
+    all such failures uniformly (e.g. "invalid token") to avoid
+    information leaks.
+    """
+    try:
+        claims = pyjwt.decode(
+            token,
+            secret,
+            algorithms=[algorithm],
+            issuer=ISSUER,
+            options={"require": ["exp", "iat", "iss", "sub", "kind", "jti", "kver"]},
+        )
+    except pyjwt.ExpiredSignatureError as exc:
+        raise TokenError("expired") from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise TokenError(f"invalid: {exc}") from exc
+
+    if claims.get("kind") != expected_kind:
+        raise TokenError("wrong_kind")
+    if int(claims.get("kver", 0)) != key_version:
+        raise TokenError("stale_key_version")
+    if revoked_jti is not None and claims.get("jti") in revoked_jti:
+        raise TokenError("revoked")
+    return claims
+
+
+def verify_agent_token(
+    token: str,
+    *,
+    secret: str,
+    revoked_jti: Optional[set[str]] = None,
+    key_version: int,
+    algorithm: str = "HS256",
+) -> AgentPrincipal:
+    """Specialised wrapper that returns an AgentPrincipal."""
+    claims = verify_token(
+        token,
+        secret=secret,
+        expected_kind="agent",
+        revoked_jti=revoked_jti,
+        key_version=key_version,
+        algorithm=algorithm,
+    )
+    return AgentPrincipal(
+        agent_id=claims["sub"],
+        expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
+        jti=claims["jti"],
+        sdk_protocol_version=str(claims.get("ver", "1")),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +203,13 @@ async def _principal_from_request(request: Request) -> SessionPrincipal:
             key_version=settings.jwt_key_version,
             algorithm=settings.jwt_algorithm,
         )
-    except Exception:  # noqa: BLE001
+    except TokenError:
         raise HTTPException(status_code=401, detail="invalid token")
     return SessionPrincipal(
         user_id=claims["sub"],
         role=claims["role"],
         user_tier=claims.get("user_tier", "free"),
-        expires_at=datetime.fromtimestamp(claims["exp"]),
+        expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
         jti=claims["jti"],
     )
 
@@ -139,7 +234,24 @@ async def _load_revoked_jti(request: Request) -> set[str]:
     """Pull the revocation set from Redis (preferred) or DB."""
     state = request.app.state.bp
     if state.redis is not None:
-        # Cheap SMEMBERS read; the set is small (recently-revoked jti only).
         members = await state.redis.smembers("router:revoked_jti")
         return set(members) if members else set()
     return set()
+
+
+# ---------------------------------------------------------------------------
+# Revocation helpers
+# ---------------------------------------------------------------------------
+
+
+async def revoke_jti(redis: Any, jti: str, *, ttl_s: int) -> None:
+    """Add a jti to the revocation set with TTL = its remaining lifetime.
+
+    The set is sized by JWT TTL × revocation rate; in practice tiny.
+    """
+    if redis is None:
+        return
+    pipe = redis.pipeline()
+    pipe.sadd("router:revoked_jti", jti)
+    pipe.expire("router:revoked_jti", ttl_s)
+    await pipe.execute()
