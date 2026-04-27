@@ -99,11 +99,75 @@ def load_acl_config(settings: "Settings") -> AclConfig:
       2. `./acl.yaml` next to the working directory.
       3. Built-in default (deny-all). Useful for tests.
 
-    Validates the parsed config and runs `acl.tests.yaml` if present
-    (see `docs/design/acl.md` §10) — failed required tests prevent
+    Validates the parsed config. If an `acl.tests.yaml` sits next to the
+    config, runs it; failed cases marked `required: true` prevent
     startup.
     """
-    raise NotImplementedError
+    import logging  # noqa: PLC0415
+    import os  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    log = logging.getLogger(__name__)
+
+    candidates: list[Path] = []
+    explicit = os.environ.get("ROUTER_ACL_PATH")
+    if explicit:
+        candidates.append(Path(explicit))
+    candidates.append(Path("acl.yaml"))
+
+    chosen: Optional[Path] = None
+    for p in candidates:
+        if p.is_file():
+            chosen = p
+            break
+
+    if chosen is None:
+        log.info(
+            "acl_config_default",
+            extra={"event": "acl_config_default", "reason": "no acl.yaml found"},
+        )
+        return AclConfig()
+
+    try:
+        import yaml  # noqa: PLC0415
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyYAML is required to load acl.yaml — install with `pip install PyYAML`"
+        ) from exc
+
+    raw = yaml.safe_load(chosen.read_text(encoding="utf-8")) or {}
+    config = AclConfig.model_validate(raw)
+
+    tests_path = chosen.parent / "acl.tests.yaml"
+    if tests_path.is_file():
+        from bp_router.acl.evaluator import run_acl_tests  # noqa: PLC0415
+
+        test_cases = yaml.safe_load(tests_path.read_text(encoding="utf-8")) or []
+        failures = run_acl_tests(config, test_cases)
+        required_failures = [f for f in failures if f.get("required", True)]
+        if required_failures:
+            raise RuntimeError(
+                f"ACL test suite failed {len(required_failures)} required case(s): "
+                f"{[f['name'] for f in required_failures]}"
+            )
+        if failures:
+            log.warning(
+                "acl_tests_optional_failures",
+                extra={
+                    "event": "acl_tests_optional_failures",
+                    "count": len(failures),
+                },
+            )
+
+    log.info(
+        "acl_config_loaded",
+        extra={
+            "event": "acl_config_loaded",
+            "path": str(chosen),
+            "rule_count": len(config.rules),
+        },
+    )
+    return config
 
 
 def load_acl_config_from_dict(data: dict) -> AclConfig:

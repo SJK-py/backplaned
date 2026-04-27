@@ -208,3 +208,56 @@ def _grant_applies(grant: dict, callee: Callee) -> bool:
     if caps and all(c in callee.capabilities for c in caps):
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Test runner — used by acl.tests.yaml validation
+# ---------------------------------------------------------------------------
+
+
+def run_acl_tests(config: "AclConfig", cases: list[dict]) -> list[dict]:
+    """Execute a list of ACL test cases against `config`.
+
+    Each case looks like:
+
+        - name: orchestrator-can-reach-gemini
+          caller: { agent_id: orchestrator, tags: [tier:0], capabilities: [...] }
+          callee: { agent_id: gemini_main, tags: [tier:1], capabilities: [...] }
+          expect: { visibility: allow, permission: allow }
+          required: true
+
+    Returns the list of failures (each with the original case + observed
+    decisions). Empty list = all cases passed.
+    """
+    evaluator = AclEvaluator(config)
+    failures: list[dict] = []
+
+    for case in cases:
+        caller = Caller(
+            agent_id=case["caller"].get("agent_id", "test_caller"),
+            tags=frozenset(case["caller"].get("tags", [])),
+            capabilities=frozenset(case["caller"].get("capabilities", [])),
+            requires_capabilities=frozenset(case["caller"].get("requires_capabilities", [])),
+            role=case["caller"].get("role"),
+            user_tier=case["caller"].get("user_tier"),
+        )
+        callee = Callee(
+            agent_id=case["callee"].get("agent_id", "test_callee"),
+            tags=frozenset(case["callee"].get("tags", [])),
+            capabilities=frozenset(case["callee"].get("capabilities", [])),
+        )
+        expect = case.get("expect", {})
+        observed: dict[str, str] = {}
+        for kind in ("visibility", "permission"):
+            if kind not in expect:
+                continue
+            decision = evaluator.evaluate(caller, callee, kind)  # type: ignore[arg-type]
+            observed[kind] = "allow" if decision.allow else "deny"
+
+        if observed != {k: v for k, v in expect.items() if k in ("visibility", "permission")}:
+            failures.append({
+                **case,
+                "observed": observed,
+            })
+
+    return failures
