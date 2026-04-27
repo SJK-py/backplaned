@@ -7,6 +7,22 @@ See `docs/design/router/protocol.md` for the protocol specification and
 `docs/design/overview.md` for the overall architecture.
 """
 
+from bp_protocol.frames import (
+    AckFrame,
+    CancelFrame,
+    ErrorCode,
+    ErrorFrame,
+    Frame,
+    HelloFrame,
+    NewTaskFrame,
+    PingFrame,
+    PongFrame,
+    ProgressFrame,
+    ResultFrame,
+    WelcomeFrame,
+    parse_frame,
+    serialize_frame,
+)
 from bp_protocol.types import (
     AgentInfo,
     AgentOutput,
@@ -23,6 +39,7 @@ PROTOCOL_VERSION = "1"
 
 __all__ = [
     "PROTOCOL_VERSION",
+    # types
     "AgentInfo",
     "AgentOutput",
     "LLMCall",
@@ -32,4 +49,19 @@ __all__ = [
     "TaskPriority",
     "TaskState",
     "TaskStatus",
+    # frames
+    "AckFrame",
+    "CancelFrame",
+    "ErrorCode",
+    "ErrorFrame",
+    "Frame",
+    "HelloFrame",
+    "NewTaskFrame",
+    "PingFrame",
+    "PongFrame",
+    "ProgressFrame",
+    "ResultFrame",
+    "WelcomeFrame",
+    "parse_frame",
+    "serialize_frame",
 ]
