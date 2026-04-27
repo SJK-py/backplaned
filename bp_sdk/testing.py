@@ -73,6 +73,9 @@ class TestRouter:
       allow_all_acl:     If True, install a single allow-all ACL rule.
     """
 
+    # pytest naming heuristic — this class is a fixture, not a test class.
+    __test__ = False
+
     def __init__(
         self,
         *,
