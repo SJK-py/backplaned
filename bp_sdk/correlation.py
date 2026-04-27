@@ -14,10 +14,21 @@ class _Pending:
 
 
 class PendingMap:
-    """Generic correlation_id → Future map with timeout reaping."""
+    """Generic correlation_id → Future map with timeout reaping.
+
+    Late-arriving resolve()s for keys that have not been registered yet
+    are buffered for a short window so a subsequent register() picks
+    them up immediately. This handles the unavoidable race when the
+    receive loop processes a result before the awaiting coroutine has
+    registered its future (e.g. after a multi-step spawn → ack →
+    register-result-future flow).
+    """
+
+    BUFFER_RESOLVES_S = 5.0
 
     def __init__(self, *, default_timeout_s: float) -> None:
         self._pending: dict[str, _Pending] = {}
+        self._buffered: dict[str, tuple[Any, float]] = {}
         self._default_timeout = default_timeout_s
         self._reaper: Optional[asyncio.Task] = None
 
@@ -26,6 +37,17 @@ class PendingMap:
     ) -> asyncio.Future:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future = loop.create_future()
+
+        # If a value was buffered for this id, hand it back immediately.
+        buffered = self._buffered.pop(correlation_id, None)
+        if buffered is not None:
+            value, _ts = buffered
+            if isinstance(value, BaseException):
+                fut.set_exception(value)
+            else:
+                fut.set_result(value)
+            return fut
+
         self._pending[correlation_id] = _Pending(
             fut, loop.time() + (timeout_s or self._default_timeout)
         )
@@ -34,6 +56,9 @@ class PendingMap:
     def resolve(self, correlation_id: str, value: Any) -> bool:
         entry = self._pending.pop(correlation_id, None)
         if entry is None:
+            # Buffer for late register().
+            loop = asyncio.get_event_loop()
+            self._buffered[correlation_id] = (value, loop.time())
             return False
         if not entry.future.done():
             entry.future.set_result(value)
@@ -42,6 +67,7 @@ class PendingMap:
     def reject(self, correlation_id: str, exc: BaseException) -> bool:
         entry = self._pending.pop(correlation_id, None)
         if entry is None:
+            self._buffered[correlation_id] = (exc, asyncio.get_event_loop().time())
             return False
         if not entry.future.done():
             entry.future.set_exception(exc)
@@ -67,5 +93,13 @@ class PendingMap:
                 expired = [cid for cid, p in self._pending.items() if p.deadline <= now]
                 for cid in expired:
                     self.reject(cid, TimeoutError("correlation_timeout"))
+                # Drop buffered entries older than BUFFER_RESOLVES_S.
+                stale = [
+                    cid
+                    for cid, (_, ts) in self._buffered.items()
+                    if now - ts > self.BUFFER_RESOLVES_S
+                ]
+                for cid in stale:
+                    self._buffered.pop(cid, None)
             except asyncio.CancelledError:
                 return
