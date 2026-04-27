@@ -135,7 +135,9 @@ class Dispatcher:
         if isinstance(frame, NewTaskFrame):
             await self._handle_new_task(frame)
         elif isinstance(frame, ResultFrame):
-            self.pending_results.resolve(frame.correlation_id, frame)
+            # Peer-call results are correlated by task_id (assigned during
+            # the spawn ack). PendingMap accepts arbitrary keys.
+            self.pending_results.resolve(frame.task_id, frame)
         elif isinstance(frame, ProgressFrame):
             await self._handle_progress(frame)
         elif isinstance(frame, CancelFrame):
@@ -284,6 +286,7 @@ class Dispatcher:
             inbox_dir=Path(self.agent.config.state_dir) / "inbox" / (frame.task_id or "spawn"),
             router_url=self._http_router_url(),
             embedded=self.agent.config.embedded,
+            auth_token=self.agent.config.auth_token,
         )
         return ctx
 
