@@ -136,6 +136,7 @@ def create_app() -> FastAPI:
         auth,
         files,
         health,
+        llm,
         onboard,
         sessions,
         tasks,
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(files.router, prefix="/v1/files", tags=["files"])
     app.include_router(onboard.router, prefix="/v1", tags=["onboard"])
     app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+    app.include_router(llm.router, prefix="/v1/llm", tags=["llm"])
 
     # WebSocket endpoint
     from bp_router.ws_hub import register_ws_endpoint  # noqa: PLC0415
