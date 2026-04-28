@@ -158,15 +158,79 @@ class Agent:
         except (NotImplementedError, RuntimeError):
             pass
 
+        # Proactive token refresh — only meaningful for external agents
+        # (embedded agents inherit the router's trust boundary and don't
+        # carry their own JWT).
+        refresh_task: Optional[asyncio.Task] = None
+        if not self.config.embedded:
+            refresh_task = asyncio.create_task(self._token_refresh_loop())
+
         try:
             await self._dispatcher.run_until(self._stop_event)  # type: ignore[union-attr]
         finally:
+            if refresh_task is not None:
+                refresh_task.cancel()
+                try:
+                    await refresh_task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
             for hook in self._shutdown_hooks:
                 try:
                     await hook()
                 except Exception:  # noqa: BLE001
                     logger.exception("shutdown_hook_failed")
             await transport.close()
+
+    async def _token_refresh_loop(self) -> None:
+        """Refresh the agent JWT proactively before expiry.
+
+        Wakes at `schedule_seconds_until_refresh(token)`, rotates via
+        `bp_sdk.onboarding.refresh_token`, then loops on the new token.
+        On failure, retries with exponential backoff capped at 5 min.
+        Cancellation (agent shutdown) propagates as asyncio.CancelledError.
+        """
+        from bp_sdk.onboarding import (  # noqa: PLC0415
+            refresh_token,
+            schedule_seconds_until_refresh,
+        )
+
+        backoff_s = 30.0
+        while not self._stop_event.is_set():
+            token = self.config.auth_token
+            if not token:
+                # Should not happen post-onboard, but be defensive.
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=60.0)
+                except asyncio.TimeoutError:
+                    continue
+                return
+
+            sleep_s = schedule_seconds_until_refresh(token)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=sleep_s)
+                return  # stop_event fired
+            except asyncio.TimeoutError:
+                pass
+
+            try:
+                new_exp = await refresh_token(self.config)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "token_refresh_unexpected", extra={"event": "token_refresh_unexpected"}
+                )
+                new_exp = None
+
+            if new_exp is None:
+                # Transient — back off and retry. Capped so we don't sleep
+                # past the token's actual expiry without trying again.
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=backoff_s)
+                    return
+                except asyncio.TimeoutError:
+                    pass
+                backoff_s = min(backoff_s * 2, 300.0)
+            else:
+                backoff_s = 30.0  # success — reset
 
     async def aclose(self) -> None:
         self._stop_event.set()
