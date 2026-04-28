@@ -180,7 +180,17 @@ async def _handle_progress(
 async def _handle_cancel(
     state: "AppState", entry: "SocketEntry", frame: CancelFrame
 ) -> None:
-    """Recursive cancellation initiated by an agent."""
+    """Cancel an in-flight LLM call or recursively cancel a task."""
+    # LLM-call abort: cancel just the matching router-side asyncio.Task.
+    if frame.ref_correlation_id is not None:
+        task = entry.llm_tasks.pop(frame.ref_correlation_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+        return
+
+    if frame.task_id is None:
+        return  # malformed; nothing to do
+
     from bp_router.tasks import cancel_task  # noqa: PLC0415
 
     pool = state.db_pool  # type: ignore[attr-defined]

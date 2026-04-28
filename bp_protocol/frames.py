@@ -124,10 +124,20 @@ class ProgressFrame(_FrameBase):
 
 
 class CancelFrame(_FrameBase):
-    """Request abort of an in-flight task."""
+    """Request abort of an in-flight task or LLM call.
+
+    Two modes:
+      - task abort:  task_id set, ref_correlation_id None (the common
+        path; cancels the task and propagates to descendants).
+      - LLM abort:   ref_correlation_id set to an in-flight LlmRequest's
+        correlation_id, task_id None. Cancels just that one provider
+        call so an agent's own cancellation can free server-side
+        tokens without tearing down the surrounding task.
+    """
 
     type: Literal["Cancel"] = "Cancel"
-    task_id: str
+    task_id: Optional[str] = None
+    ref_correlation_id: Optional[str] = None
     reason: str = "user_aborted"
 
 

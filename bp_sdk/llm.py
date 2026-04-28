@@ -16,10 +16,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, Optional, Union
 
 from bp_protocol.frames import (
+    CancelFrame,
     LlmDeltaFrame,
     LlmRequestFrame,
     LlmResultFrame,
 )
+from bp_sdk.errors import CancellationError
 
 if TYPE_CHECKING:
     from bp_sdk.context import TaskContext
@@ -108,6 +110,11 @@ class LlmCallError(RuntimeError):
 # Sentinel pushed to a streaming queue to signal the terminal LlmResult.
 _END = object()
 
+# Sentinel pushed to a streaming queue when cancel_token trips so the
+# awaiting `queue.get()` unblocks with a real value (avoids racing two
+# coroutines and leaving the unscheduled one warning at GC).
+_CANCEL_SENTINEL = object()
+
 
 class LlmServiceClient:
     """Per-task LLM facade. Routes calls over the agent's WebSocket.
@@ -134,6 +141,98 @@ class LlmServiceClient:
         return self._ctx.span_id
 
     # ------------------------------------------------------------------
+    # Cancel-aware await helpers
+    # ------------------------------------------------------------------
+
+    async def _send_abort(self, request: LlmRequestFrame) -> None:
+        """Tell the router to cancel a specific LLM call."""
+        cancel = CancelFrame(
+            agent_id=self._agent_id,
+            trace_id=self._trace_id,
+            span_id=self._span_id,
+            task_id=None,
+            ref_correlation_id=request.correlation_id,
+            reason=self._ctx.cancel_token.reason or "cancelled",
+        )
+        try:
+            await self._dispatcher.transport.send(cancel)
+        except Exception:  # noqa: BLE001
+            # Cancellation is best-effort — handler is about to bail anyway.
+            pass
+
+    async def _await_with_cancel_future(
+        self,
+        fut: "asyncio.Future",
+        request: LlmRequestFrame,
+    ) -> Any:
+        """Await a Future from PendingMap while watching cancel_token.
+
+        On cancel, reject the future so the await unblocks, send abort,
+        raise CancellationError. The PendingMap exception path means the
+        late-arriving result (if any) is discarded.
+        """
+        if self._ctx.cancel_token.cancelled:
+            await self._send_abort(request)
+            raise CancellationError(self._ctx.cancel_token.reason or "cancelled")
+
+        async def _watch() -> None:
+            await self._ctx.cancel_token.wait()
+            if not fut.done():
+                fut.set_exception(CancellationError(
+                    self._ctx.cancel_token.reason or "cancelled"
+                ))
+
+        watcher = asyncio.create_task(_watch())
+        try:
+            return await fut
+        except CancellationError:
+            await self._send_abort(request)
+            raise
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except BaseException:  # noqa: BLE001
+                pass
+
+    async def _queue_get_or_cancel(
+        self,
+        queue: "asyncio.Queue",
+        request: LlmRequestFrame,
+    ) -> Any:
+        """Pull the next item from `queue` while watching cancel_token.
+
+        On cancel, push a sentinel onto the queue so the get() unblocks
+        cleanly with a real value (rather than racing two coroutines
+        and leaving one unstarted), send abort, raise CancellationError.
+        """
+        if self._ctx.cancel_token.cancelled:
+            await self._send_abort(request)
+            raise CancellationError(self._ctx.cancel_token.reason or "cancelled")
+
+        sentinel = _CANCEL_SENTINEL
+
+        async def _watch() -> None:
+            await self._ctx.cancel_token.wait()
+            queue.put_nowait(sentinel)
+
+        watcher = asyncio.create_task(_watch())
+        try:
+            item = await queue.get()
+            if item is sentinel:
+                await self._send_abort(request)
+                raise CancellationError(
+                    self._ctx.cancel_token.reason or "cancelled"
+                )
+            return item
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except BaseException:  # noqa: BLE001
+                pass
+
+    # ------------------------------------------------------------------
     # generate
     # ------------------------------------------------------------------
 
@@ -149,6 +248,8 @@ class LlmServiceClient:
         stream: bool = False,
         provider_options: Optional[dict[str, Any]] = None,
     ) -> Union[LlmResponse, AsyncIterator[LlmDelta]]:
+        if self._ctx.cancel_token.cancelled:
+            raise CancellationError(self._ctx.cancel_token.reason or "cancelled")
         if isinstance(prompt, str):
             messages = [Message(role="user", content=prompt)]
         else:
@@ -181,7 +282,12 @@ class LlmServiceClient:
         fut = self._dispatcher.pending_results.register(request.correlation_id)
         await self._dispatcher.transport.send(request)
         try:
-            result = await fut
+            result = await self._await_with_cancel_future(fut, request)
+        except CancellationError:
+            self._dispatcher.pending_results.reject(
+                request.correlation_id, CancellationError("cancelled")
+            )
+            raise
         except TimeoutError as exc:
             raise LlmCallError("LLM request timed out") from exc
         return _result_to_response(result)
@@ -194,7 +300,10 @@ class LlmServiceClient:
         try:
             await self._dispatcher.transport.send(request)
             while True:
-                item = await queue.get()
+                # Race the next item against cancellation so a Cancel
+                # frame mid-stream aborts cleanly. The watcher pushes a
+                # sentinel on cancel rather than racing two awaits.
+                item = await self._queue_get_or_cancel(queue, request)
                 if item is _END:
                     return
                 if isinstance(item, LlmResultFrame):
@@ -218,6 +327,8 @@ class LlmServiceClient:
         *,
         model: str = "default",
     ) -> list[list[float]]:
+        if self._ctx.cancel_token.cancelled:
+            raise CancellationError(self._ctx.cancel_token.reason or "cancelled")
         if isinstance(text, str):
             text_list = [text]
         else:
@@ -234,7 +345,13 @@ class LlmServiceClient:
         )
         fut = self._dispatcher.pending_results.register(request.correlation_id)
         await self._dispatcher.transport.send(request)
-        result: LlmResultFrame = await fut
+        try:
+            result: LlmResultFrame = await self._await_with_cancel_future(fut, request)
+        except CancellationError:
+            self._dispatcher.pending_results.reject(
+                request.correlation_id, CancellationError("cancelled")
+            )
+            raise
         if result.error:
             raise LlmCallError(
                 f"{result.error.get('code', 'error')}: "
@@ -252,6 +369,8 @@ class LlmServiceClient:
         *,
         model: str = "default",
     ) -> int:
+        if self._ctx.cancel_token.cancelled:
+            raise CancellationError(self._ctx.cancel_token.reason or "cancelled")
         if isinstance(prompt, str):
             messages = [Message(role="user", content=prompt).model_dump()]
         else:
@@ -267,7 +386,13 @@ class LlmServiceClient:
         )
         fut = self._dispatcher.pending_results.register(request.correlation_id)
         await self._dispatcher.transport.send(request)
-        result: LlmResultFrame = await fut
+        try:
+            result: LlmResultFrame = await self._await_with_cancel_future(fut, request)
+        except CancellationError:
+            self._dispatcher.pending_results.reject(
+                request.correlation_id, CancellationError("cancelled")
+            )
+            raise
         if result.error:
             raise LlmCallError(
                 f"{result.error.get('code', 'error')}: "
