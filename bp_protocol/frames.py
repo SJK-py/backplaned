@@ -167,6 +167,91 @@ class PongFrame(_FrameBase):
 
 
 # ---------------------------------------------------------------------------
+# LLM service (router-side LlmService over the same WS channel)
+# ---------------------------------------------------------------------------
+
+
+LlmCallKind = Literal["generate", "embed", "count_tokens"]
+
+
+class LlmRequestFrame(_FrameBase):
+    """Agent → router. Invoke the router-side `LlmService`.
+
+    `kind` selects between generate / embed / count_tokens. Field set
+    used by each:
+      generate:     messages, tools, tool_choice, temperature,
+                    max_tokens, stream, provider_options
+      embed:        text
+      count_tokens: messages
+    """
+
+    type: Literal["LlmRequest"] = "LlmRequest"
+    kind: LlmCallKind = "generate"
+    model: str = "default"
+
+    # generate
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    tool_choice: Optional[Any] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    stream: bool = False
+    provider_options: Optional[dict[str, Any]] = None
+
+    # embed
+    text: Optional[list[str]] = None
+
+    # context (propagated for quotas + audit)
+    user_id: Optional[str] = None
+    task_id: Optional[str] = None
+
+
+class LlmDeltaFrame(_FrameBase):
+    """Router → agent. One streaming chunk in a generate(stream=True) call.
+
+    The terminal `LlmResultFrame` always follows the last delta and ends
+    the iterator on the SDK side.
+    """
+
+    type: Literal["LlmDelta"] = "LlmDelta"
+    ref_correlation_id: str
+    text: Optional[str] = None
+    tool_call: Optional[dict[str, Any]] = None
+    finish_reason: Optional[str] = None
+    usage: Optional[dict[str, int]] = None
+
+
+class LlmResultFrame(_FrameBase):
+    """Router → agent. Terminal response for a `LlmRequestFrame`.
+
+    Field set populated depends on `kind`:
+      generate:     text, tool_calls, finish_reason, usage, raw
+      embed:        vectors
+      count_tokens: total_tokens
+
+    `error` is set when the call failed; SDK raises on receipt.
+    """
+
+    type: Literal["LlmResult"] = "LlmResult"
+    ref_correlation_id: str
+
+    # generate
+    text: str = ""
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    finish_reason: str = "stop"
+    usage: dict[str, int] = Field(default_factory=dict)
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+    # embed
+    vectors: list[list[float]] = Field(default_factory=list)
+
+    # count_tokens
+    total_tokens: int = 0
+
+    error: Optional[dict[str, str]] = None
+
+
+# ---------------------------------------------------------------------------
 # Discriminated union + parser
 # ---------------------------------------------------------------------------
 
@@ -183,6 +268,9 @@ Frame = Annotated[
         AckFrame,
         PingFrame,
         PongFrame,
+        LlmRequestFrame,
+        LlmDeltaFrame,
+        LlmResultFrame,
     ],
     Field(discriminator="type"),
 ]

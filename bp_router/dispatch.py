@@ -7,6 +7,7 @@ The receive loop in `ws_hub` decodes one frame at a time and calls
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,9 @@ from bp_protocol.frames import (
     ErrorCode,
     ErrorFrame,
     Frame,
+    LlmDeltaFrame,
+    LlmRequestFrame,
+    LlmResultFrame,
     NewTaskFrame,
     PingFrame,
     PongFrame,
@@ -58,6 +62,8 @@ async def dispatch_frame(
         await _handle_ping(state, entry, frame)
     elif isinstance(frame, PongFrame):
         await _handle_pong(state, entry, frame)
+    elif isinstance(frame, LlmRequestFrame):
+        await _handle_llm_request(state, entry, frame)
     else:
         logger.warning(
             "unexpected_frame_in_dispatch",
@@ -218,3 +224,221 @@ async def _handle_pong(
     state: "AppState", entry: "SocketEntry", frame: PongFrame
 ) -> None:
     state.correlation.resolve(frame.ref_correlation_id, frame)  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# LLM request handler
+# ---------------------------------------------------------------------------
+
+
+async def _handle_llm_request(
+    state: "AppState", entry: "SocketEntry", frame: LlmRequestFrame
+) -> None:
+    """Run an LLM call against `state.llm_service` and stream/return the result.
+
+    The router-side asyncio.Task is tracked on the SocketEntry so the
+    disconnect handler can cancel in-flight LLM work and stop wasting
+    provider tokens on a dead client.
+    """
+    import asyncio  # noqa: PLC0415
+
+    task = asyncio.create_task(_run_llm_call(state, entry, frame))
+    entry.llm_tasks[frame.correlation_id] = task
+
+    def _cleanup(_t: "asyncio.Task") -> None:
+        entry.llm_tasks.pop(frame.correlation_id, None)
+
+    task.add_done_callback(_cleanup)
+
+
+async def _run_llm_call(
+    state: "AppState", entry: "SocketEntry", frame: LlmRequestFrame
+) -> None:
+    from bp_router.llm.service import Message, ToolSpec  # noqa: PLC0415
+
+    correlation = frame.correlation_id
+
+    def _send(out_frame: Frame) -> "asyncio.Future":  # type: ignore[no-untyped-def]
+        return entry.outbox.put(out_frame)
+
+    def _err_result(message: str, *, code: str = "internal_error") -> LlmResultFrame:
+        return LlmResultFrame(
+            agent_id="router",
+            trace_id=frame.trace_id,
+            span_id=frame.span_id,
+            ref_correlation_id=correlation,
+            error={"code": code, "message": message},
+        )
+
+    try:
+        if frame.kind == "embed":
+            text = frame.text or []
+            vectors = await state.llm_service.embed(  # type: ignore[attr-defined]
+                text, model=frame.model, user_id=frame.user_id
+            )
+            await _send(
+                LlmResultFrame(
+                    agent_id="router",
+                    trace_id=frame.trace_id,
+                    span_id=frame.span_id,
+                    ref_correlation_id=correlation,
+                    vectors=vectors,
+                )
+            )
+            return
+
+        if frame.kind == "count_tokens":
+            messages = [
+                Message(
+                    role=m["role"],
+                    content=m["content"],
+                    name=m.get("name"),
+                    tool_call_id=m.get("tool_call_id"),
+                )
+                for m in frame.messages
+            ]
+            total = await state.llm_service.count_tokens(  # type: ignore[attr-defined]
+                messages, model=frame.model
+            )
+            await _send(
+                LlmResultFrame(
+                    agent_id="router",
+                    trace_id=frame.trace_id,
+                    span_id=frame.span_id,
+                    ref_correlation_id=correlation,
+                    total_tokens=total,
+                )
+            )
+            return
+
+        # Default: generate
+        messages = [
+            Message(
+                role=m["role"],
+                content=m["content"],
+                name=m.get("name"),
+                tool_call_id=m.get("tool_call_id"),
+            )
+            for m in frame.messages
+        ]
+        tools = (
+            [
+                ToolSpec(
+                    name=t["name"],
+                    description=t.get("description", ""),
+                    parameters=t.get("parameters") or t.get("input_schema") or {},
+                )
+                for t in frame.tools
+            ]
+            if frame.tools
+            else None
+        )
+
+        if not frame.stream:
+            resp = await state.llm_service.generate(  # type: ignore[attr-defined]
+                messages,
+                model=frame.model,
+                tools=tools,
+                tool_choice=frame.tool_choice,
+                temperature=frame.temperature,
+                max_tokens=frame.max_tokens,
+                stream=False,
+                provider_options=frame.provider_options,
+                user_id=frame.user_id,
+                task_id=frame.task_id,
+            )
+            await _send(
+                LlmResultFrame(
+                    agent_id="router",
+                    trace_id=frame.trace_id,
+                    span_id=frame.span_id,
+                    ref_correlation_id=correlation,
+                    text=resp.text,
+                    tool_calls=[
+                        {"id": tc.id, "name": tc.name, "args": tc.args}
+                        for tc in resp.tool_calls
+                    ],
+                    finish_reason=resp.finish_reason,
+                    usage={
+                        "input_tokens": resp.usage.input_tokens,
+                        "output_tokens": resp.usage.output_tokens,
+                    },
+                )
+            )
+            return
+
+        # Streaming
+        iterator = await state.llm_service.generate(  # type: ignore[attr-defined]
+            messages,
+            model=frame.model,
+            tools=tools,
+            tool_choice=frame.tool_choice,
+            temperature=frame.temperature,
+            max_tokens=frame.max_tokens,
+            stream=True,
+            provider_options=frame.provider_options,
+            user_id=frame.user_id,
+            task_id=frame.task_id,
+        )
+
+        final_finish = "stop"
+        agg_in = agg_out = 0
+        async for delta in iterator:  # type: ignore[union-attr]
+            await _send(
+                LlmDeltaFrame(
+                    agent_id="router",
+                    trace_id=frame.trace_id,
+                    span_id=frame.span_id,
+                    ref_correlation_id=correlation,
+                    text=delta.text,
+                    tool_call=(
+                        {
+                            "id": delta.tool_call.id,
+                            "name": delta.tool_call.name,
+                            "args": delta.tool_call.args,
+                        }
+                        if delta.tool_call
+                        else None
+                    ),
+                    finish_reason=delta.finish_reason,
+                    usage=(
+                        {
+                            "input_tokens": delta.usage.input_tokens,
+                            "output_tokens": delta.usage.output_tokens,
+                        }
+                        if delta.usage
+                        else None
+                    ),
+                )
+            )
+            if delta.finish_reason:
+                final_finish = delta.finish_reason
+            if delta.usage:
+                agg_in = max(agg_in, delta.usage.input_tokens)
+                agg_out = max(agg_out, delta.usage.output_tokens)
+
+        await _send(
+            LlmResultFrame(
+                agent_id="router",
+                trace_id=frame.trace_id,
+                span_id=frame.span_id,
+                ref_correlation_id=correlation,
+                finish_reason=final_finish,
+                usage={"input_tokens": agg_in, "output_tokens": agg_out},
+            )
+        )
+    except asyncio.CancelledError:
+        # Disconnect or supersede; don't send a result frame, the socket is gone.
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "llm_call_failed",
+            extra={
+                "event": "llm_call_failed",
+                "bp.agent_id": entry.agent_id,
+            },
+        )
+        try:
+            await entry.outbox.put(_err_result(str(exc)))
+        except Exception:  # noqa: BLE001
+            pass

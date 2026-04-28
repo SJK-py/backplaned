@@ -130,13 +130,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # HTTP routers
+    # HTTP routers (LLM calls go over the WebSocket frame channel —
+    # see bp_router.dispatch._handle_llm_request and bp_protocol's
+    # LlmRequest/LlmDelta/LlmResult frames.)
     from bp_router.api import (  # noqa: PLC0415
         admin,
         auth,
         files,
         health,
-        llm,
         onboard,
         sessions,
         tasks,
@@ -149,7 +150,6 @@ def create_app() -> FastAPI:
     app.include_router(files.router, prefix="/v1/files", tags=["files"])
     app.include_router(onboard.router, prefix="/v1", tags=["onboard"])
     app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
-    app.include_router(llm.router, prefix="/v1/llm", tags=["llm"])
 
     # WebSocket endpoint
     from bp_router.ws_hub import register_ws_endpoint  # noqa: PLC0415

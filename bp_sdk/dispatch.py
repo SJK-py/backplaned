@@ -25,6 +25,8 @@ from bp_protocol.frames import (
     ErrorCode,
     ErrorFrame,
     Frame,
+    LlmDeltaFrame,
+    LlmResultFrame,
     NewTaskFrame,
     PingFrame,
     PongFrame,
@@ -73,6 +75,11 @@ class Dispatcher:
         )
         self._active: dict[str, _ActiveTask] = {}
         self._loops: list[asyncio.Task] = []
+        # correlation_id → asyncio.Queue used by streaming LLM calls.
+        # Keyed on the LlmRequest.correlation_id; LlmDelta frames are
+        # pushed in arrival order and the terminal LlmResult is pushed
+        # last, ending the SDK-side iterator.
+        self._llm_streams: dict[str, asyncio.Queue] = {}
 
     # ------------------------------------------------------------------
     # Run / shutdown
@@ -154,6 +161,10 @@ class Dispatcher:
             await self.transport.send(pong)
         elif isinstance(frame, PongFrame):
             self.pending_acks.resolve(frame.ref_correlation_id, frame)
+        elif isinstance(frame, LlmDeltaFrame):
+            await self._handle_llm_delta(frame)
+        elif isinstance(frame, LlmResultFrame):
+            await self._handle_llm_result(frame)
         elif isinstance(frame, ErrorFrame):
             logger.warning(
                 "router_error_frame",
@@ -369,6 +380,27 @@ class Dispatcher:
         active = self._active.get(frame.task_id)
         if active is not None:
             active.cancel_token.trip(frame.reason)
+
+    # ------------------------------------------------------------------
+    # LLM responses
+    # ------------------------------------------------------------------
+
+    async def _handle_llm_delta(self, frame: LlmDeltaFrame) -> None:
+        from bp_sdk.llm import _frame_delta_to_delta  # noqa: PLC0415
+
+        queue = self._llm_streams.get(frame.ref_correlation_id)
+        if queue is None:
+            return  # late delta after the iterator was abandoned
+        await queue.put(_frame_delta_to_delta(frame))
+
+    async def _handle_llm_result(self, frame: LlmResultFrame) -> None:
+        # Streaming case: terminate the iterator queue.
+        queue = self._llm_streams.get(frame.ref_correlation_id)
+        if queue is not None:
+            await queue.put(frame)
+            return
+        # Non-streaming case: resolve the pending future.
+        self.pending_results.resolve(frame.ref_correlation_id, frame)
 
 
 # ---------------------------------------------------------------------------

@@ -1,21 +1,25 @@
 """bp_sdk.llm — Agent-side LLM service client.
 
-Routes calls to the router-side LlmService over HTTPS using the agent's
-bearer token. Streaming uses Server-Sent Events. Future work will
-migrate this to the WebSocket frame channel; the API surface stays
-the same.
+Routes calls to the router-side LlmService over the same WebSocket frame
+channel that carries every other agent traffic. Streaming generates
+yield `LlmDelta` chunks; the iterator ends when the terminal
+`LlmResult` arrives.
 
 See `docs/sdk/services.md` §1.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, Optional, Union
 
-import httpx
+from bp_protocol.frames import (
+    LlmDeltaFrame,
+    LlmRequestFrame,
+    LlmResultFrame,
+)
 
 if TYPE_CHECKING:
     from bp_sdk.context import TaskContext
@@ -92,41 +96,42 @@ class LlmDelta:
     usage: Optional[TokenUsage] = None
 
 
+class LlmCallError(RuntimeError):
+    """Raised when the router returns an `LlmResultFrame` with `error` set."""
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
 
 
-class LlmServiceClient:
-    """Per-task LLM facade. Authenticates with the agent's bearer token.
+# Sentinel pushed to a streaming queue to signal the terminal LlmResult.
+_END = object()
 
-    Lifetime is the task; constructed by the dispatcher. Auto-forwarding
-    of streaming deltas as Progress(chunk) frames is the dispatcher's
-    job — `generate(stream=True)` simply iterates without re-emitting.
+
+class LlmServiceClient:
+    """Per-task LLM facade. Routes calls over the agent's WebSocket.
+
+    Lifetime is the task; constructed by the dispatcher. The dispatcher
+    routes incoming `LlmDelta` and `LlmResult` frames to the right
+    pending future / streaming queue keyed on `correlation_id`.
     """
 
     def __init__(self, ctx: "TaskContext", dispatcher: "Dispatcher") -> None:
         self._ctx = ctx
         self._dispatcher = dispatcher
-        self._http: Optional[httpx.AsyncClient] = None
 
     @property
-    def _base_url(self) -> str:
-        return self._dispatcher._http_router_url()  # type: ignore[attr-defined]
+    def _agent_id(self) -> str:
+        return self._dispatcher.agent.info.agent_id
 
     @property
-    def _auth(self) -> dict[str, str]:
-        token = self._dispatcher.agent.config.auth_token
-        return {"Authorization": f"Bearer {token}"} if token else {}
+    def _trace_id(self) -> str:
+        return self._ctx.trace_id
 
-    def _client(self) -> httpx.AsyncClient:
-        if self._http is None:
-            self._http = httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=httpx.Timeout(connect=5.0, read=300.0, write=60.0, pool=5.0),
-                headers=self._auth,
-            )
-        return self._http
+    @property
+    def _span_id(self) -> str:
+        return self._ctx.span_id
 
     # ------------------------------------------------------------------
     # generate
@@ -149,54 +154,62 @@ class LlmServiceClient:
         else:
             messages = prompt
 
-        body: dict[str, Any] = {
-            "messages": [m.model_dump() for m in messages],
-            "model": model,
-            "stream": stream,
-            "user_id": self._ctx.user_id,
-            "task_id": self._ctx.task_id,
-        }
-        if tools:
-            body["tools"] = [t.model_dump() for t in tools]
-        if tool_choice is not None:
-            body["tool_choice"] = tool_choice
-        if temperature is not None:
-            body["temperature"] = temperature
-        if max_tokens is not None:
-            body["max_tokens"] = max_tokens
-        if provider_options is not None:
-            body["provider_options"] = provider_options
+        request = LlmRequestFrame(
+            agent_id=self._agent_id,
+            trace_id=self._trace_id,
+            span_id=self._span_id,
+            kind="generate",
+            model=model,
+            messages=[m.model_dump() for m in messages],
+            tools=[t.model_dump() for t in tools] if tools else [],
+            tool_choice=tool_choice,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=stream,
+            provider_options=provider_options,
+            user_id=self._ctx.user_id,
+            task_id=(
+                self._ctx.task_id if self._ctx.task_id != "<spawn>" else None
+            ),
+        )
 
         if stream:
-            return self._stream(body)
+            return self._stream(request)
 
-        client = self._client()
-        resp = await client.post("/v1/llm/generate", json=body)
-        resp.raise_for_status()
-        return _parse_response(resp.json())
+        # Non-streaming: register a single-shot pending result on
+        # correlation_id and await one LlmResult.
+        fut = self._dispatcher.pending_results.register(request.correlation_id)
+        await self._dispatcher.transport.send(request)
+        try:
+            result = await fut
+        except TimeoutError as exc:
+            raise LlmCallError("LLM request timed out") from exc
+        return _result_to_response(result)
 
-    async def _stream(self, body: dict[str, Any]) -> AsyncIterator[LlmDelta]:
-        client = self._client()
-        async with client.stream("POST", "/v1/llm/generate", json=body) as resp:
-            resp.raise_for_status()
-            async for raw in resp.aiter_lines():
-                if not raw.startswith("data: "):
-                    continue
-                payload = raw[len("data: ") :].strip()
-                if not payload:
-                    continue
-                try:
-                    obj = json.loads(payload)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("done"):
+    async def _stream(self, request: LlmRequestFrame) -> AsyncIterator[LlmDelta]:
+        # Streaming: register a queue keyed on correlation_id BEFORE sending,
+        # so deltas arriving back-to-back with the request are not dropped.
+        queue: asyncio.Queue = asyncio.Queue()
+        self._dispatcher._llm_streams[request.correlation_id] = queue
+        try:
+            await self._dispatcher.transport.send(request)
+            while True:
+                item = await queue.get()
+                if item is _END:
                     return
-                if "error" in obj:
-                    raise RuntimeError(f"LLM stream error: {obj['error']}")
-                yield _parse_delta(obj)
+                if isinstance(item, LlmResultFrame):
+                    if item.error:
+                        raise LlmCallError(
+                            f"{item.error.get('code', 'error')}: "
+                            f"{item.error.get('message', '')}"
+                        )
+                    return
+                yield item  # already typed as LlmDelta
+        finally:
+            self._dispatcher._llm_streams.pop(request.correlation_id, None)
 
     # ------------------------------------------------------------------
-    # embed / count_tokens
+    # embed
     # ------------------------------------------------------------------
 
     async def embed(
@@ -205,10 +218,33 @@ class LlmServiceClient:
         *,
         model: str = "default",
     ) -> list[list[float]]:
-        client = self._client()
-        resp = await client.post("/v1/llm/embed", json={"text": text, "model": model})
-        resp.raise_for_status()
-        return resp.json()["vectors"]
+        if isinstance(text, str):
+            text_list = [text]
+        else:
+            text_list = list(text)
+
+        request = LlmRequestFrame(
+            agent_id=self._agent_id,
+            trace_id=self._trace_id,
+            span_id=self._span_id,
+            kind="embed",
+            model=model,
+            text=text_list,
+            user_id=self._ctx.user_id,
+        )
+        fut = self._dispatcher.pending_results.register(request.correlation_id)
+        await self._dispatcher.transport.send(request)
+        result: LlmResultFrame = await fut
+        if result.error:
+            raise LlmCallError(
+                f"{result.error.get('code', 'error')}: "
+                f"{result.error.get('message', '')}"
+            )
+        return result.vectors
+
+    # ------------------------------------------------------------------
+    # count_tokens
+    # ------------------------------------------------------------------
 
     async def count_tokens(
         self,
@@ -220,52 +256,70 @@ class LlmServiceClient:
             messages = [Message(role="user", content=prompt).model_dump()]
         else:
             messages = [m.model_dump() for m in prompt]
-        client = self._client()
-        resp = await client.post(
-            "/v1/llm/count-tokens", json={"messages": messages, "model": model}
+
+        request = LlmRequestFrame(
+            agent_id=self._agent_id,
+            trace_id=self._trace_id,
+            span_id=self._span_id,
+            kind="count_tokens",
+            model=model,
+            messages=messages,
         )
-        resp.raise_for_status()
-        return int(resp.json()["total_tokens"])
+        fut = self._dispatcher.pending_results.register(request.correlation_id)
+        await self._dispatcher.transport.send(request)
+        result: LlmResultFrame = await fut
+        if result.error:
+            raise LlmCallError(
+                f"{result.error.get('code', 'error')}: "
+                f"{result.error.get('message', '')}"
+            )
+        return result.total_tokens
 
     async def aclose(self) -> None:
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
+        # Frame channel doesn't own a connection; nothing to close.
+        return None
 
 
-def _parse_response(obj: dict[str, Any]) -> LlmResponse:
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _result_to_response(result: LlmResultFrame) -> LlmResponse:
+    if result.error:
+        raise LlmCallError(
+            f"{result.error.get('code', 'error')}: "
+            f"{result.error.get('message', '')}"
+        )
     return LlmResponse(
-        text=obj.get("text", ""),
+        text=result.text,
         tool_calls=[
             ToolCall(id=tc["id"], name=tc["name"], args=tc.get("args", {}))
-            for tc in obj.get("tool_calls", [])
+            for tc in result.tool_calls
         ],
-        finish_reason=obj.get("finish_reason", "stop"),
+        finish_reason=result.finish_reason,
         usage=TokenUsage(
-            input_tokens=obj.get("usage", {}).get("input_tokens", 0),
-            output_tokens=obj.get("usage", {}).get("output_tokens", 0),
+            input_tokens=result.usage.get("input_tokens", 0),
+            output_tokens=result.usage.get("output_tokens", 0),
         ),
-        raw=obj.get("raw", {}),
+        raw=result.raw,
     )
 
 
-def _parse_delta(obj: dict[str, Any]) -> LlmDelta:
+def _frame_delta_to_delta(frame: LlmDeltaFrame) -> LlmDelta:
     tool_call = None
-    if obj.get("tool_call"):
-        tc = obj["tool_call"]
+    if frame.tool_call:
+        tc = frame.tool_call
         tool_call = ToolCall(id=tc["id"], name=tc["name"], args=tc.get("args", {}))
-
     usage = None
-    if obj.get("usage"):
-        u = obj["usage"]
+    if frame.usage:
         usage = TokenUsage(
-            input_tokens=u.get("input_tokens", 0),
-            output_tokens=u.get("output_tokens", 0),
+            input_tokens=frame.usage.get("input_tokens", 0),
+            output_tokens=frame.usage.get("output_tokens", 0),
         )
-
     return LlmDelta(
-        text=obj.get("text"),
+        text=frame.text,
         tool_call=tool_call,
-        finish_reason=obj.get("finish_reason"),
+        finish_reason=frame.finish_reason,
         usage=usage,
     )

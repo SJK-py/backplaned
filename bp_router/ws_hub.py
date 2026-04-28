@@ -52,6 +52,12 @@ class SocketEntry:
     last_recv: float = 0.0
     last_send: float = 0.0
     inflight_correlations: set[str] = field(default_factory=set)
+    llm_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
+    """correlation_id → router-side asyncio.Task running an LLM call.
+
+    Cancelled by `_on_disconnect` so a dropped client doesn't keep
+    consuming provider tokens.
+    """
     closed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -439,6 +445,12 @@ async def _on_disconnect(entry: SocketEntry, state: "AppState") -> None:
     """Move into resume window if applicable, else fail in-flight tasks."""
     entry.closed.set()
     settings = state.settings  # type: ignore[attr-defined]
+
+    # Cancel any in-flight LLM router-side tasks for this agent so we
+    # stop burning provider tokens on a dead client.
+    for cid, task in list(entry.llm_tasks.items()):
+        task.cancel()
+    entry.llm_tasks.clear()
 
     try:
         from bp_router.observability.metrics import (  # noqa: PLC0415
