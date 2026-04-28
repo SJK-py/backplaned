@@ -3,7 +3,7 @@
 Frame-level acks live here. Task-level outcomes live in the `tasks`
 table — they don't need a second pending-results map at the router
 because SQL + timeout_sweep already serve that role
-(`docs/design/router/protocol.md` §4).
+(`docs/router/protocol.md` §4).
 """
 
 from __future__ import annotations

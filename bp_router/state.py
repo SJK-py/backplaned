@@ -4,7 +4,7 @@ The single transition function (`task_transition`) is the only code path
 that mutates `tasks.state`. CI lints for raw UPDATE statements that
 bypass it.
 
-See `docs/design/router/state.md` §1 for the spec.
+See `docs/router/state.md` §1 for the spec.
 """
 
 from __future__ import annotations

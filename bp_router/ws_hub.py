@@ -2,7 +2,7 @@
 
 One socket per agent; supersede semantics: a new Hello with the same
 agent_id closes the previous socket. See
-`docs/design/router/protocol.md` §3.
+`docs/router/protocol.md` §3.
 """
 
 from __future__ import annotations

@@ -1,0 +1,46 @@
+# Local-development Postgres for the bp_router test fixture.
+#
+# Bring up:    docker compose -f docker-compose.dev.yml up -d
+# Tear down:   docker compose -f docker-compose.dev.yml down -v
+#
+# After it's running:
+#   export ROUTER_DB_URL=postgresql://postgres:bp@localhost:5432/bp_router
+#   alembic upgrade head
+#
+# This file is for developer machines and CI only — production deployments
+# should use a managed Postgres or a separate compose file with proper
+# secret management and persistent volumes.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: bp-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: bp
+      POSTGRES_DB: bp_router
+    ports:
+      - "5432:5432"
+    volumes:
+      - bp_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bp_router"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: bp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  bp_pg_data:

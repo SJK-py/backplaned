@@ -1,6 +1,6 @@
 """bp_router.observability — Tracing, structured logging, Prometheus metrics.
 
-See `docs/design/observability.md` for the conventions.
+See `docs/observability.md` for the conventions.
 """
 
 from bp_router.observability.logging import configure_logging

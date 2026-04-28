@@ -1,6 +1,6 @@
 """bp_router.security — Auth, secrets, password hashing.
 
-See `docs/design/security.md`.
+See `docs/security.md`.
 """
 
 from bp_router.security.jwt import (

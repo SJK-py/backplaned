@@ -4,7 +4,7 @@ Maintains one socket to the router; reconnects with jittered exponential
 backoff. Hello/Welcome handshake on every (re)connect; offers
 resume_token where applicable.
 
-See `docs/design/router/protocol.md` §3 for the lifecycle.
+See `docs/router/protocol.md` §3 for the lifecycle.
 """
 
 from __future__ import annotations

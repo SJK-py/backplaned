@@ -1,6 +1,6 @@
 """bp_router.observability.metrics — Prometheus metric registry.
 
-See `docs/design/observability.md` §4 for the canonical metric set.
+See `docs/observability.md` §4 for the canonical metric set.
 The registry is a module-level singleton so any subsystem can import
 and increment without dependency injection.
 """

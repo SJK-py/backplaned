@@ -1,7 +1,7 @@
 """bp_sdk.errors — Typed exceptions agent code may raise.
 
 Each error maps to a specific status_code on the Result frame. See
-`docs/design/sdk/core.md` §10.
+`docs/sdk/core.md` §10.
 """
 
 from __future__ import annotations

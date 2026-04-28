@@ -1,87 +1,55 @@
 [project]
 name = "backplaned"
 version = "0.1.0"
-description = "ESB-style multi-agent router and personal assistant agent suite"
+description = "Multi-user agent router with WebSocket transport, Postgres backend, and a typed Python SDK."
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
+readme = "README.md"
 
 dependencies = [
-    # Core framework (used by both legacy router.py and bp_router/bp_sdk)
-    "fastapi>=0.135",
-    "uvicorn>=0.42",
-    "httpx>=0.28",
-    "httpx-sse>=0.4",
+    # Wire protocol + shared types
     "pydantic>=2.12",
     "pydantic-settings>=2.5",
-    "python-dotenv>=1.2",
-    "python-multipart>=0.0.22",
-    "itsdangerous>=2.2",
+
+    # Agent SDK transport
+    "httpx>=0.28",
     "websockets>=16.0",
 
-    # LLM providers
-    "openai>=2.30",
-    "anthropic>=0.86",
-    "google-genai>=1.14",
-
-    # Document conversion (md_converter)
-    "markitdown>=0.1.5",
-    "markitdown-ocr>=0.1.0",
-
-    # Image processing (read_image resize)
-    "Pillow>=10.0",
-
-    # Memory (memory_agent) + Knowledge base (kb_agent)
-    "lancedb>=0.30",
-
-    # MCP protocol (mcp_agent, mcp_server)
-    "mcp>=1.26",
-
-    # Telegram (channel_agent)
-    "python-telegram-bot>=22.7",
-
-    # Reminder/cron (rrule parsing, cron scheduling)
-    "python-dateutil>=2.9",
-    "croniter>=6.0",
-
-    # SSE streaming (legacy router.py only — bp_router unifies on WebSocket)
-    "sse-starlette>=3.3",
+    # JSON logging hooks (used by both router and SDK)
+    "prometheus-client>=0.21",
 ]
 
-# ---------------------------------------------------------------------------
-# Optional dependency groups for the reworked stack
-# (`pip install backplaned[router]` etc.)
-# ---------------------------------------------------------------------------
-
 [project.optional-dependencies]
-# Reworked router (bp_router): Postgres, Redis, Alembic, Argon2, JWT, OTel,
-# Prometheus.
+# Reworked router (bp_router): Postgres, Redis, Alembic, argon2, JWT,
+# Prometheus, OpenTelemetry, YAML, email validation.
 router = [
+    "fastapi>=0.135",
+    "uvicorn[standard]>=0.42",
+    "python-multipart>=0.0.22",
     "asyncpg>=0.30",
     "redis>=5.0",
     "alembic>=1.14",
-    "sqlalchemy[asyncio]>=2.0",       # Alembic env requires SQLAlchemy
+    "sqlalchemy[asyncio]>=2.0",  # alembic env requires SQLAlchemy
     "argon2-cffi>=23.1",
     "pyjwt[crypto]>=2.9",
-    "prometheus-client>=0.21",
+    "PyYAML>=6.0",
+    "email-validator>=2.2",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
-    "PyYAML>=6.0",
-    "email-validator>=2.2",
 ]
 
-# Reworked agent SDK (bp_sdk): minimal — most behaviour leans on bp_protocol
-# and standard websockets/httpx already in the core deps.
-sdk = [
-    "prometheus-client>=0.21",
-    "opentelemetry-api>=1.27",
+# LLM provider adapters (only what's wired today; add more as adapters land).
+llm-gemini = [
+    "google-genai>=1.14",
 ]
 
-# Optional S3-compatible file storage backend
+# Optional S3-compatible file storage backend (AWS S3, R2, MinIO).
 storage-s3 = [
     "aioboto3>=14.0",
 ]
 
-# Dev / test
+# Test + dev tooling.
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
@@ -97,12 +65,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = [
-    "backplaned",   # legacy
-    "bp_protocol",  # reworked: shared types and frames
-    "bp_router",    # reworked: router package
-    "bp_sdk",       # reworked: agent SDK
-]
+packages = ["bp_protocol", "bp_router", "bp_sdk"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -114,4 +77,4 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "PLC", "PLE", "PLW"]
-ignore = ["E501"]  # line-length handled by formatter
+ignore = ["E501"]

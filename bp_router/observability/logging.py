@@ -1,6 +1,6 @@
 """bp_router.observability.logging — Structured JSON logging.
 
-See `docs/design/observability.md` §3.
+See `docs/observability.md` §3.
 """
 
 from __future__ import annotations

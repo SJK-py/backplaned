@@ -3,33 +3,20 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.pytest_cache/
 
 # Environment and secrets
 .env
-*/.env
-*/*/.env
-start.config
-agents/*/config.json
-agents_external/*/config.json
+*.pem
+*.key
 
-# Credentials (generated at runtime)
-*/data/credentials.json
-*/data/admin_password.json
-**/credentials.json
-**/admin_password.json
-
-# Database
-*.db
-
-# Runtime data
+# Generated runtime data
+agent_state/
 proxyfiles/
-*/data/
-**/data/sessions/
-**/data/logs/
-**/data/output/
-**/data/workspaces/
-**/data/inboxes/
-**/data/users/
+.test_proxyfiles/
+
+# Credentials persisted by the SDK on first run
+**/credentials.json
 
 # IDE
 .idea/

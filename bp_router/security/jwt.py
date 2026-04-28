@@ -1,6 +1,6 @@
 """bp_router.security.jwt — JWT issuance, verification, and FastAPI deps.
 
-See `docs/design/security.md` §3-5.
+See `docs/security.md` §3-5.
 """
 
 from __future__ import annotations

@@ -1,8 +1,0 @@
-{
-    "LLM_AGENT_ID": "Agent ID for LLM inference calls (default: llm_agent)",
-    "DEFAULT_MODEL_ID": "Global default model ID. Per-user override via user config",
-    "LLM_TIMEOUT": "LLM call timeout in seconds (default: 120)",
-    "TOOL_TIMEOUT": "Tool execution timeout in seconds (default: 60)",
-    "WORKSPACE_ROOT": "Root directory for per-user workspaces (default: data/workspaces)",
-    "USER_CONFIG_PATH": "Path to per-user config JSON file (default: data/user_config.json)"
-}

@@ -1,7 +1,7 @@
 """bp_protocol.types — Common Pydantic models shared by router and SDK.
 
 These models are protocol-stable: changes here are wire-breaking.
-See `docs/design/sdk/core.md` and `docs/design/sdk/services.md` for the
+See `docs/sdk/core.md` and `docs/sdk/services.md` for the
 agent-side API surface that consumes them.
 """
 
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 
 class TaskState(str, Enum):
-    """Task state machine states. See `docs/design/router/state.md` §1."""
+    """Task state machine states. See `docs/router/state.md` §1."""
 
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
@@ -69,7 +69,7 @@ class ProxyFile(BaseModel):
     produced by an embedded agent into a `presigned` URL for an external
     consumer).
 
-    See `docs/design/router/storage.md` §2 for storage semantics.
+    See `docs/router/storage.md` §2 for storage semantics.
     """
 
     path: str
@@ -101,7 +101,7 @@ class ProxyFile(BaseModel):
 class AgentInfo(BaseModel):
     """Metadata an agent publishes to the router on registration.
 
-    Capabilities and tags drive ACL evaluation (`docs/design/acl.md`).
+    Capabilities and tags drive ACL evaluation (`docs/acl.md`).
     `accepts_schema` and `produces_schema` are JSON Schema fragments used
     by the router to validate `NewTask.payload` and `Result.output` at the
     boundary, before any handler runs.
@@ -114,7 +114,7 @@ class AgentInfo(BaseModel):
     """Human-readable, used in catalog entries."""
 
     capabilities: list[str] = Field(default_factory=list)
-    """Capabilities this agent provides. See `docs/design/acl.md` §3."""
+    """Capabilities this agent provides. See `docs/acl.md` §3."""
 
     requires_capabilities: list[str] = Field(default_factory=list)
     """Capabilities this agent's handlers may invoke on others."""

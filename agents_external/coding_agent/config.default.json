@@ -1,8 +1,0 @@
-{
-    "LLM_AGENT_ID": "llm_agent",
-    "DEFAULT_MODEL_ID": "",
-    "LLM_TIMEOUT": 120,
-    "TOOL_TIMEOUT": 60,
-    "WORKSPACE_ROOT": "data/workspaces",
-    "USER_CONFIG_PATH": "data/user_config.json"
-}

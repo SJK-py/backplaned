@@ -5,7 +5,7 @@ bearer token. Streaming uses Server-Sent Events. Future work will
 migrate this to the WebSocket frame channel; the API surface stays
 the same.
 
-See `docs/design/sdk/services.md` §1.
+See `docs/sdk/services.md` §1.
 """
 
 from __future__ import annotations

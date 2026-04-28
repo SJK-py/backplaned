@@ -1,5 +1,0 @@
-{
-    "CORE_AGENT_ID": "Default core agent for routing user messages (default: core_personal_agent)",
-    "RATE_LIMIT_WINDOW": "Rate limit window in seconds for unregistered users (default: 3600)",
-    "RATE_LIMIT_MAX_TRIALS": "Max messages allowed within rate limit window (default: 5)"
-}

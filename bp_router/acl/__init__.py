@@ -1,6 +1,6 @@
 """bp_router.acl — Capability-based access control.
 
-See `docs/design/acl.md` for the full specification.
+See `docs/acl.md` for the full specification.
 """
 
 from bp_router.acl.evaluator import AclEvaluator, Decision

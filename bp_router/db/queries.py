@@ -5,7 +5,7 @@ returned wrapper enforces `WHERE user_id = $1` on its method's queries.
 CI greps for `SELECT|UPDATE|DELETE` patterns in this module that are not
 behind `Scope` to catch invariant violations.
 
-See `docs/design/security.md` §8 for the data isolation rationale.
+See `docs/security.md` §8 for the data isolation rationale.
 """
 
 from __future__ import annotations

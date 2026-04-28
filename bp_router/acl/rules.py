@@ -1,6 +1,6 @@
 """bp_router.acl.rules — Rule grammar models.
 
-See `docs/design/acl.md` §5 for the spec. A `RuleSet` is the parsed
+See `docs/acl.md` §5 for the spec. A `RuleSet` is the parsed
 form of `acl.yaml`; deployments load it at startup and reload on
 admin updates via PUT /v1/admin/acl/rules.
 """

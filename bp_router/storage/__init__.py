@@ -1,6 +1,6 @@
 """bp_router.storage — Pluggable file storage.
 
-See `docs/design/router/storage.md` §2.
+See `docs/router/storage.md` §2.
 """
 
 from __future__ import annotations

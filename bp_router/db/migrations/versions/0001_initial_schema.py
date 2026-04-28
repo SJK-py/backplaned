@@ -1,7 +1,7 @@
 """initial schema
 
 Creates the full set of tables defined in
-docs/design/router/storage.md §1.1: users, sessions, agents, tasks,
+docs/router/storage.md §1.1: users, sessions, agents, tasks,
 task_events, files, acl_rules, audit_log, invitations,
 auth_refresh_tokens.
 

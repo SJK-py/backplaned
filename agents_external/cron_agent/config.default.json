@@ -1,7 +1,0 @@
-{
-    "LLM_AGENT_ID": "llm_agent",
-    "DEFAULT_MODEL_ID": "",
-    "CORE_AGENT_ID": "core_personal_agent",
-    "CHECK_INTERVAL": 30,
-    "TOOL_TIMEOUT": 120
-}

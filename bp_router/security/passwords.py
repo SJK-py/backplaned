@@ -1,7 +1,7 @@
 """bp_router.security.passwords — argon2id password hashing.
 
 OWASP-tuned defaults; parameters configurable via deployment settings
-if needed. See `docs/design/security.md` §3.1.
+if needed. See `docs/security.md` §3.1.
 """
 
 from __future__ import annotations

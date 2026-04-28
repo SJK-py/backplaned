@@ -1,5 +1,0 @@
-{
-    "CORE_AGENT_ID": "core_personal_agent",
-    "RATE_LIMIT_WINDOW": 3600,
-    "RATE_LIMIT_MAX_TRIALS": 5
-}

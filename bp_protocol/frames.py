@@ -1,7 +1,7 @@
 """bp_protocol.frames — Discriminated-union frame models for the WebSocket
 protocol between router and agents.
 
-See `docs/design/router/protocol.md` §2 for the full specification.
+See `docs/router/protocol.md` §2 for the full specification.
 
 Every frame is a Pydantic model; validation happens at the router edge
 before any business logic runs. Callers should use `parse_frame()` to
@@ -40,7 +40,7 @@ def _new_correlation_id() -> str:
 
 
 class _FrameBase(BaseModel):
-    """Fields present on every frame (`docs/design/router/protocol.md` §2.1)."""
+    """Fields present on every frame (`docs/router/protocol.md` §2.1)."""
 
     type: str
     protocol_version: str = "1"
@@ -209,7 +209,7 @@ def serialize_frame(frame: Frame) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Error code catalog (`docs/design/router/protocol.md` §6)
+# Error code catalog (`docs/router/protocol.md` §6)
 # ---------------------------------------------------------------------------
 
 

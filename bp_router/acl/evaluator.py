@@ -1,7 +1,7 @@
 """bp_router.acl.evaluator — Rule evaluation algorithm.
 
 First-match wins. Defaults apply when no rule matches. See
-`docs/design/acl.md` §6.
+`docs/acl.md` §6.
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ class AclEvaluator:
         """Return the (allow, rule_name) for this pair and decision kind.
 
         `grants` is the list of scoped grants attached to the current
-        task (see `docs/design/acl.md` §7). Grants extend permission
+        task (see `docs/acl.md` §7). Grants extend permission
         only — they do not override deny rules and (by default) do not
         affect visibility.
         """

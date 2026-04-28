@@ -1,6 +1,6 @@
 """bp_router.settings — Pydantic Settings, validated at startup.
 
-See `docs/design/router/storage.md` §5 for the configuration spec.
+See `docs/router/storage.md` §5 for the configuration spec.
 """
 
 from __future__ import annotations
