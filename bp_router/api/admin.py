@@ -10,8 +10,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr, Field
 
-from bp_router.acl import AclEvaluator
-from bp_router.acl.rules import AclConfig, load_acl_config_from_dict
+from bp_router.acl.rules import AclConfig
 from bp_router.db import queries
 from bp_router.security.jwt import SessionPrincipal, require_admin
 from bp_router.security.passwords import hash_password
@@ -126,6 +125,13 @@ async def create_user(
     return {"user_id": user.user_id}
 
 
+# Whitelist of columns the PATCH endpoint may set. The dynamic SET clause
+# below interpolates only names from this set — never user-supplied keys —
+# so SQL injection via column name is impossible. Values are always bound
+# via $-parameters.
+_USER_PATCHABLE_COLUMNS = frozenset({"role", "user_tier", "suspended_at"})
+
+
 @router.patch("/users/{user_id}")
 async def update_user(
     user_id: str,
@@ -152,6 +158,11 @@ async def update_user(
 
     if not fields:
         return {"user_id": user_id, "updated": "0"}
+
+    # Defense-in-depth: every name we interpolate must be in the allowlist.
+    # Code paths above only ever produce names from _USER_PATCHABLE_COLUMNS,
+    # so this is effectively an assertion.
+    assert all(name in _USER_PATCHABLE_COLUMNS for name in fields), fields
 
     set_clause = ", ".join(f"{name} = ${i+2}" for i, name in enumerate(fields))
     sql = f"UPDATE users SET {set_clause} WHERE user_id = $1 RETURNING user_id"

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -22,7 +22,6 @@ from pydantic import BaseModel, ValidationError
 from bp_protocol.frames import (
     AckFrame,
     CancelFrame,
-    ErrorCode,
     ErrorFrame,
     Frame,
     LlmDeltaFrame,
@@ -36,11 +35,7 @@ from bp_protocol.frames import (
 from bp_protocol.types import AgentOutput, TaskStatus
 from bp_sdk.context import CancelToken, TaskContext
 from bp_sdk.correlation import PendingMap
-from bp_sdk.errors import (
-    CancellationError,
-    HandlerError,
-    ValidationError as SDKValidationError,
-)
+from bp_sdk.errors import CancellationError, HandlerError
 
 if TYPE_CHECKING:
     from bp_sdk.agent import Agent
@@ -235,7 +230,17 @@ class Dispatcher:
         handler_task = asyncio.create_task(
             self._run_handler(handler, ctx, payload, frame)
         )
-        assert frame.task_id is not None
+        # NewTaskFrame.task_id is None only on agent → router spawn frames
+        # (router assigns the id and acks). Frames the router DELIVERS to
+        # an agent always carry the assigned task_id; if we somehow see
+        # one without, log and skip the active-tasks bookkeeping rather
+        # than relying on `assert` (which `python -O` would strip).
+        if frame.task_id is None:
+            logger.warning(
+                "newtask_without_task_id",
+                extra={"event": "newtask_without_task_id"},
+            )
+            return
         self._active[frame.task_id] = _ActiveTask(
             task_id=frame.task_id,
             cancel_token=cancel_token,
@@ -353,8 +358,8 @@ class Dispatcher:
             status_code = 500
             error = {"code": "InternalError", "message": str(exc)}
         finally:
-            assert frame.task_id is not None
-            self._active.pop(frame.task_id, None)
+            if frame.task_id is not None:
+                self._active.pop(frame.task_id, None)
 
         result_frame = ResultFrame(
             agent_id=self.agent.info.agent_id,

@@ -23,7 +23,6 @@ from bp_router.ws_hub import SocketEntry
 if TYPE_CHECKING:
     from bp_router.app import AppState
     from bp_sdk.agent import Agent
-    from bp_sdk.transport.inproc import InProcessTransport
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +83,9 @@ async def attach_embedded_agent(state: "AppState", agent: "Agent") -> SocketEntr
                     extra={"event": "embedded_dispatch_failed"},
                 )
 
-    asyncio.create_task(_pump())
+    from bp_router.app import spawn_background  # noqa: PLC0415
+
+    spawn_background(state, _pump())
 
     logger.info(
         "embedded_agent_attached",

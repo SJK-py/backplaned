@@ -23,7 +23,6 @@ from bp_protocol.frames import (
     Frame,
     HelloFrame,
     PingFrame,
-    PongFrame,
     WelcomeFrame,
     parse_frame,
     serialize_frame,
@@ -486,9 +485,13 @@ async def _on_disconnect(entry: SocketEntry, state: "AppState") -> None:
         return
 
     # Schedule the resume window: if no Hello+resume_token arrives in time,
-    # fail in-flight tasks for this agent.
-    asyncio.create_task(
-        _resume_window_expiry(entry, state, ttl_s=settings.resume_window_s)
+    # fail in-flight tasks for this agent. spawn_background keeps a strong
+    # reference so the Task isn't GC'd before it fires.
+    from bp_router.app import spawn_background  # noqa: PLC0415
+
+    spawn_background(
+        state,
+        _resume_window_expiry(entry, state, ttl_s=settings.resume_window_s),
     )
 
 

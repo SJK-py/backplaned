@@ -16,15 +16,12 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from bp_protocol.frames import (
-    AckFrame,
     CancelFrame,
     NewTaskFrame,
     ResultFrame,
 )
 from bp_protocol.types import TaskState, TaskStatus
-from bp_router.acl.evaluator import Caller, Callee
 from bp_router.db import queries
-from bp_router.db.models import TaskRow
 from bp_router.delivery import AgentNotConnected, deliver_frame
 from bp_router.state import IllegalTransition, TaskNotFound, task_transition
 from bp_router.visibility import caller_from_agent, callee_from_agent
@@ -235,7 +232,6 @@ async def complete_task(
                 extra={"event": "result_for_unknown_task", "bp.task_id": frame.task_id},
             )
             return
-        user_id = row["user_id"]
         parent_task_id = row["parent_task_id"]
         owning_agent_id = row["agent_id"]
 

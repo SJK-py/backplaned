@@ -14,7 +14,6 @@ Optional:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 from typing import Any, AsyncIterable, AsyncIterator, Optional

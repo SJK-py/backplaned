@@ -6,7 +6,7 @@ import asyncio
 import inspect
 import logging
 import signal
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import (
     Any,
     Awaitable,

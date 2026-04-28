@@ -21,14 +21,13 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hashlib
 import logging
 import os
 import secrets
 import socket
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
 from pydantic import BaseModel
@@ -133,7 +132,6 @@ class TestRouter:
             from bp_router.acl import AclConfig  # noqa: PLC0415
             from bp_router.acl.rules import (  # noqa: PLC0415
                 AclDefaults,
-                Rule,
                 RuleEffect,
             )
 

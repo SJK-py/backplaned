@@ -14,8 +14,6 @@ from typing import TYPE_CHECKING
 from bp_protocol.frames import (
     AckFrame,
     CancelFrame,
-    ErrorCode,
-    ErrorFrame,
     Frame,
     LlmDeltaFrame,
     LlmRequestFrame,
@@ -26,7 +24,7 @@ from bp_protocol.frames import (
     ProgressFrame,
     ResultFrame,
 )
-from bp_router.delivery import AgentNotConnected, deliver_frame, fanout_frame
+from bp_router.delivery import fanout_frame
 
 if TYPE_CHECKING:
     from bp_router.app import AppState

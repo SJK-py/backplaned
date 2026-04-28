@@ -8,7 +8,7 @@ embedded-agent registry constructs paired queues at startup.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from bp_protocol.frames import Frame
 

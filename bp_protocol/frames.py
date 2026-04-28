@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field, TypeAdapter
 from bp_protocol.types import (
     AgentInfo,
     AgentOutput,
-    ProxyFile,
     TaskPriority,
     TaskStatus,
 )

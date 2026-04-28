@@ -7,6 +7,7 @@ evaluator, observability exporters, and starts background tasks
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -39,6 +40,25 @@ class AppState:
     llm_service: object  # LlmService (see bp_router.llm)
     correlation: object  # PendingAcks (see bp_router.correlation)
 
+    # Strong references to fire-and-forget background tasks (resume-window
+    # timers, per-LLM-stream pumps, etc.). Without this, asyncio may garbage
+    # collect a Task whose only reference was the local in
+    # `asyncio.create_task(...)`. Callers should `add_done_callback` to
+    # `bg_tasks.discard` so completed tasks are released.
+    bg_tasks: set
+
+
+def spawn_background(state: "AppState", coro) -> asyncio.Task:  # type: ignore[no-untyped-def]
+    """Schedule `coro`, register on the AppState set, and auto-discard on done.
+
+    Use this instead of bare `asyncio.create_task(...)` for any fire-and-
+    forget task that must outlive its caller's local scope.
+    """
+    task = asyncio.create_task(coro)
+    state.bg_tasks.add(task)
+    task.add_done_callback(state.bg_tasks.discard)
+    return task
+
 
 # ---------------------------------------------------------------------------
 # Lifespan
@@ -51,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = load_settings()
     state = AppState()
     state.settings = settings
+    state.bg_tasks = set()
     app.state.bp = state
 
     # 1. Observability (must be first so subsequent init is traced)
