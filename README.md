@@ -1,5 +1,9 @@
 # Backplaned
 
+> [!NOTE]
+> **This is an earlier version of Backplaned, preserved for reference.**
+> Active development has moved to **[SJK-py/backplaned-agents](https://github.com/SJK-py/backplaned-agents)** — a ground-up redesign with a hardened router, a production Docker deployment (Caddy edge with multi-identity TLS, Postgres, Redis, SeaweedFS), a self-onboarding agent SDK, and an expanded assistant suite (web app channel, sandboxed code execution, knowledge base + memory on LanceDB, web research, MCP bridge, and Telegram/KakaoTalk channels). **New users and contributors should start there.**
+
 A lightweight, self-hosted multi-agent orchestration platform. A central router handles task routing, access control, and file transfer between pluggable agents over a unified HTTP protocol. Ships with a personal assistant suite: LLM gateway, long-term memory, web research, code execution, document conversion, knowledge base, reminders, scheduled tasks, and Telegram/Discord/MCP bridges.
 
 ## Architecture
